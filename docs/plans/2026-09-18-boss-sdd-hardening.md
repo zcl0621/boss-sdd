@@ -641,12 +641,47 @@ SwiftPM 的 `resources` 落在 `Bundle.module`。手工组装出来的 `.app` �
 - 本轮仍无法用看板追踪：MCP 工具本会话未加载。状态落在本文件，重启后补录。
 - 三平台的技能格式在快速演进，写进 README 的路径与字段有时效性，需注明查证日期。
 
-## 待用户拍板
+## 已拍板（2026-09-19）
 
-1. 技能在公开仓库里叫什么名字（暂定沿用 `plan-sdd`）。
-2. 旧 `board.py serve`（PID 88040）什么时候收掉——换到 18888 后它已不碍事。
-3. 应用图标、开机自启验证、选中运行持久化。
-4. `scripts/board.py` 的最终删除时机。
+1. **技能名沿用 `plan-sdd`**，用户让我定，我定的。理由是改名要连着动三处代价不对等的东西：
+   MCP 的 11 个工具名全是 `plan_*`（`mcp/main.go`）、看板数据在 `~/.claude/plan-sdd/`、
+   三个平台各 9 份角色文件。其中数据目录是活的用户数据，改名会把用户现有的看板甩掉。
+   而 `boss-sdd` 是仓库和 app 的名字、`plan-sdd` 是你敲的那条命令，产品名和命令名
+   本来就不必同名。
+2. **旧 `board.py serve` 等仓库做完再收。**
+3. **做应用图标**（见 T26）；**开机自启不做了**，从待办里划掉。选中运行持久化仍在非目标。
+4. **`scripts/board.py` 等全部做完再删。**
+5. **`--appearance` 不进公开仓库**（见 T27）。
+
+### T26 应用图标（新增，未开始）
+
+`Scripts/bundle.sh` 写出来的 Info.plist 里没有 `CFBundleIconFile` 也没有
+`CFBundleIconName`（第 31–57 行，自己看过），所以这个 app 现在完全没有图标。
+
+注意它是 `LSUIElement = true`，所以图标**不出现在 Dock，也不是菜单栏那个图标**
+——菜单栏用的是 SF Symbol `point.3.connected.trianglepath.dotted`
+（`BossSDDApp.swift` 的 `menuBarSymbol`）。图标露脸的地方是 Finder 里的 .app、
+Spotlight、"打开方式"列表、系统设置里的登录项。
+
+做法上不能靠图片模型：要的是 `.icns`，路径是画一组 PNG 再 `iconutil -c icns`。
+所以图标本身应当由代码画出来（CoreGraphics 或 SVG 转位图），这样尺寸齐全、可重跑、
+可进版本库当源文件。
+
+`write_scope`: `Scripts/bundle.sh`、`Resources/`（或新建的图标源目录）。
+`exclusive_resources`: `["gate:swift-build", "app-process"]`——要跑 bundle.sh。
+`depends_on`: T21（同样要跑 bundle.sh 并起 app）。
+
+### T27 摘掉 `--appearance`（新增，未开始）
+
+T25 加它是因为当时没有别的办法在不动用户机器的前提下验深色外观。用户定了不进
+公开仓库。要撤的是 `Sources/BossSDD/BossSDDApp.swift` 里的 `applyAppearanceOverride`
+和 `BossSDDApp.init`，T25 的配色改动全部留着。
+
+**撤掉的代价要记住**：以后再要验深色 UI，就只剩「请用户把系统切成深色一分钟」这一条路。
+`-AppleInterfaceStyle Dark` 放 argv 里对外观不起作用，这条已实测过。
+
+`write_scope`: `Sources/BossSDD/BossSDDApp.swift`。
+`depends_on`: T21——T21 正在用 `--appearance dark` 拍深色截图，先摘会把它弄断。
 
 ## 门禁
 
