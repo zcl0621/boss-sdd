@@ -288,7 +288,7 @@ memory 以 **project** 为维度（`Run` 已有 `project` 字段，复用它，�
 - 写路径沿用既有的 Host 白名单、`Origin` 拒绝、`application/json` 强制。
 - 验收：`swift test`；测试必须用临时目录，不得碰 `~/.claude/plan-sdd/board.sqlite3`。
 
-### T9 MCP 侧 memory 四工具
+### T9 MCP 侧 memory 四工具 ✅ 7fb46f2
 
 - `depends_on`: `["T8"]`
 - `write_scope`: `mcp/main.go`, `mcp/summary.go`, `mcp/tools_test.go`
@@ -297,7 +297,7 @@ memory 以 **project** 为维度（`Run` 已有 `project` 字段，复用它，�
 - `plan_memory_list` / `plan_memory_get` / `plan_memory_add` / `plan_memory_delete`。
 - 验收：`cd mcp && go test -count=1 ./...`。
 
-### T10 技能侧接入 memory
+### T10 技能侧接入 memory ✅ a213efe
 
 - `depends_on`: `["T7", "T9"]`
 - `write_scope`: `skills/shared/`
@@ -313,7 +313,7 @@ memory 以 **project** 为维度（`Run` 已有 `project` 字段，复用它，�
 
 注：T10 与 T7 都写 `skills/shared/`，范围重叠，不能同批派发；T7 先落地。
 
-### T6 README（英文）
+### T6 README（英文） ✅ 1834982
 
 - `depends_on`: `["T1","T2","T3","T5a","T5b","T5c"]`
 - `write_scope`: `README.md`
@@ -326,7 +326,7 @@ memory 以 **project** 为维度（`Run` 已有 `project` 字段，复用它，�
 注：T1/T2/T3/T4 无写入范围重叠。T1 与 T2 资源不冲突可并行；T3 与两者都抢门禁资源，
 自然排在后面，不用画依赖边。T4 纯文档，与代码任务完全并行。
 
-### T13 DELETE 路由回显的是原始值，不是入库值（新增，未开始）
+### T13 DELETE 路由回显的是原始值，不是入库值 ✅ 4f26a4d
 
 `Sources/BoardKit/API.swift:277` 的 DELETE 回 `["deleted": parts[2], "project": project]`
 ——路径段和查询值都是**原始**的。而 GET / POST 回的是入库那条记录，key 已小写、
@@ -341,7 +341,7 @@ project 已 trim。于是 `DELETE /api/memories/Gate?project=p` 答 `{"deleted":
 
 `write_scope`: `Sources/BoardKit/API.swift`、`Tests/BoardKitTests/APITests.swift`。
 
-### T14 T7 终审剩余六条（实施中）
+### T14 T7 终审剩余六条 ✅ b905bde
 
 T7 已提交（a6e8ee2），中心问题关掉了：终审明确答「找不到任何一条路径，能让节点的活
 没进集成分支而运行报绿」。剩下六条另派节点修，不再占 T7 的返修轮次。
@@ -353,7 +353,7 @@ implementer 写进主树——8b 守卫能拦住，不会报绿，但白跑一�
 一模一样地冲突，三轮到顶判 blocked，而跨趟的 write_scope 重叠本来是文档自己
 说的「合法且无人有错」。
 
-### T15 memory 每项目 100 条上限（实施中）
+### T15 memory 每项目 100 条上限 ✅ 350e123
 
 用户拍板：不做 search，做上限。理由记在这儿以免以后有人「优化」掉——
 
@@ -369,7 +369,7 @@ search 的坏处不是贵，是**让「没找到」和「不存在」长得一�
 因为 agent 以为它还在）；**已存在的 key 必须仍能覆盖写**——否则满额时改不掉一条过期的
 门禁命令，而最该改的恰恰就是错的那条。
 
-### T16 并行节点共用 scratchpad，脚本会互相覆盖（新增，未开始）
+### T16 并行节点共用 scratchpad，脚本会互相覆盖 ✅ 7db5a26
 
 T5a 报告：它的 `linkcheck.py` 在 21:46 被另一个节点同名脚本覆盖。**它是靠替换
 版本恰好崩在缺参数上才发现的**——原话是「Had it merely behaved differently
@@ -391,13 +391,72 @@ I would have pasted its numbers as mine.」
 `write_scope`: `skills/shared/references/dispatch.md`（可能还有 `gates.md`）。
 `depends_on`: T10（同一批文件）。
 
-### T12 APITests 的诊断力（新增，未开始）
+### T12 APITests 的诊断力 ✅ 0240a53
 
 `Tests/BoardKitTests/APITests.swift` 全文用 `as!` 链取字段（84、95、114、139、157 等约 40 处）。断言一失败，紧跟的强解包就把测试进程打死：我做源码变异时拿到 `Fatal error: Unexpectedly found nil`（661 行）和 `exited with unexpected signal code 5`，后面的用例根本没跑。
 
 这不是 T8 引入的，是整个文件既有的写法，所以不并进 T8——节点中途顺手重构是本技能明令禁止的。单独成节点做：把取字段换成不会中止进程的形式，让一次失败只损失一个用例的信息。
 
 `write_scope`: `Tests/BoardKitTests/APITests.swift`。`depends_on`: T8 收口之后（同一文件）。
+
+### T18 T10 二轮复核剩下的三条 ✅ 2a74d16
+
+二轮复核（agent aaa76a92f8faabad3）九条里，HIGH 和 MEDIUM-HIGH 四条已在 a213efe 修掉。
+剩下三条是同一类：`<extra_context>` 这个块承担了两种内容，而 dispatch.md 自己的规则
+说不许这样。
+
+- **MEDIUM**：`memory.md` 允许 `convention` 不经 lane 直接采用，而 convention 的去处是
+  `<background>`；`dispatch.md:67-69` 把该块定义成「recon 的已确认发现，附支撑路径」。
+  于是一条没人核过的 convention 以「已确认发现」的身份发到每个 implementer 手上。
+  a213efe 加的那条 dispatch 警告只盖了 `<hard_rules>` 和 `<acceptance>`，漏的正是这块。
+- **MEDIUM**：claims 和已确认发现共用 `<extra_context>`，靠编排者临场写的一句散文区分。
+  `dispatch.md:36-39` 自己写着「每段粘贴内容各自包标签」，理由就是防止一种内容被当成
+  另一种读——而「claim 被当成 finding」正是本次改动要防的那一种。该给 claims 单独的标签。
+- **LOW**：`recon.md:14` 说「给每个 lane 同样的三个输入」，但 claims 按 kind 分路由之后
+  `<extra_context>` 已经逐 lane 不同。照第 14 行套模板会把 gate claim 也发给 lane B/C，
+  两个 lane 可能对同一条回出互相矛盾的结论，而没人规定谁说了算。
+
+`write_scope`: `skills/shared/references/dispatch.md`、`skills/shared/references/recon.md`、
+`skills/shared/references/memory.md`。
+`depends_on`: T16（同写 dispatch.md）。
+
+## 2026-09-19 这一批的调度
+
+本会话仍然没有看板：`plan_board_status` 等工具不在工具集里（ToolSearch 查无此名），
+状态继续落在本文件。
+
+同批派发 T6 / T16 / T12，三者写入范围互不重叠：`README.md`、
+`skills/shared/references/dispatch.md`、`Tests/BoardKitTests/APITests.swift`。
+只有 T12 占 `gate:swift-test`。
+
+T13 与 T12 同写 `Tests/BoardKitTests/APITests.swift`，且同抢 `gate:swift-test`，
+所以排在 T12 之后单独一批。顺序选 T12 在前：T12 要改的正是全文取字段的写法，
+先改完，T13 新加的那条测试就直接落在新写法里，省掉一次返工。
+
+### T19 verifyMemoryDeleted 的两处容忍（新增，未开始）
+
+T13 把 DELETE 的回显改成入库值之后，`mcp/main.go` 里 `verifyMemoryDeleted`
+的容忍有一半失去了存在理由。T13 给了建议但按范围没动：
+
+- `got.Project != project` 这个 disjunct 是为这个缺陷加的，接受调用方未 trim 的
+  原始 project。服务端现在不可能回未 trim 的值，去掉它并只比 `trimmedProject`
+  不花成本，反而堵住一个真洞：今天一个没 trim 就回显的看板能通过校验，
+  而这正是这个校验器要拦的那一类。
+- key 那个 `EqualFold(TrimSpace(...))` **不能**收成严格相等——它比的是调用方的
+  原始 key，而原始 key 本来就允许大小写混写和留白。真要收紧，应该是把调用方
+  那一侧先 `ToLower(TrimSpace(...))` 再要求严格相等，这样才能抓住「服务端回了
+  一个没折叠的 key」。这是行为变更，值得单独复核。
+
+风险是版本错配：收紧后的 MCP 二进制指向旧版看板，调用方传带空格的 project 时
+`plan_memory_delete` 会开始报错。两者同包发布就无所谓；能各自漂移就要先想清楚。
+函数上方 598-612 那段注释把这个缺陷记成「另案处理，此处不修」，也要一并改写。
+
+另外 T13 顺带报了两条未核实的观察：`verifyMemoryEcho` 可能有同形状的容忍；
+`got.Deleted == "" || got.Project == ""` 那道守卫可能实际不可达（空 project 在
+`normalizedProject` 就 400 了，空 key 根本到不了 DELETE 路由）。要核过再动。
+
+`write_scope`: `mcp/main.go`、`mcp/tools_test.go`。
+`exclusive_resources`: `["gate:go-test"]`。
 
 ## 风险与未决项
 
