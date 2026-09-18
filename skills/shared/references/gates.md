@@ -6,6 +6,12 @@ test suite. Recon lane A collected the real commands for this repository; they
 are copied verbatim into the plan's Gates section and into each task's acceptance
 criteria.
 
+Some of those commands may have reached lane A as a stored claim from an earlier
+run rather than as a fresh discovery. A claim is not a gate command until the
+lane has quoted it out of the file that defines it, this run. Running one that
+nobody quoted is how a suite that has moved reports green over nothing; see
+[memory.md](memory.md).
+
 ## The three rules
 
 **You run them.** Not a subagent, not a script, not a wrapper someone wrote to

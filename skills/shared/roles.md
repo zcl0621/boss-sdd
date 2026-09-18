@@ -57,11 +57,33 @@ nothing."
 
 **Delivery.** The five items lane A owes, each conclusion carrying the path it
 rests on: `hardRules` quoted verbatim out of the files that exist, `gates` as
-runnable commands, the test concurrency answer with its evidence, the
-working-tree changes that belong to the user, and the unknowns. Deliver the
-unknowns as findings with the same weight as the rest. Downstream, `hardRules`
-gets pasted into every dispatch and every review prompt, and the concurrency
-answer decides how large a batch can be.
+runnable commands, each one quoted the same way out of the file or target that
+defines it, the test concurrency answer with its evidence, the working-tree
+changes that belong to the user, and the unknowns. Deliver the unknowns as
+findings with the same weight as the rest. Downstream, `hardRules` gets pasted
+into every dispatch and every review prompt, and the concurrency answer decides
+how large a batch can be.
+
+A gate delivered as a bare command with a path beside it is not delivered. The
+path says where the command was found once; the quote says the file still
+defines it. The orchestrator runs what this lane returns, and a command that has
+moved usually still runs, so the gap between those two shows up as a green
+report rather than as an error.
+
+**Claims handed to this lane.** `<extra_context>` may carry stored claims from an
+earlier run ([recon.md](references/recon.md) says how they arrive). Every one of
+them comes back named, with a verdict of `confirmed`, `changed`, `gone` or
+`unchecked`, and with the line as it reads in the repository today, quoted.
+`confirmed` means this lane opened the source and read it: a verdict delivered
+without that quoted line is not a confirmation, and a claim the delivery never
+mentions is unexamined. `unchecked` is for a `source` this lane could not open at
+all -- a path outside the checkout, a command it may not run -- and it carries no
+quote. Use it rather than guessing between the other three: `gone` gets the entry
+deleted, and an entry deleted for being unreadable is indistinguishable next run
+from one nobody ever wrote.
+Never transcribe a claim's own value or its own path into a delivery field. That
+returns the orchestrator's input to it as though the lane had found it, which is
+the one failure no downstream step can detect.
 
 **Stop.** It reports rather than reconstructs. If the repository root is not
 readable, it says so. If the project documents a formatter only in write mode,
@@ -88,6 +110,15 @@ answer can be read out of the code or the constraint files is not an open
 question, and filing it as one spends a user's attention on something the lane
 should have looked up.
 
+**Claims handed to this lane.** `<extra_context>` may carry stored claims routed
+here because their text is about scope rather than about rules or code
+([recon.md](references/recon.md) says how they arrive). They come back under the
+same rule the other two lanes carry: named, with a verdict of `confirmed`,
+`changed`, `gone` or `unchecked`, and with the line as it reads today, quoted.
+Never transcribe a claim's own value back as the quote. A boundary claim is the
+easiest of the three kinds to wave through, because nothing downstream runs it
+and a wrong one shows up only as a task nobody asked for.
+
 **Stop.** This is the one lane with no self-service fallback: if it comes back
 empty twice, [recon.md](references/recon.md) stops the whole run rather than
 blocking individual tasks. So a lane that cannot form a boundary should say that
@@ -109,6 +140,13 @@ singled out. The run recipe is the only recon output another role cannot work
 around: the `qa` walkthrough is dispatched with it verbatim and cannot start the
 application without it. Where the project documents the recipe, quote it and
 cite the file. Where it does not, say so.
+
+Stored claims arriving in `<extra_context>` come back under the same rule lane A
+has: named, with a verdict of `confirmed`, `changed`, `gone` or `unchecked`, and
+with the line as it reads today, quoted -- `unchecked` meaning the source could
+not be opened, and carrying no quote. A claim transcribed back unread is worse here than a
+missing recipe, because a missing recipe stops the `qa` lane and a stale one
+sends it through an application that is not the one under test.
 
 **Stop.** An absent run recipe is a result. A constructed one is a defect that
 stays invisible until a walkthrough runs against an application that never came

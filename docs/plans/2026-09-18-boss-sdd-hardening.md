@@ -69,6 +69,7 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 | subagent 并行 | 同一条消息里多个 `Agent` 调用并发执行；本会话运行环境明文如此要求 | 事实表未覆盖 | "Agent sends multiple Task tool calls in a single message, so subagents run simultaneously." |
 | subagent 续聊 | `SendMessage` 按 agent id | 事实表未覆盖 | 可以："Each subagent execution returns an agent ID. Pass this ID to resume the subagent with full context preserved." |
 | 内置 subagent | — | 事实表未覆盖 | Explore、Bash、Browser |
+| 原生 memory | **有**，且是逐项目的：本会话系统提示原文给出 `~/.claude/projects/<项目>/memory/`，一条事实一个文件，frontmatter 为 `name` / `description` / `metadata.type`（`user` / `feedback` / `project` / `reference`），另有一份每次会话加载的 `MEMORY.md` 索引。**没有 `source` 字段要求，没有条数上限** | **有，但是全局的，且默认关**："Codex stores memories under your Codex home directory. By default, that's `~/.codex`"、"The main memory files live under `~/.codex/memories/`"、"Local Codex memories are off by default."（Settings > Personalization，或 `config.toml` 里 `[features] memories = true`）；`/memories` 只控制当前这一轮聊天用不用、算不算素材。由 Codex 后台自己从过往聊天生成，官方明说 "don't rely on editing them by hand as your primary control surface"，**没有给 agent 的增删改接口**。整页 `project` 一词出现 **0 次**——不是按项目分的 | **当前文档里没有**：`cursor.com/docs/context/memories` 301 到 `cursor.com/docs/rules`（`curl -L` 实测 final URL），`cursor.com/docs/llms.txt`（455 行的全站文档索引）、`cursor.com/sitemap.xml`、`cursor.com/docs/sitemap.xml` 里 `memor` 命中数均为 **0**；Rules 页唯一一处 "memory" 是泛指句 "Large language models don't retain memory between completions."。搜索结果里"Memories are stored per project"那类说法来自论坛和旧缓存，不是现存文档页 |
 
 来源：developers.openai.com/codex/skills、/codex/config-reference、developers.openai.com/codex/cli/features、
 developers.openai.com/codex/integrations/github、cursor.com/docs/skills、cursor.com/docs/subagents、cursor.com/docs/bugbot。
@@ -77,6 +78,11 @@ learn.chatgpt.com/docs/agent-configuration/agents-md、learn.chatgpt.com/docs/th
 查证日期 2026-09-18；Cursor 的模型写法、frontmatter、隔离/并行/续聊于同日复核（cursor.com/docs/subagents），
 补回了首次记录时漏掉的 `composer-2`、`context` 括号参数和 `name`/`description` 两个字段——
 这张表是给 subagent 当唯一可信来源用的，漏记会被当成「凭空捏造」判掉。
+
+Codex 那一页还有一句和本项目直接相关的："Keep required team guidance in `AGENTS.md` or checked-in documentation. Treat memories as a helpful recall layer, **not as the only source for rules that must always apply**."——官方自己不把它当成硬规则的载体。
+
+memory 一行的查证方式（2026-09-18，可复现）：Codex 取 `learn.chatgpt.com/docs/customization/memories?surface=app`（`developers.openai.com/codex/memories` 的 308 跳转目标）原始 HTML 后逐句 grep，上面每条引号内的话都是原文；Cursor 是 `curl -sS -L -w '%{url_effective}'` 看跳转落点，再对 llms.txt / 两份 sitemap 做 `grep -ic memor`。
+
 
 **第三次同类事故**：给 T5b 的派发里，我把 `agents.enabled`、
 `agents.max_concurrent_threads_per_session`、`~/.codex/config.toml`、`/etc/codex/skills`

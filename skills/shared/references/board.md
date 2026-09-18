@@ -45,7 +45,8 @@ same vocabulary the board uses, with the same evidence you would have put in
 
 Without a board you lose live visibility for the user, the activity history, and
 cross-session recovery, since a later session has nothing to claim and must
-reconstruct state from the plan document and the git history.
+reconstruct state from the plan document and the git history. The project memory
+in [memory.md](memory.md) goes with them, and that file says what it costs.
 
 You do not lose scheduling correctness. The ready set is derived, not granted:
 a task is ready when its status is `pending` and every task in its `depends_on`
