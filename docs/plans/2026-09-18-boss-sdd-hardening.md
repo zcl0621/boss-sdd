@@ -576,7 +576,7 @@ T20 报上来的，都核实过：
 `Sources/BoardKit/API.swift`、`Sources/BossSDD/BoardModel.swift`、`Tests/BoardKitTests/`。
 `exclusive_resources`: `["gate:swift-test"]`。
 
-### T24 app 界面英文化（新增，未开始，需用户拍板走哪条路）
+### T24 app 界面英文化 ✅ 47ad31c
 
 `Sources/BossSDD/` 下 79 条用户可见中文字符串。仓库是公开且全英文的
 （README、三份打包、`skills/shared/` 正文都是英文，后者还有 ASCII-only 门禁），
@@ -593,9 +593,20 @@ T20 报上来的，都核实过：
 我倾向第一条：这是个单机自用工具，公开仓库的一致性比保留中文界面值钱，
 而且用户读英文没有障碍。但这是用户的界面，不该我替他决定。
 
+**用户选了第二条**（原话「不能切换中英文么？」）。79 条串收进 `loc(key)`，
+`en` / `zh-Hans` 两套 `.lproj` 随 bundle 走，`CFBundleDevelopmentRegion=en`。
+系统中文就是中文界面，要英文用 `-AppleLanguages '(en)'` 起，不动全局设置。
+`Package.swift` 最后没动。
+
+**踩到的坑值得记**：SwiftUI 的 `Text("…")` 按 `Bundle.main` 找字符串表，
+SwiftPM 的 `resources` 落在 `Bundle.module`。手工组装出来的 `.app` 里这两个
+不是一回事，于是 `swift run` 下本地化看着完全正常，装成 app 之后**静默失效**。
+`Localization.swift` 里的 `loc()` 显式走 `Bundle.main`，`bundle.sh` 负责把两个
+`.lproj` 拷进 `Contents/Resources`。
+
 `write_scope`: `Sources/BossSDD/`（若走第二条还包括 `Package.swift`、`Scripts/bundle.sh`）。
 `depends_on`: []
-### T25 UI 与设计稿逐项对齐（新增，未开始）
+### T25 UI 与设计稿逐项对齐 ✅ 42b5f6b
 
 用户实际看了 app 之后提的：中间那块太灰,和 `design/board-mock.html` 不一样。
 要求浅色和深色都对一遍。
