@@ -110,6 +110,35 @@ struct TaskBatchRequest: Decodable {
     var tasks: [TaskBatchItem]
 }
 
+/// Body of `POST /api/memories`. `kind` and `source` are both required: `kind`
+/// because an unfiltered memory is a memory nobody finds, and `source` because a
+/// memory nobody can re-check is the failure this table exists to avoid.
+struct MemoryUpsertRequest: Decodable {
+    var project: String
+    var key: String
+    var value: String
+    var kind: MemoryKind
+    var source: String
+
+    enum CodingKeys: String, CodingKey { case project, key, value, kind, source }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        project = try container.decode(String.self, forKey: .project)
+        key = try container.decode(String.self, forKey: .key)
+        value = try container.decode(String.self, forKey: .value)
+        source = try container.decode(String.self, forKey: .source)
+        let raw = try container.decode(String.self, forKey: .kind)
+        guard let parsed = MemoryKind(rawValue: raw) else {
+            throw BoardError.invalid(
+                "unknown memory kind '\(raw)'; expected one of "
+                    + MemoryKind.allCases.map(\.rawValue).joined(separator: ", ")
+            )
+        }
+        kind = parsed
+    }
+}
+
 /// Maps HTTP requests onto the store. Transport concerns (parsing, framing) stay
 /// in `HTTPServer`; everything policy-shaped lives here.
 public struct API: Sendable {
@@ -215,9 +244,76 @@ public struct API: Sendable {
             let run = try store.upsertTask(runID: parts[2], taskID: parts[4], patch: payload.patch)
             return try encode(RunWithGraph(run: run))
 
+        // Project memory. `project` rides in the query string, not the path: it is
+        // "项目路径或名称" and may well be an absolute path, so it is not a safe path
+        // segment. `key` is a constrained slug (`isValidMemoryKey`) and does sit in
+        // the path, the way run and task IDs do.
+        case ("GET", ["api", "memories"]):
+            let project = try requiredQuery(request, "project")
+            let kind = try optionalKind(request)
+            return try encode(["memories": try store.memories(project: project, kind: kind)])
+
+        // 200, not the 201 `POST /api/runs` answers: this is an upsert onto a
+        // caller-chosen key, so it has no "created exactly now" to report — the
+        // same request is a create the first time and an overwrite after, and a
+        // status that flickered between 201 and 200 would tell a client nothing it
+        // could act on. Stated here because the MCP layer is written against it.
+        case ("POST", ["api", "memories"]):
+            let payload = try decode(MemoryUpsertRequest.self, from: request)
+            let memory = try store.upsertMemory(
+                project: payload.project, key: payload.key, value: payload.value,
+                kind: payload.kind, source: payload.source
+            )
+            return try encode(memory)
+
+        case ("GET", let parts) where parts.count == 3 && parts[0] == "api" && parts[1] == "memories":
+            let project = try requiredQuery(request, "project")
+            return try encode(try store.memory(project: project, key: parts[2]))
+
+        case ("DELETE", let parts)
+            where parts.count == 3 && parts[0] == "api" && parts[1] == "memories":
+            let project = try requiredQuery(request, "project")
+            try store.deleteMemory(project: project, key: parts[2])
+            return try encode(["deleted": parts[2], "project": project])
+
         default:
             throw BoardError.notFound("no route for \(request.method) \(path)")
         }
+    }
+
+    // MARK: - Query parameters
+
+    private func query(_ request: HTTPRequest, _ name: String) -> String? {
+        // `request.path` is the raw request target; parse it as a relative
+        // reference so URLComponents does the percent-decoding.
+        guard let components = URLComponents(string: "http://127.0.0.1" + request.path) else {
+            return nil
+        }
+        return components.queryItems?.first { $0.name == name }?.value
+    }
+
+    /// Absent and present-but-empty are different mistakes and get different
+    /// messages: `?project=` is a caller who built the URL and lost the value,
+    /// which "missing" would send looking in the wrong place.
+    private func requiredQuery(_ request: HTTPRequest, _ name: String) throws -> String {
+        guard let value = query(request, name) else {
+            throw BoardError.invalid("missing query parameter '\(name)'")
+        }
+        guard !value.isEmpty else {
+            throw BoardError.invalid("query parameter '\(name)' must not be empty")
+        }
+        return value
+    }
+
+    private func optionalKind(_ request: HTTPRequest) throws -> MemoryKind? {
+        guard let raw = query(request, "kind"), !raw.isEmpty else { return nil }
+        guard let parsed = MemoryKind(rawValue: raw) else {
+            throw BoardError.invalid(
+                "unknown memory kind '\(raw)'; expected one of "
+                    + MemoryKind.allCases.map(\.rawValue).joined(separator: ", ")
+            )
+        }
+        return parsed
     }
 
     // MARK: - Serialization
