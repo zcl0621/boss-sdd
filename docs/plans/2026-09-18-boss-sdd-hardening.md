@@ -458,7 +458,7 @@ T13 把 DELETE 的回显改成入库值之后，`mcp/main.go` 里 `verifyMemoryD
 `write_scope`: `mcp/main.go`、`mcp/tools_test.go`。
 `exclusive_resources`: `["gate:go-test"]`。
 
-### T20 本地完整验证流程（新增，未开始）
+### T20 本地完整验证流程 ✅ 33eb836
 
 现在三条门禁是分开记在文档里的（`swift test` / `cd mcp && go test ./...` /
 `./Scripts/bundle.sh`），谁要在本地完整过一遍，得自己知道有这三条、知道顺序、
@@ -520,6 +520,31 @@ T19 收口时报上来两条，都核实过是真的，但超出它的范围：
 
 `write_scope`: `mcp/main.go`、`mcp/client.go`、`mcp/tools_test.go`。
 `exclusive_resources`: `["gate:go-test"]`。
+
+### T23 Store 路径不可配置 + HTTPServer 的弱引用陷阱（新增，未开始）
+
+T20 报上来的，都核实过：
+
+1. **store 路径没有任何覆盖入口**。`Sources/` 里唯一的环境变量是 `BOSS_SDD_PORT`，
+   `BoardModel.init` 直接 `try Store()`。后果是真 app 无法端到端演练——T20 只能
+   自己编一个宿主链 `BoardKit.o`，而 SwiftUI 那层外壳、`BOSS_SDD_PORT` 读取、
+   旧数据导入、开机自启一律覆盖不到。最小改动是照着 `configuredPort` 的样子加
+   `BOSS_SDD_DB` 或 `BOSS_SDD_HOME`，`LegacyImport.defaultRunsDirectory` 同理。
+2. **`HTTPServer` 从自己的 listener 回调里只弱引用自己**。`stateUpdateHandler` 和
+   `newConnectionHandler` 都 `[weak self]`，唯一的强引用是 `self.listener`。
+   调用方一旦让 HTTPServer 出作用域，socket 仍然 bind、`lsof` 仍显示 LISTEN，
+   而状态回调不再触发、请求不再被处理——**失败是静默的**。T20 第一次搭宿主
+   就踩了这个。`BoardModel` 用 `let` 持有所以 app 没事，但这是留给下一个调用方
+   的坑。`swift build` 现在就在 `HTTPServer.swift:82` 和 `:94` 报三条
+   `weak ownership of capture 'self' differs...` 警告，说的正是这两处。
+3. 次要：`API` 的 `port` 只用于 `/api/health` 的回显，而 `HTTPServer(port: 0)`
+   在 bind 之前不知道端口，所以宿主得事后把端口塞回去。`APITests` 传 `port: 0`
+   且从不断言这个字段，于是那里的 health 一直回 `"port":0`。这个字段要是想可信，
+   应该由 server 提供而不是构造时传入。
+
+`write_scope`: `Sources/BoardKit/HTTPServer.swift`、`Sources/BoardKit/Store.swift`、
+`Sources/BoardKit/API.swift`、`Sources/BossSDD/BoardModel.swift`、`Tests/BoardKitTests/`。
+`exclusive_resources`: `["gate:swift-test"]`。
 
 ## 风险与未决项
 
