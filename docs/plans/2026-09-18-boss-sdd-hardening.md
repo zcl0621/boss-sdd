@@ -86,6 +86,23 @@ learn.chatgpt.com/docs/agent-configuration/agents-md、learn.chatgpt.com/docs/th
 `[agents.<n>]` 只收 `config_file` 和 `description`；逐角色分档要落在 `config_file`
 指向的那一层 TOML 里。
 
+**第六次，最难堪的一次**：三包交叉复核发现 `skills/shared/roles.md:299-302`
+到现在还写着 `[agents.<name>]` 收 `config_file`、`description` **和
+`default_subagent_model`**——正是「第三次同类事故」那条被判反了的事实，原样
+躺在正文里，从 a6e8ee2 起就已提交。
+
+关键在于我当时做了什么：我更正了表、更正了三个 wrapper、写了这段事故复盘——
+**唯独没回头改那份最初出错的正文**。于是现在三个 wrapper 都对，而它们奉为
+权威的正文是错的（`PLAYBOOK.md:204` 明确让读者以 `roles.md` 为准）。
+
+前五次的教训都是「表要全」。这次是新形状：**修完源头和下游，漏掉中间层**。
+事故复盘本身会制造一种「这条已经处理过了」的错觉，而复盘记的是认知的更正，
+不是文件的更正。以后再记这类复盘，要连带列出所有需要同步改的文件，逐个打勾。
+
+同一份 `roles.md` 还有第二处同源问题：它说 Codex 的 effort 取值「官方没公布，
+你自己查配置手册填」，而表里五个取值写得明明白白，Codex wrapper 也正是照着
+表里那五个建的分档表和 canary。正文在低估一条已经查证的事实。
+
 **第五次，同样是误杀**：T5c 复核判定「Cursor 也读 `.claude/agents/`、`.codex/agents/`」
 未获授权。查 cursor.com/docs/subagents（同日两次取，措辞一致）：**是真的**，六个目录都读，
 而且**同名 subagent 的优先级官方有规定**（`.cursor/` 优先）——只有**技能**的优先级没规定。
