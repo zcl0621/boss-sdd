@@ -11,7 +11,8 @@ Build each dispatch prompt with [the dispatch contract](dispatch.md); the same
 rules about self-contained prompts and tagged data blocks apply to read-only
 subagents.
 
-Give every lane the same three inputs, each in its own tagged block:
+Give every lane three inputs, each in its own tagged block. The first two are the
+same for every lane. The third is built per lane:
 
 ```text
 <repo_root>absolute path to the repository</repo_root>
@@ -20,13 +21,20 @@ the user's requirement, pasted verbatim, including the discussion it came out of
 Do not summarize it for them. A summary drops the detail one of the three lanes
 was going to need, and you cannot tell in advance which lane or which detail.
 </requirement>
-<extra_context>anything else already established, or empty</extra_context>
+<extra_context>
+anything else already established, or empty
+<stored_claims>
+the stored entries routed to this lane, each with its source, or omitted
+</stored_claims>
+</extra_context>
 ```
 
-Stored project memory goes in `<extra_context>` when the project has any: the
-entries for this lane's kinds, each with its `source`, marked as claims for the
-lane to check against the repository rather than findings to accept. Which kind
-reaches which lane:
+Stored project memory goes inside `<extra_context>` when the project has any, in
+the `<stored_claims>` tag nested there that [dispatch.md](dispatch.md) defines,
+each entry with its `source`. Prose around the entries saying they are claims is
+not enough. `<extra_context>` otherwise reads as things already established, and
+the tag is what stops a claim being read as one of them. A lane gets the entries
+routed to it and no others. Which kind reaches which lane:
 
 | Kind | Where it goes |
 | --- | --- |
@@ -47,8 +55,9 @@ A lane that is handed claims owes a verdict on each of them and the line as it
 reads today, quoted. All three lanes carry that obligation in their delivery
 contracts in [roles.md](../roles.md), which is what makes the re-check observable
 in what comes back rather than assumed. [memory.md](memory.md) says what the
-verdicts mean for the stored entries, and which kinds may be used before a lane
-returns one.
+verdicts mean for the stored entries, which kinds may be used before a lane
+returns one, and which verdict governs when two lanes return different ones on
+the same entry.
 
 ## Lane A: project rules and gates (`recon-rules`)
 
