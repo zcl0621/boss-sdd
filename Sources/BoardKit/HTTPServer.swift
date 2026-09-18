@@ -45,6 +45,32 @@ public enum ServerState: Sendable, Equatable {
     case failed(String)
 }
 
+/// The port a server is actually listening on, shared between the server and
+/// whoever reports it.
+///
+/// `HTTPServer(port: 0)` asks the OS to choose, and the answer does not exist
+/// until the listener is ready — after the handler, and the `API` inside it,
+/// have been built. Handing both the same cell is what lets a health response
+/// name the socket instead of the request.
+public final class BoundPort: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: UInt16
+
+    /// `requested` stands in until the listener binds, so a server that pinned a
+    /// port reports the right number from the first request onwards.
+    public init(requested: UInt16) {
+        value = requested
+    }
+
+    public var current: UInt16 {
+        lock.withLock { value }
+    }
+
+    func publish(_ port: UInt16) {
+        lock.withLock { value = port }
+    }
+}
+
 /// Loopback-only HTTP/1.1 server. Small by design: one request per connection,
 /// no keep-alive, no chunked bodies — the only client is a local agent running curl.
 public final class HTTPServer: @unchecked Sendable {
@@ -54,6 +80,7 @@ public final class HTTPServer: @unchecked Sendable {
 
     private let port: UInt16
     private let handler: Handler
+    private let reportedPort: BoundPort?
     private let queue = DispatchQueue(label: "com.boss-sdd.http")
     private var listener: NWListener?
     private var stateHandler: (@Sendable (ServerState) -> Void)?
@@ -62,8 +89,11 @@ public final class HTTPServer: @unchecked Sendable {
     /// Actual bound port, which differs from `port` only when 0 was requested.
     public private(set) var boundPort: UInt16?
 
-    public init(port: UInt16, handler: @escaping Handler) {
+    /// `reporting` receives the port this server ends up bound to, for a handler
+    /// that was built before there was a port to hand it.
+    public init(port: UInt16, reporting reportedPort: BoundPort? = nil, handler: @escaping Handler) {
         self.port = port
+        self.reportedPort = reportedPort
         self.handler = handler
     }
 
@@ -79,20 +109,30 @@ public final class HTTPServer: @unchecked Sendable {
                 parameters.allowLocalEndpointReuse = true
                 parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .init(rawValue: self.port)!)
                 let listener = try NWListener(using: parameters)
-                listener.stateUpdateHandler = { [weak self] state in
-                    guard let self else { return }
+                // These captures are strong on purpose: the listener holds the
+                // callbacks and the server holds the listener, so a running server
+                // keeps itself alive. Held weakly, a caller that starts a server
+                // and lets it go out of scope is left with a socket that binds and
+                // reports LISTEN while serving nothing. `release` breaks the cycle
+                // once the listener reaches a terminal state.
+                listener.stateUpdateHandler = { [self] state in
                     switch state {
                     case .ready:
-                        let bound = listener.port?.rawValue ?? self.port
-                        self.boundPort = bound
-                        self.update(.listening(port: bound))
-                    case .failed(let error): self.update(.failed(Self.describe(error, port: self.port)))
-                    case .cancelled: self.update(.stopped)
+                        let bound = listener.port?.rawValue ?? port
+                        boundPort = bound
+                        reportedPort?.publish(bound)
+                        update(.listening(port: bound))
+                    case .failed(let error):
+                        update(.failed(Self.describe(error, port: port)))
+                        release(listener)
+                    case .cancelled:
+                        update(.stopped)
+                        release(listener)
                     default: break
                     }
                 }
-                listener.newConnectionHandler = { [weak self] connection in
-                    self?.accept(connection)
+                listener.newConnectionHandler = { [self] connection in
+                    accept(connection)
                 }
                 listener.start(queue: self.queue)
                 self.listener = listener
@@ -103,9 +143,23 @@ public final class HTTPServer: @unchecked Sendable {
     }
 
     public func stop() {
+        // Cancel only. The listener's own `.cancelled` callback reports `.stopped`
+        // and then releases it; dropping it here instead would lose that report
+        // and leave the callbacks — and so the server — alive.
+        queue.async { self.listener?.cancel() }
+    }
+
+    /// Lets go of a listener that has reached a terminal state, which is what
+    /// releases the server's hold on itself.
+    ///
+    /// Deferred onto `queue` rather than done inline: this runs from inside the
+    /// listener's own callback, and clearing the callback that is executing would
+    /// release it mid-call.
+    private func release(_ listener: NWListener) {
         queue.async {
-            self.listener?.cancel()
-            self.listener = nil
+            listener.stateUpdateHandler = nil
+            listener.newConnectionHandler = nil
+            if self.listener === listener { self.listener = nil }
         }
     }
 

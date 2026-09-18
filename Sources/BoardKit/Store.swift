@@ -45,17 +45,58 @@ public final class Store: @unchecked Sendable {
         .homeDirectoryForCurrentUser
         .appendingPathComponent(".claude/plan-sdd", isDirectory: true)
 
+    /// Moves the board's home directory — the database and the legacy runs
+    /// together. A file-level override would move the database and leave the
+    /// import reading the real home.
+    public static let homeEnvironmentKey = "BOSS_SDD_HOME"
+
+    /// The directory this store's database lives in. Everything else that reads
+    /// the board's home derives from this rather than from `defaultDirectory`,
+    /// so nothing can end up pointed at a different home than the open database.
+    public let directory: URL
+
+    /// The home this process should open: `BOSS_SDD_HOME` when it is set, the
+    /// default otherwise.
+    ///
+    /// An override that is set but unusable throws rather than falling back,
+    /// because a silent fallback is how a test harness or a screenshot run ends
+    /// up writing the user's real board.
+    public static func configuredDirectory(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> URL {
+        guard let raw = environment[homeEnvironmentKey] else { return defaultDirectory }
+        let expanded = (raw as NSString).expandingTildeInPath
+        guard !expanded.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw BoardError.invalid("\(homeEnvironmentKey) is set but empty")
+        }
+        // A relative path would resolve against the working directory, which for
+        // a launched .app is "/" — not what anyone setting this means.
+        guard expanded.hasPrefix("/") else {
+            throw BoardError.invalid(
+                "\(homeEnvironmentKey) must be an absolute path, got '\(raw)'"
+            )
+        }
+        return URL(fileURLWithPath: expanded, isDirectory: true)
+    }
+
     public init(path: URL) throws {
+        directory = path.deletingLastPathComponent()
         try FileManager.default.createDirectory(
-            at: path.deletingLastPathComponent(),
+            at: directory,
             withIntermediateDirectories: true
         )
         database = try Database(path: path.path)
         try database.execute(Self.schema)
     }
 
-    public convenience init(directory: URL = Store.defaultDirectory) throws {
+    public convenience init(directory: URL) throws {
         try self.init(path: directory.appendingPathComponent("board.sqlite3"))
+    }
+
+    /// Opens the home `BOSS_SDD_HOME` names, or the default one. Throws if the
+    /// override is set and cannot be used.
+    public convenience init() throws {
+        try self.init(directory: Store.configuredDirectory())
     }
 
     private static let schema = """

@@ -143,11 +143,19 @@ struct MemoryUpsertRequest: Decodable {
 /// in `HTTPServer`; everything policy-shaped lives here.
 public struct API: Sendable {
     let store: Store
-    let port: UInt16
+    /// Read per request rather than captured: a server asked for port 0 does not
+    /// know its port until the listener is ready, which is after this was built.
+    let boundPort: BoundPort
 
+    /// For a caller that pinned a port. A caller that asked the OS to choose
+    /// should hand over the server's own cell instead.
     public init(store: Store, port: UInt16) {
+        self.init(store: store, boundPort: BoundPort(requested: port))
+    }
+
+    public init(store: Store, boundPort: BoundPort) {
         self.store = store
-        self.port = port
+        self.boundPort = boundPort
     }
 
     public func handle(_ request: HTTPRequest) -> HTTPResponse {
@@ -199,7 +207,10 @@ public struct API: Sendable {
         case ("GET", ["api", "health"]):
             let runs = try store.allRuns()
             return try encode(
-                HealthResponse(ok: true, version: boardKitVersion, port: Int(port), runs: runs.count)
+                HealthResponse(
+                    ok: true, version: boardKitVersion,
+                    port: Int(boundPort.current), runs: runs.count
+                )
             )
 
         case ("GET", ["api", "runs"]):

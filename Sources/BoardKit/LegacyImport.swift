@@ -5,8 +5,11 @@ import Foundation
 /// Legacy files are tolerated the way the Python projection tolerated them:
 /// unreadable entries are skipped rather than failing the whole import.
 public enum LegacyImport {
-    public static var defaultRunsDirectory: URL {
-        Store.defaultDirectory.appendingPathComponent("runs", isDirectory: true)
+    /// The runs directory that belongs to a given board home. Derived from the
+    /// home the store actually opened, not from `Store.defaultDirectory`, so an
+    /// overridden home cannot import from the real one.
+    public static func runsDirectory(in home: URL) -> URL {
+        home.appendingPathComponent("runs", isDirectory: true)
     }
 
     public struct Result: Sendable {
