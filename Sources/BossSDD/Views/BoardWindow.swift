@@ -44,9 +44,9 @@ struct BoardWindow: View {
             .background(Color(nsColor: .underPageBackgroundColor))
         } else {
             ContentUnavailableView {
-                Label("没有选中的运行", systemImage: "square.grid.3x3")
+                Label(loc("board.noRunSelected"), systemImage: "square.grid.3x3")
             } description: {
-                Text(model.loadError ?? "左侧选一个运行，或让 agent 建一个。")
+                Text(model.loadError ?? loc("board.noRunSelected.detail"))
             }
         }
     }
@@ -68,7 +68,7 @@ struct BoardWindow: View {
         ToolbarItemGroup(placement: .primaryAction) {
             ServerBadge(state: model.serverState)
 
-            Picker("视图", selection: $model.view) {
+            Picker(loc("board.view"), selection: $model.view) {
                 ForEach(BoardModel.BoardView.allCases) { view in
                     Text(view.label).tag(view)
                 }
@@ -80,9 +80,9 @@ struct BoardWindow: View {
             Button {
                 inspectorShown.toggle()
             } label: {
-                Label("详情", systemImage: "sidebar.trailing")
+                Label(loc("board.details"), systemImage: "sidebar.trailing")
             }
-            .help("显示或隐藏详情栏")
+            .help(loc("board.details.help"))
         }
     }
 
@@ -90,7 +90,10 @@ struct BoardWindow: View {
         guard let run = model.selectedRun, let graph = model.graph else { return "" }
         let done = run.tasks.count { $0.status == .done }
         let active = run.tasks.count { $0.status.isActive }
-        return "\(run.project) · 完成 \(done)/\(run.tasks.count) · 活动 \(active) · 就绪 \(graph.readyTaskIDs.count)"
+        return loc(
+            "board.subtitle",
+            run.project, done, run.tasks.count, active, graph.readyTaskIDs.count
+        )
     }
 }
 
@@ -101,11 +104,12 @@ private struct FloatingTally: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            entry(state: .ready, text: "就绪 \(graph.readyTaskIDs.count)")
+            entry(state: .ready, text: loc("board.tally.ready", graph.readyTaskIDs.count))
             divider
-            entry(state: .running, text: "活动 \(run.tasks.count { $0.status.isActive })")
+            entry(state: .running,
+                  text: loc("board.tally.active", run.tasks.count { $0.status.isActive }))
             divider
-            Text("\(graph.topologicalLayers.count) 个并行层")
+            Text(loc("board.tally.layers", graph.topologicalLayers.count))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
@@ -137,12 +141,13 @@ private struct ServerBadge: View {
         case .listening(let port) where port == defaultBoardPort:
             EmptyView()
         case .listening(let port):
-            label(symbol: "网口 \(port)", tint: .orange,
-                  help: "写入接口不在默认端口，调用方需要指定端口")
+            label(symbol: loc("server.badge.port", String(port)), tint: .orange,
+                  help: loc("server.badge.port.help"))
         case .stopped:
-            label(symbol: "接口未启动", tint: .orange, help: "agent 现在无法写入看板")
+            label(symbol: loc("server.badge.down"), tint: .orange,
+                  help: loc("server.badge.down.help"))
         case .failed(let reason):
-            label(symbol: reason, tint: .red, help: "写入接口启动失败")
+            label(symbol: reason, tint: .red, help: loc("server.badge.failed.help"))
         }
     }
 
@@ -164,7 +169,7 @@ private struct GraphProblemBanner: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Label("依赖图无效，调度已停用", systemImage: "exclamationmark.triangle.fill")
+            Label(loc("board.graphInvalid"), systemImage: "exclamationmark.triangle.fill")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.orange)
             ForEach(errors.prefix(4), id: \.message) { error in

@@ -21,7 +21,7 @@ final class BoardModel {
     enum BoardView: String, CaseIterable, Identifiable {
         case graph, columns
         var id: String { rawValue }
-        var label: String { self == .graph ? "依赖图" : "分栏" }
+        var label: String { loc(self == .graph ? "board.view.graph" : "board.view.columns") }
     }
 
     let port: UInt16
@@ -92,7 +92,7 @@ final class BoardModel {
     var serverSummary: String {
         switch serverState {
         case .listening(let port): return "127.0.0.1:\(port)"
-        case .stopped: return "服务未启动"
+        case .stopped: return loc("server.stopped")
         case .failed(let reason): return reason
         }
     }
@@ -117,8 +117,14 @@ final class BoardModel {
         let result = LegacyImport.importAll(
             from: LegacyImport.runsDirectory(in: store.directory), into: store
         )
-        var lines = ["导入 \(result.imported.count) 个运行"]
-        if !result.skipped.isEmpty { lines.append("跳过 \(result.skipped.count) 个：" + result.skipped.joined(separator: "；")) }
+        var lines = [loc("import.imported", result.imported.count)]
+        if !result.skipped.isEmpty {
+            lines.append(loc(
+                "import.skipped",
+                result.skipped.count,
+                result.skipped.joined(separator: loc("import.skipped.separator"))
+            ))
+        }
         importReport = lines.joined(separator: "\n")
         reload()
     }
@@ -137,7 +143,7 @@ final class BoardModel {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            importReport = "开机自启设置失败：\(error)"
+            importReport = loc("login.failed", String(describing: error))
         }
     }
 }

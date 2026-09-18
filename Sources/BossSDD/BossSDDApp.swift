@@ -12,7 +12,7 @@ struct BossSDDApp: App {
                 if let model {
                     BoardWindow(model: model)
                 } else {
-                    StartupFailureView(message: startupError ?? "正在启动…")
+                    StartupFailureView(message: startupError ?? loc("app.starting"))
                 }
             }
             .task { bootIfNeeded() }
@@ -52,7 +52,7 @@ struct StartupFailureView: View {
             Image(systemName: "externaldrive.trianglebadge.exclamationmark")
                 .font(.system(size: 26))
                 .foregroundStyle(.secondary)
-            Text("看板无法启动").font(.headline)
+            Text(loc("app.startFailed")).font(.headline)
             Text(message)
                 .font(.callout)
                 .foregroundStyle(.secondary)

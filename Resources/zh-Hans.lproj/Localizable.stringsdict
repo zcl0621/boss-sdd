@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 中文没有单复数变化，所以每条只有 other。之所以仍要建这个文件：这几个键在
+     en.lproj 里是复数条目，若中文只写在 .strings 里，查表时 stringsdict 会盖过
+     它，界面会退回英文。 -->
+<plist version="1.0">
+<dict>
+  <key>board.tally.layers</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key>
+    <string>%#@layers@</string>
+    <key>layers</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key>
+      <string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key>
+      <string>lld</string>
+      <key>other</key>
+      <string>%lld 个并行层</string>
+    </dict>
+  </dict>
+  <key>inspector.layers</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key>
+    <string>%#@layers@</string>
+    <key>layers</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key>
+      <string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key>
+      <string>lld</string>
+      <key>other</key>
+      <string>%lld 层</string>
+    </dict>
+  </dict>
+  <key>import.imported</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key>
+    <string>%#@runs@</string>
+    <key>runs</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key>
+      <string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key>
+      <string>lld</string>
+      <key>other</key>
+      <string>导入 %lld 个运行</string>
+    </dict>
+  </dict>
+</dict>
+</plist>

@@ -2,8 +2,8 @@ import SwiftUI
 import BoardKit
 
 struct InspectorView: View {
-    /// Fixed 24-hour clock: the locale's own short time is "下午 6:28" here, which wraps
-    /// the timestamp column onto two lines.
+    /// Fixed 24-hour clock rather than the locale's own short time: several locales
+    /// prefix an AM/PM marker, which pushes the 38pt timestamp column onto two lines.
     nonisolated(unsafe) static let clock: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
@@ -31,19 +31,19 @@ struct InspectorView: View {
 
     @ViewBuilder
     private var runOverview: some View {
-        header(eyebrow: String(run.id.prefix(10)), title: "运行概览") {
+        header(eyebrow: String(run.id.prefix(10)), title: loc("inspector.runOverview")) {
             Pill(symbol: run.symbolForPill, tint: run.status.tint, text: run.status.label)
-            Pill(text: "\(graph.topologicalLayers.count) 层")
-            Pill(text: "就绪 \(graph.readyTaskIDs.count)")
+            Pill(text: loc("inspector.layers", graph.topologicalLayers.count))
+            Pill(text: loc("inspector.ready", graph.readyTaskIDs.count))
         }
-        Field("摘要") {
+        Field(loc("inspector.summary")) {
             if run.summary.isEmpty {
-                Text("尚无进度说明").font(.system(size: 12)).foregroundStyle(.tertiary)
+                Text(loc("inspector.summary.empty")).font(.system(size: 12)).foregroundStyle(.tertiary)
             } else {
                 Text(run.summary).font(.system(size: 12)).textSelection(.enabled)
             }
         }
-        Field("最近活动") {
+        Field(loc("inspector.activity")) {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(run.events.suffix(12).reversed().enumerated()), id: \.offset) { _, event in
                     HStack(alignment: .top, spacing: 9) {
@@ -74,9 +74,9 @@ struct InspectorView: View {
 
     private func actionLabel(_ action: String) -> String {
         switch action {
-        case "init": return "创建计划"
-        case "task": return "更新子任务"
-        case "update": return "更新计划"
+        case "init": return loc("inspector.event.init")
+        case "task": return loc("inspector.event.task")
+        case "update": return loc("inspector.event.update")
         default: return action
         }
     }
@@ -90,26 +90,28 @@ struct InspectorView: View {
 
         header(eyebrow: task.id, title: task.title) {
             Pill(symbol: state == .running ? nil : state.symbol, tint: state.tint, text: state.label)
-            Pill(text: task.agent.isEmpty ? "未指派" : task.agent)
+            Pill(text: task.agent.isEmpty ? loc("inspector.unassigned") : task.agent)
         }
-        Field("进展") {
+        Field(loc("inspector.progress")) {
             if task.detail.isEmpty {
-                Text("尚无记录").font(.system(size: 12)).foregroundStyle(.tertiary)
+                Text(loc("inspector.progress.empty")).font(.system(size: 12)).foregroundStyle(.tertiary)
             } else {
                 Text(task.detail).font(.system(size: 12)).textSelection(.enabled)
             }
         }
-        Field("依赖") { Values(task.dependsOn) }
-        Field("仍在等待") { Values(graph.waitingOn[task.id] ?? []) }
-        Field("写入范围") { Values(task.writeScope) }
-        Field("独占资源") { Values(task.exclusiveResource, warning: !conflicts.isEmpty) }
+        Field(loc("inspector.dependsOn")) { Values(task.dependsOn) }
+        Field(loc("inspector.waitingOn")) { Values(graph.waitingOn[task.id] ?? []) }
+        Field(loc("inspector.writeScope")) { Values(task.writeScope) }
+        Field(loc("inspector.exclusiveResources")) {
+            Values(task.exclusiveResource, warning: !conflicts.isEmpty)
+        }
         if !conflicts.isEmpty {
-            Field("资源冲突") {
+            Field(loc("inspector.resourceConflicts")) {
                 Values(conflicts.map { "\($0.taskID) · \($0.resources.joined(separator: " / "))" },
                        warning: true)
             }
         }
-        Field("下游") { Values(graph.dependents[task.id] ?? []) }
+        Field(loc("inspector.dependents")) { Values(graph.dependents[task.id] ?? []) }
     }
 
     // MARK: - Chrome

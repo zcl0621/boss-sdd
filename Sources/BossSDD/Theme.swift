@@ -41,13 +41,13 @@ enum VisualState: Equatable {
 
     var label: String {
         switch self {
-        case .pending, .upstreamBlocked: return "等上游"
-        case .ready: return "就绪"
-        case .running: return "执行中"
-        case .review: return "待复核"
-        case .blocked: return "阻塞"
-        case .done: return "完成"
-        case .resourceBlocked: return "资源占用"
+        case .pending, .upstreamBlocked: return loc("state.waiting")
+        case .ready: return loc("state.ready")
+        case .running: return loc("state.running")
+        case .review: return loc("state.review")
+        case .blocked: return loc("state.blocked")
+        case .done: return loc("state.done")
+        case .resourceBlocked: return loc("state.resourceHeld")
         }
     }
 
@@ -81,13 +81,13 @@ enum VisualState: Equatable {
 extension RunStatus {
     var label: String {
         switch self {
-        case .pending: return "待开始"
-        case .planning: return "规划中"
-        case .awaitingConfirmation: return "待确认"
-        case .running: return "执行中"
-        case .review: return "待验收"
-        case .blocked: return "受阻"
-        case .done: return "已完成"
+        case .pending: return loc("run.status.pending")
+        case .planning: return loc("run.status.planning")
+        case .awaitingConfirmation: return loc("run.status.awaitingConfirmation")
+        case .running: return loc("run.status.running")
+        case .review: return loc("run.status.review")
+        case .blocked: return loc("run.status.blocked")
+        case .done: return loc("run.status.done")
         }
     }
 

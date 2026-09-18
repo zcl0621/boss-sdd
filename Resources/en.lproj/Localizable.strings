@@ -1,0 +1,109 @@
+/* BossSDD interface strings — base language.
+   Keys are namespaced rather than English prose so that two controls that happen
+   to share an English word can still diverge in another language. Counted strings
+   whose noun has to agree live in Localizable.stringsdict instead. */
+
+/* Task state, shown on a card, a pill and the floating tally. The card gives these
+   about 90pt, so they have to stay one short word where the Chinese is one word. */
+"state.waiting" = "Waiting";
+"state.ready" = "Ready";
+"state.running" = "Running";
+"state.review" = "Review";
+"state.blocked" = "Blocked";
+"state.done" = "Done";
+"state.resourceHeld" = "Resource held";
+
+/* Run status. Separate from task state: a run is "in review" as a whole, a task is
+   waiting for one reviewer. */
+"run.status.pending" = "Not started";
+"run.status.planning" = "Planning";
+"run.status.awaitingConfirmation" = "Needs approval";
+"run.status.running" = "Running";
+"run.status.review" = "In review";
+"run.status.blocked" = "Blocked";
+"run.status.done" = "Done";
+
+/* Toolbar view switcher — two segments sharing 150pt. */
+"board.view.graph" = "Graph";
+"board.view.columns" = "Columns";
+
+/* Write API status. */
+"server.stopped" = "Server stopped";
+/* The port is an identifier, not a quantity: %@ so it never picks up the
+   locale's digit grouping and comes out as "Port 18,991". */
+"server.badge.port" = "Port %@";
+"server.badge.port.help" = "The write API is not on the default port, so callers have to name it.";
+"server.badge.down" = "API not running";
+"server.badge.down.help" = "Agents cannot write to the board right now.";
+"server.badge.failed.help" = "The write API failed to start.";
+
+/* Legacy JSON import and the login item. */
+"import.skipped" = "Skipped %1$lld: %2$@";
+"import.skipped.separator" = "; ";
+"login.failed" = "Could not change the login item: %@";
+
+/* Startup. */
+"app.starting" = "Starting…";
+"app.startFailed" = "The board could not start";
+
+/* Board window. */
+"board.noRunSelected" = "No run selected";
+"board.noRunSelected.detail" = "Pick a run in the sidebar, or have an agent create one.";
+"board.view" = "View";
+"board.details" = "Details";
+"board.details.help" = "Show or hide the details pane";
+"board.subtitle" = "%1$@ · %2$lld/%3$lld done · %4$lld active · %5$lld ready";
+"board.tally.ready" = "%lld ready";
+"board.tally.active" = "%lld active";
+"board.graphInvalid" = "Invalid dependency graph — scheduling is off";
+
+/* Graph column headers. */
+"graph.layer" = "Layer %1$lld · %2$lld in parallel";
+
+/* Inspector. */
+"inspector.runOverview" = "Run overview";
+"inspector.ready" = "%lld ready";
+"inspector.summary" = "Summary";
+"inspector.summary.empty" = "No summary yet";
+"inspector.activity" = "Recent activity";
+"inspector.event.init" = "Plan created";
+"inspector.event.task" = "Task updated";
+"inspector.event.update" = "Plan updated";
+"inspector.unassigned" = "Unassigned";
+"inspector.progress" = "Progress";
+"inspector.progress.empty" = "Nothing recorded yet";
+"inspector.dependsOn" = "Depends on";
+"inspector.waitingOn" = "Still waiting on";
+"inspector.writeScope" = "Write scope";
+"inspector.exclusiveResources" = "Exclusive resources";
+"inspector.resourceConflicts" = "Resource conflicts";
+"inspector.dependents" = "Dependents";
+
+/* Menu bar. */
+"menu.writeAPI" = "Write API %@";
+"menu.noRuns" = "No runs yet";
+"menu.openBoard" = "Open board";
+"menu.importLegacy" = "Import from legacy JSON";
+"menu.launchAtLogin" = "Launch at login";
+"menu.quit" = "Quit Plan SDD";
+
+/* Run sidebar. */
+"sidebar.runs" = "Runs";
+"sidebar.noRuns" = "No runs yet";
+"sidebar.noRuns.detail" = "Runs appear here once an agent calls POST /api/runs.";
+"sidebar.noProject" = "No project";
+"sidebar.progress" = "%1$lld / %2$lld done";
+
+/* Status columns. Column headers sit in a 190pt column beside a count. */
+"columns.pending" = "To do";
+"columns.running" = "Running";
+"columns.review" = "Review";
+"columns.blocked" = "Blocked";
+"columns.done" = "Done";
+"columns.empty" = "None";
+
+/* Task card. Kept nounless so it reads correctly at any count. */
+"card.waiting" = "Waiting on %lld";
+"card.dispatchable" = "Ready to dispatch";
+"card.unassigned" = "Unassigned";
+"card.accessibility" = "%1$@, %2$@, %3$@";

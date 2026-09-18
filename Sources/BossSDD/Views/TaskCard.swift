@@ -58,7 +58,7 @@ struct TaskCard: View {
         }
         .buttonStyle(.plain)
         .opacity(isDimmed ? 0.32 : 1)
-        .accessibilityLabel("\(task.id)，\(task.title)，\(state.label)")
+        .accessibilityLabel(loc("card.accessibility", task.id, task.title, state.label))
     }
 
     private var shape: RoundedRectangle {
@@ -67,7 +67,7 @@ struct TaskCard: View {
 
     private var subtitle: String {
         if !task.agent.isEmpty { return task.agent }
-        if waitingCount > 0 { return "等 \(waitingCount) 项上游" }
-        return state == .ready ? "可立即派发" : "未指派"
+        if waitingCount > 0 { return loc("card.waiting", waitingCount) }
+        return loc(state == .ready ? "card.dispatchable" : "card.unassigned")
     }
 }
