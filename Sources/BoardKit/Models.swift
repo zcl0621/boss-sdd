@@ -189,6 +189,22 @@ public struct Memory: Codable, Sendable, Hashable {
 /// Maximum events retained per run, matching the previous board's cap.
 public let eventHistoryLimit = 200
 
+/// Maximum distinct keys retained per project in `memories`.
+///
+/// `GET /api/memories` has no search: the recon agent gets the whole set on
+/// every run, on purpose, so a failed lookup can never be mistaken for an
+/// absent fact. That only holds while the set is small enough to actually
+/// read. An entry is a key, a value and a source — call it 300-500 bytes — so
+/// 100 entries is already 30-50KB, 10-15k tokens dropped into every recon.
+/// Past that the agent skims instead of reading, and a skimmed hard rule is a
+/// rule that is no longer in force.
+///
+/// The cap only refuses writes that would add a **new** key past the limit;
+/// see `Store.upsertMemory`. It never evicts — silently dropping the oldest
+/// entry could make a `hard_rule` vanish while the agent still believes it
+/// holds, which is worse than never having stored it.
+public let memoryLimit = 100
+
 public enum BoardError: Error, Sendable, Equatable {
     case notFound(String)
     case invalid(String)

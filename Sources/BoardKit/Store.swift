@@ -369,6 +369,39 @@ public final class Store: @unchecked Sendable {
         let now = Date()
         return try queue.sync {
             try database.transaction {
+                // The cap only refuses a write that would add a *new* key: an
+                // agent sitting at the limit must still be able to fix a stale
+                // entry (the whole point of upsert) without deleting something
+                // first. So the count only matters when this key is not
+                // already one of the project's rows; an update-in-place never
+                // touches it. Both the existence check and the count run
+                // inside this transaction, alongside the write itself, so a
+                // second writer cannot slip a 101st key in between.
+                let existing = try database.query(
+                    #"SELECT 1 FROM memories WHERE project = ? AND "key" = ?"#,
+                    [.text(project), .text(key)]
+                )
+                if existing.isEmpty {
+                    let countRows = try database.query(
+                        #"SELECT COUNT(*) AS n FROM memories WHERE project = ?"#,
+                        [.text(project)]
+                    )
+                    // `COUNT(*)` always returns exactly one row, so `.first` is
+                    // never nil in practice — but fail *closed* on the
+                    // unreachable case rather than open: `?? memoryLimit`
+                    // still trips the guard below, where `?? 0` would instead
+                    // silently stop enforcing the cap, which is the exact
+                    // failure posture this whole feature exists to avoid. Do
+                    // not "simplify" this back to `?? 0`.
+                    let count = countRows.first?.int("n") ?? memoryLimit
+                    guard count < memoryLimit else {
+                        throw BoardError.invalid(
+                            "project \(project) already has \(count) memories, at the limit of \(memoryLimit); "
+                                + "delete an existing key with DELETE /api/memories/{key}?project={project} "
+                                + "before adding a new one (updating an existing key is still allowed)"
+                        )
+                    }
+                }
                 try database.run(
                     #"""
                     INSERT INTO memories(project, "key", value, kind, source, created_at, updated_at)
