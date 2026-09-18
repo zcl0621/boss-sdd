@@ -51,8 +51,9 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 | 原生分支复核 | `/code-review`（当前分支）；`/code-review ultra <PR#>` 走云端多 agent | `/review` → Review uncommitted changes / 对 base 分支；`review_model` 单独配模型 | `/review-bugbot`（相对 base 的全部改动，含未提交）；`/review` 同义 |
 | 原生 PR 复核 | `/code-review ultra <PR#>` | GitHub 集成，`@codex review`，读 `AGENTS.md` 里的 Code Review rules | PR 评论 `bugbot run` / `cursor review` |
 | 复核规则文件 | — | `AGENTS.md` | `.cursor/BUGBOT.md`（根目录那份总是加载，再沿变更文件向上找） |
+| subagent 派发字段 | `Agent` 工具取 `subagent_type`（角色名）与 `model`；本会话工具定义原文可证 | 事实表未覆盖 | 事实表未覆盖调用形式，仅确认「同一条消息里多个 Task 调用会并行」 |
 | subagent 隔离 | `Agent` 工具有 `isolation: "worktree"`，无改动时自动清理 | 事实表未覆盖，不许编 | **默认共用父 agent 的检出**："Subagents share the parent agent's checkout by default. When several subagents edit files at once, they can overwrite each other's changes." 隔离靠自然语言显式要求（"each in its own environment"），**没有具名配置开关** |
-| subagent 并行 | 同一条消息里多个 `Agent` 调用 | 事实表未覆盖 | "Agent sends multiple Task tool calls in a single message, so subagents run simultaneously." |
+| subagent 并行 | 同一条消息里多个 `Agent` 调用并发执行；本会话运行环境明文如此要求 | 事实表未覆盖 | "Agent sends multiple Task tool calls in a single message, so subagents run simultaneously." |
 | subagent 续聊 | `SendMessage` 按 agent id | 事实表未覆盖 | 可以："Each subagent execution returns an agent ID. Pass this ID to resume the subagent with full context preserved." |
 | 内置 subagent | — | 事实表未覆盖 | Explore、Bash、Browser |
 
