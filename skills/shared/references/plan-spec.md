@@ -17,6 +17,7 @@ Status: running
 Run id: <the board's run_id, or "no board">
 Base ref: <the commit recorded in phase 0>
 Execution mode: shared-tree | worktree
+Project memory: on | off
 Integration branch: <name>                 (worktree mode only)
 Main working tree: <absolute path>         (worktree mode only)
 Integration worktree: <absolute path>      (worktree mode only)
@@ -36,6 +37,13 @@ be left alone; the integration worktree is where the merges and the post-merge
 gates ran. A recovering session given only the branch name cannot tell those two
 trees apart, and the one it guesses wrong is the user's.
 [worktree-mode.md](worktree-mode.md) says when to write them.
+
+`Project memory` records whether the run uses the board's memory store, and it
+is `on` unless the user asked for it off. [memory.md](memory.md) says what off
+means and why the line is here rather than baked into one platform's packaging.
+Write it in phase 0 step 1, before the first `plan_memory_list` call would
+happen, and do not change it mid-run: a run that read claims in phase 0 and then
+switched off would leave the entries it settled unwritten.
 
 `Base ref` has to stay current too. [worktree-mode.md](worktree-mode.md) has the
 one case where the phase 0 value is replaced rather than merely recorded: a user

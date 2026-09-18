@@ -37,7 +37,9 @@ shows the run and computes the ready set for you, and when it is absent you
 compute the same thing from the same declared fields by the rule in
 [dag-contract.md](references/dag-contract.md). Check once, at the start, whether
 those tools are in your toolset, and follow [board.md](references/board.md) for
-whichever case you are in.
+whichever case you are in. The same tools carry a project memory that phase 0
+reads and that the run prunes as it goes; that is
+[memory.md](references/memory.md).
 
 ## Non-negotiables
 
@@ -150,7 +152,13 @@ you ran in.
    run because the title looks similar. If the tools are not in your toolset, or
    they report that the app will not start, say so once and keep the plan's state
    in the plan document instead. [board.md](references/board.md) covers both
-   cases and says what you lose without a board.
+   cases and says what you lose without a board. Where you have the tools, write
+   `Project memory: on` into the plan document's Status header and read this
+   project's memory with `plan_memory_list` before step 3, carrying what it
+   returns into the recon lanes as claims for them to check
+   ([memory.md](references/memory.md)). Write `off` instead only where the user
+   asked for it off; then leave the four tools alone for the rest of the run,
+   here and at every later point that would have touched them.
 2. Read the project's constraint files, memory files, current git status, and any
    changes the user already has in the working tree. Do not overwrite work that
    is not yours. Record the current `HEAD`, or the last clean commit, as the
@@ -159,8 +167,10 @@ you ran in.
    [the recon protocol](references/recon.md). All three are read-only.
 4. Merge the three results, confirm the three things later phases consume
    directly (the gate commands, the test concurrency answer, and the run recipe,
-   all listed in [recon.md](references/recon.md)), and write a short summary:
-   goal, non-goals, expected blast radius, risks, verification commands, and the
+   all listed in [recon.md](references/recon.md)), settle each memory entry
+   against the verdict the lane returned on it
+   ([memory.md](references/memory.md)), and write a short summary: goal,
+   non-goals, expected blast radius, risks, verification commands, and the
    questions still open.
 
 If a recon lane comes back empty, follow the recovery rules in
@@ -343,6 +353,16 @@ task following the dynamic-insertion rules in
 that has not started, never to one already running, reviewing, or done. If the
 fix would visibly change what the user asked for, explain it and get a decision.
 
+### Tidying the project memory
+
+After every fifth node reaches `done` or `blocked`, counting cumulatively across
+scheduling passes rather than per pass, prune the project's memory against what
+this run has actually seen. In worktree mode, do it after the merge lock is
+released rather than at the instant the node closes.
+[memory.md](references/memory.md) has the checks, which tree to read them in,
+and, more importantly, what not to delete: an entry nobody used this run is not
+thereby stale.
+
 ### Roles
 
 The nine roles, their identities, input contracts, delivery contracts, stop
@@ -395,6 +415,10 @@ through dispatch from round one; dismissals marked pre-existing you verify
 yourself with `git log -S` or `git blame`; per-task verdicts of `unclear` you
 resolve yourself against the plan and the diff rather than recording them as
 done.
+
+Before the delivery report, run the memory tidy-up once more and store what this
+run established that the next plan here would otherwise go looking for again
+([memory.md](references/memory.md)).
 
 ### What counts as finished
 
@@ -471,6 +495,15 @@ going wrong at.
   filling a boundary in from your own imagination.
 - Carrying another project's gate commands or directory conventions into this
   repository. If recon could not find them, ask.
+- Putting a stored gate command, run recipe, or hard rule into the plan, a
+  dispatch prompt, or a gate run when the owning recon lane did not come back
+  with a verdict on it and the line as it reads today, quoted. An unexamined
+  claim counts as no memory at all.
+- Deleting a memory entry because nothing in this run happened to use it, or
+  because the lane came back `unchecked` on it. A source the lane could not open
+  is not a source that turned out to be wrong.
+- Upserting a fact onto a memory key that names a different fact. At the cap that
+  is the one write nothing refuses, and it evicts the entry that key held.
 - Treating goal mode as permission to guess. It removes the waiting, not the
   requirement to know. No answer means park it, and parking is not guessing.
 - Doing anything outside the plan because you happened to notice it while in goal
@@ -494,9 +527,10 @@ going wrong at.
 
 ## Start here
 
-1. Check whether the `plan-sdd` MCP tools are available, and claim or create the
-   run if they are ([board.md](references/board.md)). If they are not, say so
-   once and keep state in the plan document.
+1. Check whether the `plan-sdd` MCP tools are available; if they are, claim or
+   create the run ([board.md](references/board.md)) and read the project memory
+   ([memory.md](references/memory.md)). If they are not, say so once and keep
+   state in the plan document.
 2. Record `baseRef`. Note the user's existing uncommitted changes.
 3. Fan out the three recon subagents in parallel
    ([recon.md](references/recon.md)).
@@ -513,6 +547,9 @@ going wrong at.
 
 - [references/board.md](references/board.md): the live board, its MCP tools, and
   the write discipline.
+- [references/memory.md](references/memory.md): the project memory the runs
+  share, which entries may be trusted before recon confirms them, and the
+  tidy-up.
 - [references/recon.md](references/recon.md): phase 0, the three read-only lanes.
 - [references/plan-spec.md](references/plan-spec.md): the plan document's
   sections and what each one is for.

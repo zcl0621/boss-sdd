@@ -330,8 +330,11 @@ func registerTools(server *mcp.Server, api *board) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  "plan_memory_list",
 		Title: "列出项目记忆",
-		Description: "列出某个项目下记的记忆，可选按 kind 过滤。每条都带 source，" +
-			"勘察前先看这个，记忆里已有的事实不用重新翻代码确认；source 指向的东西如果已经变了，就当它过期，别照抄。" +
+		Description: "列出某个项目下记的记忆，可选按 kind 过滤。每条都带 source。" +
+			"勘察前先看这个，但列出来的每一条都只是上一轮留下的说法，不是本轮的事实：" +
+			"都要连 source 一起交给本轮对应的勘察 lane 去核，lane 回来时要给出结论，" +
+			"并且把 source 指的那一行按今天仓库里的样子原样引回来。" +
+			"没有这条引文之前，不管是门禁命令、运行方式还是硬规则，都不许拿来用。" +
 			"空列表不能证明这个项目从没记过东西——project 只要有一个字符对不上（大小写、多一层路径），" +
 			"就会查出空结果而不是报错。理应有记忆却是空的时候，先核对 project 拼写是否和写入时完全一致，" +
 			"别直接当成新项目重新勘察。",
@@ -358,6 +361,7 @@ func registerTools(server *mcp.Server, api *board) {
 		Name:  "plan_memory_get",
 		Title: "读取单条记忆",
 		Description: "按 project+key 读一条记忆，返回值和 source。" +
+			"读到的是上一轮留下的说法，不是本轮的事实：要用它，先按 source 把今天仓库里的那一行原样看一遍。" +
 			"key 大小写不敏感——服务端只存小写，返回的 key 以服务端为准，可能跟传入的大小写不一样，别拿传入的那份去跟别处比对。",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in memoryKeyInput) (*mcp.CallToolResult, memoryView, error) {
@@ -395,7 +399,9 @@ func registerTools(server *mcp.Server, api *board) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "plan_memory_delete",
 		Title:       "删除一条记忆",
-		Description: "按 project+key 删除一条记忆；key 不存在会报错，不会静默当成功处理。",
+		Description: "按 project+key 删除一条记忆；key 不存在会报错，不会静默当成功处理。" +
+			"只删已经核过、确认不成立的那条。没核成——source 指的文件打不开、命令这轮跑不了——不算不成立，" +
+			"这种就留着别动：下一轮看来，删掉的和从没记过的是一个样子。",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in memoryKeyInput) (*mcp.CallToolResult, memoryDeleteOutput, error) {
 		var wire wireMemoryDeleted
 		if err := api.call(ctx, "DELETE", memoryKeyPath(in.Project, in.Key), nil, &wire); err != nil {

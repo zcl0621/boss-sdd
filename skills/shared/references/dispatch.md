@@ -24,6 +24,13 @@ said earlier in the conversation. The subagent was not in that conversation.
 The bundle is assembled once per task and kept. You will need it again when a
 node fails and your platform cannot resume the original subagent.
 
+`<hard_rules>` and `<acceptance>` can carry values that reached recon as stored
+claims from an earlier run instead of as fresh reads. Paste only what a lane
+quoted out of the repository this run; [memory.md](memory.md) says how to tell
+the two apart. A stale hard rule pasted here does not stay local to one task: it
+reaches every dispatch and every review prompt, and every subagent that receives
+it treats it as the project speaking.
+
 ## Structure
 
 Wrap every block of pasted content in its own tag. Without the tags, a

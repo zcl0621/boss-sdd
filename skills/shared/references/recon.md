@@ -23,6 +23,33 @@ was going to need, and you cannot tell in advance which lane or which detail.
 <extra_context>anything else already established, or empty</extra_context>
 ```
 
+Stored project memory goes in `<extra_context>` when the project has any: the
+entries for this lane's kinds, each with its `source`, marked as claims for the
+lane to check against the repository rather than findings to accept. Which kind
+reaches which lane:
+
+| Kind | Where it goes |
+| --- | --- |
+| `gate`, `hard_rule` | lane A |
+| `run_recipe`, `convention` | lane C |
+| `exclusive_resource` | lane A, and you also declare it in phase 1 |
+| `note` | the lane its text is about; lane C if you cannot tell |
+
+Route on what the entry says, not on the label it was filed under. The label was
+chosen by an earlier run and nothing validates it, so a gate command filed as a
+`note` is still a gate command and belongs in front of lane A.
+[memory.md](memory.md) has the worked example and says why the label is the
+weaker signal. The one rule that survives a wrong label: every entry goes to some
+lane. None of them stays with you unchecked, because the reason this table exists
+is that you are the one who cannot check them.
+
+A lane that is handed claims owes a verdict on each of them and the line as it
+reads today, quoted. All three lanes carry that obligation in their delivery
+contracts in [roles.md](../roles.md), which is what makes the re-check observable
+in what comes back rather than assumed. [memory.md](memory.md) says what the
+verdicts mean for the stored entries, and which kinds may be used before a lane
+returns one.
+
 ## Lane A: project rules and gates (`recon-rules`)
 
 Reads `AGENTS.md`, `CLAUDE.md`, README, contributing guides, build configuration,
