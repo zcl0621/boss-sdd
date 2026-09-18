@@ -79,8 +79,9 @@ cp -RL "$REPO/skills/codex/shared"         "$SKILL_DIR/shared"
 links in `SKILL.md` and `codex-platform.md` resolve when someone browses this
 repository as well as after install. `cp -R` would copy the link itself, and the
 copy would point at `$SKILL_DIR/../shared`, which does not exist: you would get
-an installed tree whose `shared` is a dangling symlink, holding 11 files instead
-of 22 and no body at all. `-L` dereferences it and copies the real directory.
+an installed tree whose `shared` is a dangling symlink, with `SKILL.md`,
+`codex-platform.md` and `agents/` landed correctly and the entire body missing.
+`-L` dereferences it and copies the real directory.
 
 Keep the `rm -rf`, and keep it even when you think you know why it is there.
 `cp -R src dst` creates `dst` when it does not exist and copies `src` *into* it
@@ -98,8 +99,16 @@ Check what landed:
 find "$SKILL_DIR" -type f | sort
 ```
 
-Expect 22 files: `SKILL.md`, `codex-platform.md`, nine under `agents/`, and
-under `shared/` a `PLAYBOOK.md`, a `roles.md` and nine files in `references/`.
+Expect these, not a total: `SKILL.md`, `codex-platform.md`, nine files under
+`agents/`, and under `shared/` a `PLAYBOOK.md`, a `roles.md`, and whatever
+`references/` currently holds. This step deliberately states no count for
+`references/` or for the tree as a whole: a count stood here before, and it
+went stale twice in one day for two unrelated reasons -- a smaller version of
+the same problem [../shared/roles.md](../shared/roles.md) already names for the
+dispatch context bundle, and the same fix applies: read the shape, not a
+number written somewhere else. If one of the named files is missing, or a file
+turns up that these commands did not put there, the install is wrong; the
+listing above is what proves it.
 
 ### 3. Declare the nine roles
 
