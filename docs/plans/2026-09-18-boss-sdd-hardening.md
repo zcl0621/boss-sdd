@@ -44,8 +44,8 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 |---|---|---|---|
 | 技能位置 | `~/.claude/skills/<name>/` | `.agents/skills/<name>/`、`$HOME/.agents/skills/` | `.cursor/skills/`、`.agents/skills/`，并兼容读 `.claude/skills/`、`.codex/skills/` |
 | 显式调用 | `/name` | `$name` | `/name` |
-| 角色定义 | `.claude/agents/<n>.md`，`Agent` 工具带 `model` | `config.toml` 的 `[agents.<n>]`（`config_file`、`description`、`default_subagent_model`） | `.cursor/agents/<n>.md`，frontmatter 有 `model` / `readonly` / `is_background` |
-| 模型写法 | `opus` / `sonnet` / `haiku` / `fable` | `gpt-5.6`，另有 `default_subagent_reasoning_effort` | `claude-opus-5[effort=high]`、`composer-2.5`、`gpt-5.6-sol`、`inherit` |
+| 角色定义 | `.claude/agents/<n>.md`，`Agent` 工具带 `model` | `config.toml` 的 `[agents.<n>]`（`config_file`、`description`、`default_subagent_model`） | `.cursor/agents/<n>.md`，frontmatter 为 `name` / `description` / `model` / `readonly` / `is_background` |
+| 模型写法 | `opus` / `sonnet` / `haiku` / `fable` | `gpt-5.6`，另有 `default_subagent_reasoning_effort`、`default_subagent_model` | `inherit`、`composer-2`、`composer-2.5`、`gpt-5.6-sol`、`claude-opus-5`；括号参数 `fast` / `effort` / `context`，例 `claude-opus-5[effort=high,context=300k]` |
 | frontmatter 扩展 | `allowed-tools`、`argument-hint` | 仅 name/description | `paths`（glob 限定） |
 | 原生分支复核 | `/code-review`（当前分支）；`/code-review ultra <PR#>` 走云端多 agent | `/review` → Review uncommitted changes / 对 base 分支；`review_model` 单独配模型 | `/review-bugbot`（相对 base 的全部改动，含未提交）；`/review` 同义 |
 | 原生 PR 复核 | `/code-review ultra <PR#>` | GitHub 集成，`@codex review`，读 `AGENTS.md` 里的 Code Review rules | PR 评论 `bugbot run` / `cursor review` |
@@ -53,7 +53,9 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 
 来源：developers.openai.com/codex/skills、/codex/config-reference、developers.openai.com/codex/cli/features、
 developers.openai.com/codex/integrations/github、cursor.com/docs/skills、cursor.com/docs/subagents、cursor.com/docs/bugbot。
-查证日期 2026-09-18。
+查证日期 2026-09-18；Cursor 的模型写法与 frontmatter 于同日复核一次（cursor.com/docs/subagents），
+补回了首次记录时漏掉的 `composer-2`、`context` 括号参数和 `name`/`description` 两个字段——
+这张表是给 subagent 当唯一可信来源用的，漏记会被当成「凭空捏造」判掉。
 
 **Bugbot 是 Cursor 的产品，不是 Codex 的**——这点先前记反了，已按官方文档更正。
 
