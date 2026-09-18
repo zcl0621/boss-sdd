@@ -90,6 +90,26 @@ struct TaskPatchRequest: Decodable {
     }
 }
 
+/// One entry of a batch task write: the task's own ID plus the same patch body the
+/// single-task route accepts, decoded by the very same code so the list tri-state
+/// (absent keeps, array replaces, null clears) cannot drift between the two paths.
+struct TaskBatchItem: Decodable {
+    var id: String
+    var patch: TaskPatch
+
+    enum CodingKeys: String, CodingKey { case id }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        patch = try TaskPatchRequest(from: decoder).patch
+    }
+}
+
+struct TaskBatchRequest: Decodable {
+    var tasks: [TaskBatchItem]
+}
+
 /// Maps HTTP requests onto the store. Transport concerns (parsing, framing) stay
 /// in `HTTPServer`; everything policy-shaped lives here.
 public struct API: Sendable {
@@ -177,6 +197,17 @@ public struct API: Sendable {
         case ("GET", let parts)
             where parts.count == 4 && parts[0] == "api" && parts[1] == "runs" && parts[3] == "graph":
             return try encode(deriveGraph(try store.run(parts[2])))
+
+        // Batch write: the whole list applies in one transaction, so a rejected
+        // entry rolls back the ones before it instead of leaving a partial DAG.
+        case ("PUT", let parts)
+            where parts.count == 4 && parts[0] == "api" && parts[1] == "runs" && parts[3] == "tasks":
+            let payload = try decode(TaskBatchRequest.self, from: request)
+            let run = try store.upsertTasks(
+                runID: parts[2],
+                patches: payload.tasks.map { (taskID: $0.id, patch: $0.patch) }
+            )
+            return try encode(RunWithGraph(run: run))
 
         case ("PUT", let parts)
             where parts.count == 5 && parts[0] == "api" && parts[1] == "runs" && parts[3] == "tasks":

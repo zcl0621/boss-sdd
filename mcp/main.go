@@ -194,23 +194,33 @@ func registerTools(server *mcp.Server, api *board) {
 		Name:  "plan_set_tasks",
 		Title: "批量写入任务",
 		Description: "一次写入多个任务，计划成形后把整张 DAG 一次写完就用这个。" +
-			"按顺序逐条写入，某条被拒不影响其余；返回写成功的、失败的原因和最终图投影。",
+			"整批在看板的一个事务里落盘：任何一条被拒，整批都不写，看板保持原样。" +
+			"按给定顺序校验，所以「先把 T1 标 done，再让依赖它的 T2 转 running」可以放同一批。" +
+			"返回写成功的、失败的原因和最终图投影。" +
+			"整批被拒时 written 为空（确实一条都没落盘），failed 会列出本批的每一条任务、都挂同一条原因——" +
+			"那是整批的拒绝理由，不代表每条任务各自都有问题；照原因改完再整批重发。",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in setTasksInput) (*mcp.CallToolResult, batchOutput, error) {
 		out := batchOutput{Written: []string{}}
 		var run wireRun
-		for _, task := range in.Tasks {
-			path := "/api/runs/" + in.Run + "/tasks/" + task.ID
-			if err := api.call(ctx, "PUT", path, taskBody(task), &run); err != nil {
-				if out.Failed == nil {
-					out.Failed = map[string]string{}
-				}
-				out.Failed[task.ID] = err.Error()
-				continue
+		if err := api.call(ctx, "PUT", "/api/runs/"+in.Run+"/tasks", batchBody(in.Tasks), &run); err != nil {
+			// The board applies the batch atomically, so a rejection means nothing
+			// landed: every task in the batch failed, all for the same reason.
+			if len(in.Tasks) == 0 {
+				return nil, out, err
 			}
-			out.Written = append(out.Written, task.ID)
+			out.Failed = map[string]string{}
+			for _, task := range in.Tasks {
+				out.Failed[task.ID] = err.Error()
+			}
+			// Report the board as it actually stands now — unchanged by this call.
+			if graphErr := api.call(ctx, "GET", "/api/runs/"+in.Run, nil, &run); graphErr != nil {
+				return nil, out, err
+			}
+			out.Graph = viewGraph(&run)
+			return nil, out, nil
 		}
-		if err := api.call(ctx, "GET", "/api/runs/"+in.Run, nil, &run); err != nil {
-			return nil, out, err
+		for _, task := range in.Tasks {
+			out.Written = append(out.Written, task.ID)
 		}
 		out.Graph = viewGraph(&run)
 		return nil, out, nil
@@ -279,4 +289,17 @@ func taskBody(in taskInput) map[string]any {
 		body["exclusive_resource"] = *in.ExclusiveResource
 	}
 	return body
+}
+
+// batchBody wraps the same per-task bodies the single-task route takes, each
+// carrying its own id, for the board's transactional batch route. Reusing
+// taskBody keeps the list tri-state identical on both paths.
+func batchBody(tasks []taskInput) map[string]any {
+	entries := make([]map[string]any, 0, len(tasks))
+	for _, task := range tasks {
+		body := taskBody(task)
+		body["id"] = task.ID
+		entries = append(entries, body)
+	}
+	return map[string]any{"tasks": entries}
 }

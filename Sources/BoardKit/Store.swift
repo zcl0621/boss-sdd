@@ -190,55 +190,86 @@ public final class Store: @unchecked Sendable {
     }
 
     public func upsertTask(runID: String, taskID: String, patch: TaskPatch) throws -> Run {
-        guard isValidTaskID(taskID) else { throw BoardError.invalid("invalid task id: \(taskID)") }
+        try upsertTasks(runID: runID, patches: [(taskID: taskID, patch: patch)])
+    }
+
+    /// Applies a whole batch of task patches inside a single transaction: either
+    /// every patch lands or none does, so a rejected patch can never leave a
+    /// half-written DAG for the scheduler to read.
+    ///
+    /// Guards are evaluated *incrementally*, in the order given: patch `n` is
+    /// checked against the pre-batch state plus patches `0..<n` of this same
+    /// batch. That makes a batch behave exactly like the sequence of single-task
+    /// writes it replaces — same guards, same verdicts, same order-sensitivity —
+    /// and differ only in that a rejection rolls the earlier ones back too.
+    public func upsertTasks(runID: String, patches: [(taskID: String, patch: TaskPatch)]) throws -> Run {
+        for entry in patches {
+            guard isValidTaskID(entry.taskID) else {
+                throw BoardError.invalid("invalid task id: \(entry.taskID)")
+            }
+        }
+        // An empty batch writes nothing at all, not even a timestamp bump.
+        guard !patches.isEmpty else { return try queue.sync { try loadRun(runID) } }
+
         let now = Date()
         let result: Run = try queue.sync {
             try database.transaction {
                 var run = try loadRun(runID)
-                let existingIndex = run.tasks.firstIndex { $0.id == taskID }
-                if existingIndex == nil {
-                    guard let title = patch.title, !title.trimmingCharacters(in: .whitespaces).isEmpty else {
-                        throw BoardError.invalid("a new task requires a title")
-                    }
-                    run.tasks.append(BoardTask(id: taskID, title: title))
+                for entry in patches {
+                    try applyTaskPatch(entry.patch, toTask: entry.taskID, in: &run, at: now)
                 }
-                let index = run.tasks.firstIndex { $0.id == taskID }!
-                let previousStatus = run.tasks[index].status
-                let previousResources = run.tasks[index].exclusiveResource
-
-                if let title = patch.title { run.tasks[index].title = title }
-                if let detail = patch.detail { run.tasks[index].detail = detail }
-                if let agent = patch.agent { run.tasks[index].agent = agent }
-                run.tasks[index].dependsOn = apply(patch.dependsOn, to: run.tasks[index].dependsOn)
-                run.tasks[index].writeScope = apply(patch.writeScope, to: run.tasks[index].writeScope)
-                run.tasks[index].exclusiveResource = apply(
-                    patch.exclusiveResource, to: run.tasks[index].exclusiveResource
-                )
-
-                try Self.guardTransition(
-                    run: run,
-                    taskID: taskID,
-                    requestedStatus: patch.status,
-                    previousStatus: previousStatus,
-                    previousResources: previousResources
-                )
-
-                if let status = patch.status { run.tasks[index].status = status }
-                run.tasks[index].updatedAt = now
-                try writeTask(runID: runID, task: run.tasks[index], position: index)
                 try database.run(
                     "UPDATE runs SET updated_at = ? WHERE id = ?",
                     [.double(now.timeIntervalSince1970), .text(runID)]
-                )
-                try appendEvent(
-                    runID: runID, at: now, action: "task", task: taskID,
-                    status: patch.status?.rawValue, note: patch.detail ?? ""
                 )
                 return try loadRun(runID)
             }
         }
         notify()
         return result
+    }
+
+    /// Applies one patch to the in-memory run and persists that one task. The
+    /// caller owns the transaction and the run's `updated_at` bump; `run` carries
+    /// every earlier patch of the same batch, which is what the guards see.
+    private func applyTaskPatch(
+        _ patch: TaskPatch, toTask taskID: String, in run: inout Run, at now: Date
+    ) throws {
+        let existingIndex = run.tasks.firstIndex { $0.id == taskID }
+        if existingIndex == nil {
+            guard let title = patch.title, !title.trimmingCharacters(in: .whitespaces).isEmpty else {
+                throw BoardError.invalid("a new task requires a title")
+            }
+            run.tasks.append(BoardTask(id: taskID, title: title))
+        }
+        let index = run.tasks.firstIndex { $0.id == taskID }!
+        let previousStatus = run.tasks[index].status
+        let previousResources = run.tasks[index].exclusiveResource
+
+        if let title = patch.title { run.tasks[index].title = title }
+        if let detail = patch.detail { run.tasks[index].detail = detail }
+        if let agent = patch.agent { run.tasks[index].agent = agent }
+        run.tasks[index].dependsOn = apply(patch.dependsOn, to: run.tasks[index].dependsOn)
+        run.tasks[index].writeScope = apply(patch.writeScope, to: run.tasks[index].writeScope)
+        run.tasks[index].exclusiveResource = apply(
+            patch.exclusiveResource, to: run.tasks[index].exclusiveResource
+        )
+
+        try Self.guardTransition(
+            run: run,
+            taskID: taskID,
+            requestedStatus: patch.status,
+            previousStatus: previousStatus,
+            previousResources: previousResources
+        )
+
+        if let status = patch.status { run.tasks[index].status = status }
+        run.tasks[index].updatedAt = now
+        try writeTask(runID: run.id, task: run.tasks[index], position: index)
+        try appendEvent(
+            runID: run.id, at: now, action: "task", task: taskID,
+            status: patch.status?.rawValue, note: patch.detail ?? ""
+        )
     }
 
     /// Imports a run wholesale, preserving its ID. Used by the legacy JSON migration.
