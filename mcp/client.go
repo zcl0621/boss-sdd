@@ -6,11 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
+	"syscall"
 	"time"
 )
 
@@ -24,7 +25,15 @@ const (
 // the scheduling invariants; this process only translates MCP calls into requests.
 type board struct {
 	base   string
+	port   int
 	client *http.Client
+
+	// identityMu guards a once-per-process verdict on whether the port
+	// actually holds the board (see verifyIdentity). Checking it is a real
+	// network round trip, so it is cached rather than repeated on every call.
+	identityMu   sync.Mutex
+	identityDone bool
+	identityErr  error
 }
 
 func newBoard() *board {
@@ -36,6 +45,7 @@ func newBoard() *board {
 	}
 	return &board{
 		base:   fmt.Sprintf("http://127.0.0.1:%d", port),
+		port:   port,
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -47,10 +57,50 @@ type apiError struct {
 	} `json:"error"`
 }
 
+// ambiguousError marks a send() failure whose response didn't look like the
+// board's own JSON (neither a {"error":{...}} body nor the shape the caller
+// asked to decode into). It is a useful secondary signal — e.g. a plain HTTP
+// 404 — but NOT the primary defense: a squatter that echoes back a
+// plausible-looking JSON object (say {"status":"ok"}) decodes into any wireXxx
+// struct without error, so this alone would miss it. verifyIdentity is what
+// actually guards against that case; see its doc comment.
+type ambiguousError struct {
+	err error
+}
+
+func (e *ambiguousError) Error() string { return e.err.Error() }
+func (e *ambiguousError) Unwrap() error { return e.err }
+
+// healthProbe mirrors the fields plan_board_status relies on. Pointers so a
+// present-but-falsy value (ok:false, version:"") is distinguishable from an
+// absent field — only absence means "this isn't the board".
+type healthProbe struct {
+	OK      *bool   `json:"ok"`
+	Version *string `json:"version"`
+}
+
+// probeResult is the outcome of one GET /api/health round trip, kept apart
+// from any verdict about it: a transport failure (dial error, ctx cancelled)
+// says nothing about who is on the port, so callers must be able to tell it
+// apart from "got a response and it looked wrong".
+type probeResult struct {
+	transportErr error
+	status       int
+	probe        healthProbe
+	decodeErr    error
+}
+
 // call sends one request, launching the board app and retrying if nothing is listening.
 func (b *board) call(ctx context.Context, method, path string, body, out any) error {
-	if err := b.send(ctx, method, path, body, out); err == nil || !isRefused(err) {
+	// Confirm once per process that the port actually holds the board before
+	// trusting anything it says. This is the fix for the case send()'s own
+	// error-shaped detection cannot catch: a squatter whose response decodes
+	// cleanly into whatever wireXxx struct the caller happens to be using.
+	if err := b.verifyIdentity(ctx); err != nil {
 		return err
+	}
+	if err := b.send(ctx, method, path, body, out); err == nil || !isRefused(err) {
+		return b.resolve(ctx, err)
 	}
 	if err := launchApp(); err != nil {
 		return fmt.Errorf("看板未运行，且无法启动 %s：%w", appPath, err)
@@ -60,12 +110,124 @@ func (b *board) call(ctx context.Context, method, path string, body, out any) er
 		time.Sleep(400 * time.Millisecond)
 		err := b.send(ctx, method, path, body, out)
 		if err == nil || !isRefused(err) {
-			return err
+			return b.resolve(ctx, err)
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("看板已启动但 %s 仍无响应：%w", b.base, err)
 		}
 	}
+}
+
+// verifyIdentity confirms, once per process, that whatever is listening on
+// the port is actually the board — a plain GET /api/health, checked against
+// the board's real shape rather than whatever struct the caller wanted to
+// decode into. It runs before the first real request from call() and caches
+// the verdict, so the cost is one extra round trip for the process's whole
+// lifetime, not one per call (a 20-task plan_set_tasks batch against a
+// squatter now costs one probe total, not 20).
+//
+// A transport failure (most likely: nothing is listening yet, before
+// launchApp() has had its chance) is not a verdict either way, so it is left
+// uncached — the next call probes again instead of wrongly locking in "it's
+// fine" or "it's broken" from a fluke.
+func (b *board) verifyIdentity(ctx context.Context) error {
+	b.identityMu.Lock()
+	if b.identityDone {
+		err := b.identityErr
+		b.identityMu.Unlock()
+		return err
+	}
+	b.identityMu.Unlock()
+
+	result := b.probeHealth(ctx)
+	if result.transportErr != nil {
+		return nil
+	}
+	verdict := b.verdict(result)
+	b.cacheIdentity(verdict)
+	return verdict
+}
+
+func (b *board) cacheIdentity(err error) {
+	b.identityMu.Lock()
+	b.identityDone = true
+	b.identityErr = err
+	b.identityMu.Unlock()
+}
+
+// resolve turns a send() error into something actionable. Ordinary errors
+// (including the board's own {"error":{...}} messages) pass through
+// unchanged; an ambiguousError is checked against /api/health first, because
+// that's the only way to tell "the board answered with a real error" apart
+// from "something else is squatting on the port". A conclusive verdict here
+// is also cached, so a squatter that only reveals itself mid-session (the
+// board crashed partway through a batch, say) is diagnosed once, not on every
+// remaining call.
+func (b *board) resolve(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	var amb *ambiguousError
+	if !errors.As(err, &amb) {
+		return err
+	}
+	return b.diagnosePort(ctx, amb.err)
+}
+
+// diagnosePort probes /api/health directly (bypassing send()'s decoding,
+// since that's exactly what's in question) to tell the operator what's
+// actually listening on the board's port. fallback is the error the caller
+// already had; if the probe itself can't complete — the squatter vanished
+// between the original request and this one, or ctx got cancelled — that
+// must never destroy the caller's real error, so fallback is what's returned.
+func (b *board) diagnosePort(ctx context.Context, fallback error) error {
+	result := b.probeHealth(ctx)
+	if result.transportErr != nil {
+		return fallback
+	}
+	verdict := b.verdict(result)
+	b.cacheIdentity(verdict)
+	if verdict != nil {
+		return verdict
+	}
+	return fallback
+}
+
+func (b *board) probeHealth(ctx context.Context) probeResult {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, b.base+"/api/health", bytes.NewReader(nil))
+	if err != nil {
+		return probeResult{transportErr: err}
+	}
+	response, err := b.client.Do(request)
+	if err != nil {
+		return probeResult{transportErr: err}
+	}
+	defer response.Body.Close()
+
+	result := probeResult{status: response.StatusCode}
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		result.decodeErr = json.NewDecoder(response.Body).Decode(&result.probe)
+	}
+	return result
+}
+
+// verdict turns one probeResult into an error describing why the port isn't
+// the board, or nil when it is.
+func (b *board) verdict(r probeResult) error {
+	next := fmt.Sprintf(
+		"排查占用进程：lsof -nP -iTCP:%d -sTCP:LISTEN；也可以设置环境变量 BOSS_SDD_PORT 换一个端口再试。",
+		b.port,
+	)
+	if r.status < 200 || r.status >= 300 {
+		return fmt.Errorf("端口 %d 上的进程不是看板：健康检查 GET /api/health 返回 HTTP %d。%s", b.port, r.status, next)
+	}
+	if r.decodeErr != nil {
+		return fmt.Errorf("端口 %d 上的进程不是看板：健康检查响应不是合法 JSON（%v）。%s", b.port, r.decodeErr, next)
+	}
+	if r.probe.OK == nil || r.probe.Version == nil {
+		return fmt.Errorf("端口 %d 上的进程不是看板：健康检查响应缺少 ok/version 字段。%s", b.port, next)
+	}
+	return nil
 }
 
 func (b *board) send(ctx context.Context, method, path string, body, out any) error {
@@ -96,21 +258,26 @@ func (b *board) send(ctx context.Context, method, path string, body, out any) er
 		if decoder.Decode(&failure) == nil && failure.Error.Message != "" {
 			return fmt.Errorf("%s", failure.Error.Message)
 		}
-		return fmt.Errorf("看板返回 HTTP %d", response.StatusCode)
+		return &ambiguousError{err: fmt.Errorf("看板返回 HTTP %d", response.StatusCode)}
 	}
 	if out == nil {
 		return nil
 	}
-	return decoder.Decode(out)
+	if err := decoder.Decode(out); err != nil {
+		return &ambiguousError{err: err}
+	}
+	return nil
 }
 
+// isRefused reports whether err means "nothing is listening on the port" —
+// specifically ECONNREFUSED — as opposed to some other transport failure
+// (a reset, a timeout, a cancelled context) that says nothing about whether
+// the app needs launching. Matching any *net.OpError here was too broad: a
+// mid-response connection reset would read as "not running" and trigger a
+// pointless launchApp() + up to 12s of retries against a port something is
+// actually holding.
 func isRefused(err error) bool {
-	var opError *net.OpError
-	if errors.As(err, &opError) {
-		return true
-	}
-	var syscallError *net.OpError
-	return errors.As(err, &syscallError)
+	return errors.Is(err, syscall.ECONNREFUSED)
 }
 
 func launchApp() error {
