@@ -37,9 +37,16 @@ final class BoardModel {
 
     init(port: UInt16 = BoardModel.configuredPort) throws {
         self.port = port
+        // BOSS_SDD_HOME, read inside Store, moves the board and the legacy runs
+        // together. It throws rather than falling back when it is unusable, so a
+        // misconfigured override surfaces as a startup failure instead of quietly
+        // opening the user's real board.
         store = try Store()
-        let api = API(store: store, port: port)
-        server = HTTPServer(port: port) { api.handle($0) }
+        // The server publishes the port it actually binds here, so /api/health
+        // answers with the live socket even when 0 was requested.
+        let boundPort = BoundPort(requested: port)
+        let api = API(store: store, boundPort: boundPort)
+        server = HTTPServer(port: port, reporting: boundPort) { api.handle($0) }
     }
 
     func start() {
@@ -101,13 +108,15 @@ final class BoardModel {
     /// place — this reads them, it does not take them over.
     func importLegacyRunsIfEmpty() {
         guard (try? store.allRuns())?.isEmpty == true else { return }
-        let directory = LegacyImport.defaultRunsDirectory
+        let directory = LegacyImport.runsDirectory(in: store.directory)
         guard FileManager.default.fileExists(atPath: directory.path) else { return }
         importLegacyRuns()
     }
 
     func importLegacyRuns() {
-        let result = LegacyImport.importAll(from: LegacyImport.defaultRunsDirectory, into: store)
+        let result = LegacyImport.importAll(
+            from: LegacyImport.runsDirectory(in: store.directory), into: store
+        )
         var lines = ["导入 \(result.imported.count) 个运行"]
         if !result.skipped.isEmpty { lines.append("跳过 \(result.skipped.count) 个：" + result.skipped.joined(separator: "；")) }
         importReport = lines.joined(separator: "\n")

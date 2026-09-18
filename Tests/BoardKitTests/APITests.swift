@@ -60,8 +60,11 @@ private final class TestServer {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("boss-sdd-tests-\(UUID().uuidString)", isDirectory: true)
         store = try Store(path: directory.appendingPathComponent("board.sqlite3"))
-        let api = API(store: store, port: 0)
-        server = HTTPServer(port: 0) { api.handle($0) }
+        // Port 0 means the OS picks, so the port only exists once the listener is
+        // ready. The server publishes it here and the API reads it per request.
+        let boundPort = BoundPort(requested: 0)
+        let api = API(store: store, boundPort: boundPort)
+        server = HTTPServer(port: 0, reporting: boundPort) { api.handle($0) }
     }
 
     func start() async throws {
@@ -125,6 +128,21 @@ private final class TestServer {
             #expect(status == 200)
             #expect(body["ok"] as? Bool == true)
             #expect(body["runs"] as? Int == 0)
+        }
+    }
+
+    /// A server asked for port 0 does not know its port until the listener is
+    /// ready — which is after the handler, and therefore `API`, was built. The
+    /// health route has to report the port that is really listening, or the
+    /// answer is a guess about the caller's request rather than a fact about
+    /// the socket.
+    @Test func healthReportsThePortItIsActuallyListeningOn() async throws {
+        try await withServer { server in
+            let (status, body) = try await server.send("GET", "/api/health")
+            #expect(status == 200)
+            let reported = try field(body, "port", Int.self)
+            #expect(reported != 0, "health reported the requested port, not the bound one")
+            #expect(reported == Int(server.port))
         }
     }
 
