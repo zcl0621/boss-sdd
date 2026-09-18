@@ -433,7 +433,7 @@ T13 与 T12 同写 `Tests/BoardKitTests/APITests.swift`，且同抢 `gate:swift-
 所以排在 T12 之后单独一批。顺序选 T12 在前：T12 要改的正是全文取字段的写法，
 先改完，T13 新加的那条测试就直接落在新写法里，省掉一次返工。
 
-### T19 verifyMemoryDeleted 的两处容忍（新增，未开始）
+### T19 verifyMemoryDeleted 的两处容忍 ✅ f0a74fd
 
 T13 把 DELETE 的回显改成入库值之后，`mcp/main.go` 里 `verifyMemoryDeleted`
 的容忍有一半失去了存在理由。T13 给了建议但按范围没动：
@@ -498,6 +498,28 @@ computer-use 那套的 `request_access` + `app_screenshot`，它走的是另一�
 **明确不接受的替代**：截 `design/board-mock.html` 那份原型冒充真机截图。
 那正是 T6 刚刚删掉的那类说法（「built from real run data」，没人打开过那个文件），
 在这儿重演一遍只会更糟，因为图比句子更像证据。
+
+### T22 verifyMemoryEcho 的同款盲点 + 版本错配无人诊断（新增，未开始）
+
+T19 收口时报上来两条，都核实过是真的，但超出它的范围：
+
+1. `verifyMemoryEcho` 的 key 比较仍是 `EqualFold(got.Key, wantKey)`，
+   和 T19 修掉的那处同一个盲点：两侧都归一化，于是分不清「看板折叠对了」
+   和「看板没折叠」。GET / POST 回 `Gate` 照样能过。T19 之后这两个函数
+   变得不对称了，下一个读的人会以为 echo 这边的 fold 是有意为之。
+2. `client.go` 的 `appPath` 写死 `/Applications/BossSDD.app`，而
+   `verifyIdentity` 只检查 `/api/health` 里有没有 `ok` 和 `version`
+   **字段**，从不比对版本值。所以「旧 app + 新 MCP 二进制」是一个可达配置，
+   不是理论风险。T19 收紧之后这种错配会以 `plan_memory_delete` 报错的形式
+   冒出来——报错本身是对的（旧看板的回答确实指向一个不存在的行），但错在
+   不好定位。要让它自报家门，最小改动点在 `verifyIdentity` 加一条版本下限。
+
+另外 `mcp/main.go` 在 T19 之前就不是 gofmt-clean（`plan_memory_delete`
+注册那几行的 key 对齐，约 397-402）。T19 按「不顺手重构」的规定没动。
+要收就单独收，别混在别的节点里。
+
+`write_scope`: `mcp/main.go`、`mcp/client.go`、`mcp/tools_test.go`。
+`exclusive_resources`: `["gate:go-test"]`。
 
 ## 风险与未决项
 
