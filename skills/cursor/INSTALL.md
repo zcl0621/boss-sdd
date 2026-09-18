@@ -128,10 +128,12 @@ That builds the Swift app and the Go MCP binary, assembles `BossSDD.app` with an
 ad-hoc signature, then **kills any running BossSDD and replaces
 `/Applications/BossSDD.app`**. The MCP server lands at
 `/Applications/BossSDD.app/Contents/Resources/plan-sdd-mcp`. It speaks stdio,
-registers itself as `plan-sdd`, and exposes seven tools: `plan_board_status`,
+registers itself as `plan-sdd`, and exposes eleven tools: `plan_board_status`,
 `plan_create_run`, `plan_update_run`, `plan_set_task`, `plan_set_tasks`,
-`plan_graph`, `plan_get_run`. The app listens on `127.0.0.1:18888`, overridable
-with `BOSS_SDD_PORT`; the MCP server is the only thing that talks to it.
+`plan_graph`, `plan_get_run`, `plan_memory_list`, `plan_memory_get`,
+`plan_memory_add`, `plan_memory_delete`. The app listens on `127.0.0.1:18888`,
+overridable with `BOSS_SDD_PORT`; the MCP server is the only thing that talks to
+it.
 
 **How to register that binary with Cursor is not something this packaging can
 tell you.** The verified platform table this packaging is built on covers skills,
@@ -141,7 +143,7 @@ Cursor MCP configuration, and rather than print a plausible-looking config block
 that nobody has run, it says: register
 `/Applications/BossSDD.app/Contents/Resources/plan-sdd-mcp` as a stdio MCP server
 the way your version of Cursor's own MCP documentation says to, then confirm the
-seven tool names above appear in a session.
+eleven tool names above appear in a session.
 
 For reference, the registration this repository does document is Claude Code's,
 in the root `README.md`, and it is a `claude mcp add` command. It is not
@@ -197,7 +199,7 @@ delete it and redo step 1.
 
 Then in Cursor: type `/plan-sdd` and confirm the skill loads. Confirm the nine
 roles appear wherever your version lists subagents. If you did step 3, confirm
-the seven `plan_` tools are in the session's toolset.
+the eleven `plan_` tools are in the session's toolset.
 
 ## Do not install two packagings in one project
 

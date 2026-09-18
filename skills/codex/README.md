@@ -170,10 +170,10 @@ code:
 | Command | `/Applications/BossSDD.app/Contents/Resources/plan-sdd-mcp` |
 | Arguments | none |
 | Transport | stdio |
-| Tools | `plan_board_status`, `plan_create_run`, `plan_update_run`, `plan_set_task`, `plan_set_tasks`, `plan_graph`, `plan_get_run` |
+| Tools | `plan_board_status`, `plan_create_run`, `plan_update_run`, `plan_set_task`, `plan_set_tasks`, `plan_graph`, `plan_get_run`, `plan_memory_list`, `plan_memory_get`, `plan_memory_add`, `plan_memory_delete` |
 
 Sources: `mcp/main.go` declares the server name `plan-sdd`, runs it over
-`mcp.StdioTransport`, and registers those seven tools. `Scripts/bundle.sh`
+`mcp.StdioTransport`, and registers those eleven tools. `Scripts/bundle.sh`
 cross-compiles the Go binary, copies it to
 `BossSDD.app/Contents/Resources/plan-sdd-mcp`, and installs the bundle to
 `/Applications/BossSDD.app`. The root `README.md` documents the same path.

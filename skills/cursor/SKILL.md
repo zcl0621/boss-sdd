@@ -168,8 +168,9 @@ Everything else about tiers, stepping down, and the judgment-role floor is in
 
 Status tracking runs through the `plan-sdd` MCP tools:
 `plan_board_status`, `plan_create_run`, `plan_update_run`, `plan_set_task`,
-`plan_set_tasks`, `plan_graph`, `plan_get_run`. Check once, at the start, whether
-they are in your toolset, and take one of the three paths in
+`plan_set_tasks`, `plan_graph`, `plan_get_run`, `plan_memory_list`,
+`plan_memory_get`, `plan_memory_add`, `plan_memory_delete`. Check once, at the
+start, whether they are in your toolset, and take one of the three paths in
 [shared/references/board.md](shared/references/board.md).
 
 The board is optional. The skill runs without it; what you lose and what you do
