@@ -58,6 +58,20 @@ node's own worktree, which is a different directory from the repository root and
 from every other node's. Fill it in either way; never leave it out and never
 leave it to be inferred, because an agent that infers it will infer the
 repository root and in worktree mode that is the wrong tree.
+
+Scratch files -- scripts, intermediate output, anything that is not part of the
+deliverable -- go under this node's own subdirectory of the run's scratch
+location, named for the node: the task id, or the lane name for a dispatch that
+is not against a task. Write nothing at the scratch root. If a scratch file you
+created is missing, or holds something you did not write, report that and stop
+using it. Do not overwrite it and carry on, and do not report numbers that came
+out of it.
+
+Fill that path in as deliberately as the working directory. Nodes in a pass run
+at once and pick ordinary file names, so at a shared root one node's script
+replaces another's under the same name. The number a node reports is what every
+other check in this protocol rests on, and a swapped script is the one way that
+number goes wrong with nothing in the report to show it.
 </working_directory>
 
 <goal>
