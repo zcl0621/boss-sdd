@@ -23,11 +23,11 @@ not portable.
 **Identity**, **input**, **delivery**, **stop**. Model tiers are in the last
 section.
 
-Each identity string below is written as the continuation of the opening
-sentence in [dispatch.md](references/dispatch.md), so it does not say "you are"
-again. That sentence itself belongs to `dispatch.md`, including the four
-work-item forms and which roles take which; compose it from there, not from
-anything here.
+Each identity string below is written to follow the opening sentence in
+[dispatch.md](references/dispatch.md) as the next sentence, which is why it does
+not say "you are" again. That opening sentence itself belongs to `dispatch.md`,
+including the four work-item forms and which roles take which; compose it from
+there, not from anything here.
 
 What "input" covers is not the same for every role, so read it per entry rather
 than assuming a common bundle. `implementer` and `ui-designer` are the only two
@@ -217,10 +217,12 @@ implementer. Either marker adds this lane to the node's review stage, and this
 lane is what gets dispatched there.
 
 **Input.** The list in [review.md](references/review.md), each block tagged
-separately: the task text with its acceptance criteria, the run recipe from
-recon lane C verbatim, the scope of what changed so it knows what to exercise,
-the four visual-direction statements when a `ui-designer` produced them, and the
-limits on what it may touch.
+separately: the task text with its acceptance criteria, the working directory to
+start the application in, the run recipe from recon lane C verbatim, the scope of
+what changed so it knows what to exercise, the four visual-direction statements
+when a `ui-designer` produced them, and the limits on what it may touch. That
+file, not this one, says which directory to name in worktree mode; the
+application this lane must exercise is the one in the tree it is given.
 
 **Delivery.** The walkthrough record defined in
 [review.md](references/review.md), then findings ordered by impact with the
@@ -240,10 +242,13 @@ the project's rules, and you report what is wrong, with the evidence for each
 thing."
 
 **Input.** As listed in [review.md](references/review.md): the task's text from
-the plan, the plan path, the hard rules, and the diff command `git diff
-<baseline> -- <scope paths>` with the scope paths always present. Omit them
-while a batch is running and this reviewer reports on code three other nodes are
-writing at that moment.
+the plan, the plan path, the hard rules, the working directory to read in, and
+the diff command `git diff <baseline> -- <scope paths>` with the scope paths
+always present. Omit the scope paths while a batch is running and this reviewer
+reports on code three other nodes are writing at that moment. The working
+directory and the diff command go together and both change in worktree mode;
+`review.md` gives the pair for each execution mode, and a reviewer sent the wrong
+directory reports that the task was never implemented.
 
 **Delivery.** The reporting standard at the top of
 [review.md](references/review.md) applies unchanged. Two things it adds for this
@@ -263,9 +268,13 @@ costs a fix round to dismiss.
 that dimension only."
 
 **Input.** The plan document's path, the hard rules, the unrestricted range `git
-diff <baseRef>..<headRef>`, and its lane's question. The six lanes are defined
-in [review.md](references/review.md). Unlike task review this diff is not path
-restricted, because seeing the change as one thing is the point.
+diff <baseRef>..<headRef>`, the working directory to read and run in, and its
+lane's question. The six lanes are defined in
+[review.md](references/review.md). Unlike task review this diff is not path
+restricted, because seeing the change as one thing is the point. The diff range
+does not make the working directory redundant: refs resolve from any tree, but
+these lanes read source files, and a lane left to pick its own tree reads one
+that in worktree mode holds none of the run's work.
 
 **Delivery.** For lanes 1 through 5, findings along that dimension with
 evidence. For lane 6, one verdict per task from `done`, `missing`, `off-target`,
@@ -285,11 +294,13 @@ the attempt found. Every one of them was made by somebody else about work you
 did not do."
 
 **Input.** The five things in [review.md](references/review.md): the claims one
-per tagged block with whatever location the producing lane cited, the repository
-path with permission to read anything in it, the same diff the producing lane
-was looking at, the baseline ref so it can run `git log -S` or `git blame`, and
-the acceptance criteria plus hard rules that decide whether something is a
-defect or a preference. The diff has to be the right one. Send task review's
+per tagged block with whatever location the producing lane cited, the working
+directory to read and run in with permission to read anything in it, the same
+diff the producing lane was looking at, the baseline ref so it can run `git log
+-S` or `git blame`, and the acceptance criteria plus hard rules that decide
+whether something is a defect or a preference. That directory is the one the lane
+under challenge worked in, which is not always the repository root; `review.md`
+names it per case. The diff has to be the right one too. Send task review's
 scoped diff to an adversary challenging a branch-review finding and it argues
 about a different change than the one under challenge.
 

@@ -50,12 +50,11 @@ one case where the phase 0 value is replaced rather than merely recorded: a user
 who clears their working tree by committing before a worktree run. This header is
 where that replacement lives, and everything downstream reads the base from here.
 
-With a board this header
-duplicates what the board holds, which is deliberate: it is what a later session
-reads when the board is gone, and it is where the plan status lives when there
-never was one. Without a board it is the only record of the plan's own status,
-and the per-task statuses live in the Tasks section as described under "Keeping
-it current".
+With a board this header duplicates what the board holds, which is deliberate:
+it is what a later session reads when the board is gone, and it is where the plan
+status lives when there never was one. Without a board it is the only record of
+the plan's own status, and the per-task statuses live in the Tasks section as
+described under "Keeping it current".
 
 **Background.** What is true today and why the change is being made. Written from
 recon's evidence, with the paths that back it.

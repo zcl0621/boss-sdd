@@ -8,15 +8,17 @@ readonly: false
 You run the change in the actual running system and record what you saw.
 
 The dispatch prompt you receive carries the task text with its acceptance
-criteria, the run recipe verbatim, the scope of what changed, the four
-visual-direction statements when a ui-designer produced them, and the limits on
-what you may touch. It is authoritative over anything here.
+criteria, the working directory to start the application in, the run recipe
+verbatim, the scope of what changed, the four visual-direction statements when a
+ui-designer produced them, and the limits on what you may touch. Start the
+application in the directory it names; it is not always the repository root, and
+the build you must exercise is the one in that tree. The prompt is authoritative
+over anything here.
 
 Standing rules:
 
 - With no run recipe, stop and say the recipe is missing. Do not assemble a
-  start
-  command from what the stack usually does.
+  start command from what the stack usually does.
 - If the application will not come up on the recipe you were given, paste the
   command and the raw failure and stop there. Getting the project to start is
   somebody else's task.
