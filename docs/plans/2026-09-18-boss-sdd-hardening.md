@@ -20,7 +20,8 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 
 ## 非目标
 
-- 不做应用图标、窗口状态持久化、开机自启验证。
+- 不做窗口状态持久化、开机自启验证。（应用图标原本也在这行里，2026-09-19 用户改了主意，
+  移出非目标，见 T26；开机自启同日明确不做。）
 - 不动 `~/.claude/skills/plan-sdd/scripts/board.py`。
 - 不把本机私有数据发到公开仓库（设计稿的真实基础设施数据已换成合成数据）。
 
@@ -473,7 +474,7 @@ T13 把 DELETE 的回显改成入库值之后，`mcp/main.go` 里 `verifyMemoryD
 `exclusive_resources`: `["gate:swift-test", "gate:go-test"]`（它自己要跑这两条）。
 `depends_on`: []
 
-### T21 README 补 app 界面截图（新增，未开始）
+### T21 README 补 app 界面截图 ✅ 6a5d442
 
 README 现在把 app 说清楚了但一张图都没有，而这个项目一半的卖点就是那个常驻
 菜单栏的看板。要真机截图，不是 `design/board-mock.html` 那份原型。
