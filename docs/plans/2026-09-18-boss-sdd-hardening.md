@@ -458,6 +458,29 @@ T13 把 DELETE 的回显改成入库值之后，`mcp/main.go` 里 `verifyMemoryD
 `write_scope`: `mcp/main.go`、`mcp/tools_test.go`。
 `exclusive_resources`: `["gate:go-test"]`。
 
+### T20 本地完整验证流程（新增，未开始）
+
+现在三条门禁是分开记在文档里的（`swift test` / `cd mcp && go test ./...` /
+`./Scripts/bundle.sh`），谁要在本地完整过一遍，得自己知道有这三条、知道顺序、
+还得自己判断「装起来之后到底能不能用」。缺的那一段恰恰是最值钱的：编译过、
+单测过，不代表打包出来的 app 真能起来并正确响应 MCP 那条链路。
+
+要的是一条命令跑完全程，并且**最后一段是真的把 app 起来、用真 HTTP 打一遍**：
+建一个临时库和临时端口，建 run、写带依赖的 task、故意制造资源冲突看是否 409、
+写读删一条 memory，然后收干净。退出码要能直接当 CI 用。
+
+`write_scope`: `Scripts/`、`README.md`（只动测试那一节）。
+`exclusive_resources`: `["gate:swift-test", "gate:go-test"]`（它自己要跑这两条）。
+`depends_on`: []
+
+### T21 README 补 app 界面截图（新增，未开始）
+
+README 现在把 app 说清楚了但一张图都没有，而这个项目一半的卖点就是那个常驻
+菜单栏的看板。要真机截图，不是 `design/board-mock.html` 那份原型。
+
+`write_scope`: `README.md`、`docs/images/`。
+`depends_on`: T20（同写 README.md）。
+
 ## 风险与未决项
 
 - 本轮仍无法用看板追踪：MCP 工具本会话未加载。状态落在本文件，重启后补录。
