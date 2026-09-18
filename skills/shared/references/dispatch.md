@@ -31,6 +31,16 @@ the two apart. A stale hard rule pasted here does not stay local to one task: it
 reaches every dispatch and every review prompt, and every subagent that receives
 it treats it as the project speaking.
 
+`<background>` takes a stored claim by a different route. [memory.md](memory.md)
+licenses acting on a stored `convention` before any lane has returned a verdict
+on it, and a convention steers the implementer toward a pattern the project
+already has, which is what that block carries. It is still not a confirmed recon
+finding, and pasted in among them it stops being distinguishable from one. Wrap
+stored claims in a `<stored_claims>` tag nested inside the block that holds them,
+each entry with its `source`. That tag nests inside a bundle block and is never
+one of the twelve; it does the same job inside the `<extra_context>` the recon
+lanes get, which [recon.md](recon.md) describes.
+
 ## Structure
 
 Wrap every block of pasted content in its own tag. Without the tags, a
@@ -80,7 +90,9 @@ What the user will be able to observe when this task is done.
 
 <background>
 The confirmed findings from recon that this task depends on, with the file paths
-that back them. Include the existing patterns this task should follow.
+that back them. Include the existing patterns this task should follow. A stored
+`convention` you are acting on without a lane verdict goes here too, in the
+nested `<stored_claims>` tag described above.
 </background>
 
 <design_decisions>

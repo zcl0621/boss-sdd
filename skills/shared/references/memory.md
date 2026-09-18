@@ -89,7 +89,7 @@ Call `plan_memory_list` for the project before dispatching the recon lanes.
 Everything it returns is a claim. It was true in some earlier run, of a
 repository that has been edited since. Recon is what turns a claim into evidence,
 and the lanes are what do it: hand each entry, `source` included, to the lane
-that owns its kind, in the `<extra_context>` block [recon.md](recon.md) defines.
+that owns its kind, in the tagged block [recon.md](recon.md) defines for them.
 That file carries the routing, because it is what the person briefing the lane is
 reading.
 
@@ -129,7 +129,10 @@ mistake corrupts a run, so this is the one entry worth over-trusting. A
 `convention` is about how this codebase is written: layout, naming, test
 placement, style. It steers an implementer toward a pattern the project already
 has, and a stale one produces a mismatch that the independent review and your own
-read of the diff are there to catch.
+read of the diff are there to catch. It reaches the implementer in the dispatch
+prompt's `<background>` block, among findings that have been confirmed this run;
+[dispatch.md](dispatch.md) says how to mark it there so it is not read as one of
+them.
 
 A `convention` is not about how the run is run. A fact that would steer your own
 scheduling instead, such as whether the tests can run concurrently or how large a
@@ -174,6 +177,19 @@ When a lane's evidence and an entry disagree, the lane wins and the entry is
 stale. Correct it with an upsert onto the same key carrying this run's `source`.
 Do not add a second key for a fact that already has one, and do not leave the old
 value standing on the grounds that the lane might have missed something.
+
+Two lanes can return different verdicts on the same entry. That happens only when
+the entry reached more than one lane, which the routing in [recon.md](recon.md)
+does not ask for, so correct the routing as well. For the entry in hand, take the
+verdicts in this order and act on the first one present: `changed`, `confirmed`,
+`gone`, `unchecked`. The first two quote a line out of the source and the other
+two cannot, so a lane that did not read the source does not get to delete or
+sideline an entry another lane just read. `changed` goes ahead of `confirmed`
+because `confirmed` is the verdict a lane can return without reading anything:
+transcribing the claim's own value back as the quote produces it, which
+[roles.md](../roles.md) calls the one failure no downstream step can detect.
+`changed` has no such shortcut. It takes a line that differs from the one handed
+over, and reporting that difference is work the other lane could have skipped.
 
 `unchecked` and `gone` are the pair to keep apart. `gone` is a finding: the lane
 looked where `source` points and there is nothing there, so the entry has nothing
