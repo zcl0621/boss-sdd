@@ -44,7 +44,11 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 | | Claude Code | Codex | Cursor |
 |---|---|---|---|
 | 技能位置 | `~/.claude/skills/<name>/` | `.agents/skills/<name>/`、`$HOME/.agents/skills/` | 项目级 `.agents/skills/`、`.cursor/skills/`；用户级 `~/.agents/skills/`、`~/.cursor/skills/`；兼容读 `.claude/skills/`、`.codex/skills/`、`~/.claude/skills/`、`~/.codex/skills/`；仓库内任意位置的 `.cursor/skills/` 也会被发现（monorepo） |
-| 同名技能优先级 | — | — | **官方文档未规定**——早先写的「`.cursor/` 冲突时优先」是我编的，已推翻 |
+| 同名**技能**优先级 | — | — | **官方文档未规定**——早先写的「`.cursor/` 冲突时优先」是我编的，已推翻。注意：subagent 有规定，技能没有，两者别混 |
+| Cursor subagent 目录 | — | — | 项目级 `.cursor/agents/`、`.claude/agents/`、`.codex/agents/`；用户级 `~/.cursor/agents/`、`~/.claude/agents/`、`~/.codex/agents/` |
+| 同名 **subagent** 优先级 | — | — | **有规定**："Project subagents take precedence when names conflict. When multiple locations contain subagents with the same name, `.cursor/` takes precedence over `.claude/` or `.codex/`." |
+| Cursor `readonly` 语义 | — | — | 布尔，默认 `false`。"If `true`, the subagent runs with restricted write permissions (no file edits, no state-changing shell commands)."——**限的是写和会改状态的命令，只读命令（`git log`/`git blame`/`grep`）不受限** |
+| Cursor `is_background` | — | — | 布尔，默认 `false` |
 | Cursor SKILL.md frontmatter | — | — | `name`（必须匹配父文件夹名）、`description`、`paths`、`disable-model-invocation`、`icon`、`color`、`metadata`；`globs` 作为旧拼法仍被接受但新技能应用 `paths` |
 | Cursor 技能显式调用 | — | — | 在 Agent chat 里键入 `/` 并搜索技能名 |
 | 显式调用 | `/name` | `$name` | `/name` |
@@ -57,7 +61,9 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 | frontmatter 扩展 | `allowed-tools`、`argument-hint` | 仅 name/description | `paths`（glob 限定） |
 | 原生分支复核 | `/code-review`（当前分支）；`/code-review ultra <PR#>` 走云端多 agent | `/review` → Review uncommitted changes / 对 base 分支；`review_model` 单独配模型 | `/review-bugbot`（相对 base 的全部改动，含未提交）；`/review` 同义 |
 | 原生 PR 复核 | `/code-review ultra <PR#>` | GitHub 集成，`@codex review`，读 `AGENTS.md` 里的 Code Review rules | PR 评论 `bugbot run` / `cursor review` |
-| 复核规则文件 | — | `AGENTS.md` | `.cursor/BUGBOT.md`（根目录那份总是加载，再沿变更文件向上找） |
+| 复核规则文件 | — | `AGENTS.md` 里的 `## Code Review Rules` 小节 | `.cursor/BUGBOT.md`（根目录那份总是加载，再沿变更文件向上找） |
+| Codex AGENTS.md 发现与合并 | — | 全局先 `~/.codex/AGENTS.override.md` 再 `~/.codex/AGENTS.md`；项目级"Starting at the project root (typically the Git root), Codex walks down to your current working directory"，逐目录先 override 后 AGENTS.md。合并："Codex concatenates files from the root down, joining them with blank lines. Files closer to your current directory override earlier guidance because they appear later in the combined prompt." 上限 `project_doc_max_bytes`，默认 32 KiB | — |
+| Codex 复核规则的作用范围 | — | "Codex searches your repository for `AGENTS.md` files and follows the applicable code review rules.""Put repository-wide rules in the root `AGENTS.md` and service-specific rules in a nested file, such as `services/experiment_reporting/AGENTS.md`. Codex applies the root and more-specific guidance that covers each changed file.""For Codex code review in GitHub, add a `## Code Review Rules` section to the `AGENTS.md` closest to the code the rules govern."——**是根 + 更具体两者都生效，不是只取最近那一份** | — |
 | subagent 派发字段 | `Agent` 工具取 `subagent_type`（角色名）与 `model`；本会话工具定义原文可证 | 事实表未覆盖 | 事实表未覆盖调用形式，仅确认「同一条消息里多个 Task 调用会并行」 |
 | subagent 隔离 | `Agent` 工具有 `isolation: "worktree"`，无改动时自动清理 | 事实表未覆盖，不许编 | **默认共用父 agent 的检出**："Subagents share the parent agent's checkout by default. When several subagents edit files at once, they can overwrite each other's changes." 隔离靠自然语言显式要求（"each in its own environment"），**没有具名配置开关** |
 | subagent 并行 | 同一条消息里多个 `Agent` 调用并发执行；本会话运行环境明文如此要求 | 事实表未覆盖 | "Agent sends multiple Task tool calls in a single message, so subagents run simultaneously." |
@@ -66,6 +72,8 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 
 来源：developers.openai.com/codex/skills、/codex/config-reference、developers.openai.com/codex/cli/features、
 developers.openai.com/codex/integrations/github、cursor.com/docs/skills、cursor.com/docs/subagents、cursor.com/docs/bugbot。
+learn.chatgpt.com/docs/agent-configuration/agents-md、learn.chatgpt.com/docs/third-party/github
+（后两个是 developers.openai.com 对应页面的 308 跳转目标）。
 查证日期 2026-09-18；Cursor 的模型写法、frontmatter、隔离/并行/续聊于同日复核（cursor.com/docs/subagents），
 补回了首次记录时漏掉的 `composer-2`、`context` 括号参数和 `name`/`description` 两个字段——
 这张表是给 subagent 当唯一可信来源用的，漏记会被当成「凭空捏造」判掉。
@@ -77,6 +85,28 @@ developers.openai.com/codex/integrations/github、cursor.com/docs/skills、curso
 `default_subagent_model` 和 `default_subagent_reasoning_effort` 都是**全局**键，
 `[agents.<n>]` 只收 `config_file` 和 `description`；逐角色分档要落在 `config_file`
 指向的那一层 TOML 里。
+
+**第五次，同样是误杀**：T5c 复核判定「Cursor 也读 `.claude/agents/`、`.codex/agents/`」
+未获授权。查 cursor.com/docs/subagents（同日两次取，措辞一致）：**是真的**，六个目录都读，
+而且**同名 subagent 的优先级官方有规定**（`.cursor/` 优先）——只有**技能**的优先级没规定。
+我先前把「未规定」笼统写在技能那一行，等于让复核把一条真事实判成捏造。
+
+同一页还一并settle了两个此前当作未知挂着的字段：`readonly` 是布尔、默认 `false`，
+限制是 "no file edits, no state-changing shell commands"——**只读命令不受限**，
+所以 adversary 的 `git log -S`、`git blame` 根本没问题，T5c 里那一整段「万一 readonly
+连读命令也拦」的预案可以删掉；`is_background` 也是布尔、默认 `false`。
+
+表缺一条，下游要么编，要么把真的判成编的。两种代价都记在这儿。
+
+**第四次，方向反过来**：T5b 复核判定「Codex 沿变更文件向上找 `AGENTS.md`」是把
+Cursor 的事实搬到了 Codex 列——**程序上判得对，内容上判错了**。我去查了官方文档
+（developers.openai.com/codex/* 现 308 跳到 learn.chatgpt.com），嵌套 `AGENTS.md`
+确有其事，已按原文补进表。但措辞得改：Codex 是**根 + 更具体两者都生效**，不是
+「最近一份说了算」。
+
+这正是表缺条目的第二种代价。前三次是我从旁路喂事实，这次是表缺了一条**真事实**，
+于是复核只能按「未授权即捏造」判——对的内容被判掉，和错的内容被放行一样要人命。
+所以补表不只是防捏造，也是防误杀。
 
 结构性教训：**我往派发 prompt 里写的每一条平台事实，必须先进表。** 三次事故全是
 「我定了唯一可信来源，然后自己从旁路喂事实」。
@@ -208,7 +238,7 @@ developers.openai.com/codex/integrations/github、cursor.com/docs/skills、curso
 - 三个包装层都要补本平台的 worktree 支持说明；Codex 那份如果事实表没有依据，
   就明写「未覆盖」，不许补一段像模像样的配置。
 
-### T8 看板侧 project memory 存储与接口
+### T8 看板侧 project memory 存储与接口 ✅ 93a9cac
 
 - `depends_on`: []
 - `write_scope`: `Sources/BoardKit/Store.swift`, `Sources/BoardKit/Models.swift`,
@@ -272,6 +302,14 @@ memory 以 **project** 为维度（`Run` 已有 `project` 字段，复用它，�
 
 注：T1/T2/T3/T4 无写入范围重叠。T1 与 T2 资源不冲突可并行；T3 与两者都抢门禁资源，
 自然排在后面，不用画依赖边。T4 纯文档，与代码任务完全并行。
+
+### T12 APITests 的诊断力（新增，未开始）
+
+`Tests/BoardKitTests/APITests.swift` 全文用 `as!` 链取字段（84、95、114、139、157 等约 40 处）。断言一失败，紧跟的强解包就把测试进程打死：我做源码变异时拿到 `Fatal error: Unexpectedly found nil`（661 行）和 `exited with unexpected signal code 5`，后面的用例根本没跑。
+
+这不是 T8 引入的，是整个文件既有的写法，所以不并进 T8——节点中途顺手重构是本技能明令禁止的。单独成节点做：把取字段换成不会中止进程的形式，让一次失败只损失一个用例的信息。
+
+`write_scope`: `Tests/BoardKitTests/APITests.swift`。`depends_on`: T8 收口之后（同一文件）。
 
 ## 风险与未决项
 
