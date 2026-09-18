@@ -159,6 +159,40 @@ same machine.
 
 ## Tests
 
+One command checks the whole repository:
+
+```bash
+./Scripts/verify.sh
+```
+
+It runs four stages and stops at the first failure, so the exit code is the
+whole answer and it drops straight into CI:
+
+1. a release build of both halves;
+2. `swift test`, then `go test ./...`;
+3. `./Scripts/bundle.sh`, which assembles `.build/BossSDD.app`;
+4. a live stage that boots the server and drives it over real HTTP.
+
+The live stage is the part the unit suites cannot reach. It creates a run,
+writes a DAG with a real dependency and checks the graph projection that comes
+back, then confirms that starting a task whose dependency is unfinished is
+refused with 409, that two tasks contending for one `exclusive_resource` are
+refused too, and that a memory entry can be written, read back and deleted with
+every answer naming the stored spelling of the key rather than the one that was
+sent. It does not launch the SwiftUI shell, which cannot run headlessly and has
+no way to be pointed away from the real database; it hosts the same compiled
+BoardKit the app links, which is the half that answers HTTP.
+
+The live stage needs `jq` and `curl` alongside the Swift and Go toolchains. It
+listens on a port the OS hands out rather than 18888, so it does not disturb a
+copy of the app you already have running, and it writes to a throwaway SQLite
+file in a temporary directory, never to the board in `~/.claude/plan-sdd/`. It
+reads that board file's timestamp before and after and fails if it moved.
+Nothing survives the run: the server is stopped and the temporary directory
+removed whether the script passed, failed, or was interrupted.
+
+The gates also still run on their own:
+
 ```bash
 swift test
 cd mcp && go test ./...
