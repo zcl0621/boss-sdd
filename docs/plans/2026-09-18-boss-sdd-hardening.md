@@ -303,6 +303,49 @@ memory 以 **project** 为维度（`Run` 已有 `project` 字段，复用它，�
 注：T1/T2/T3/T4 无写入范围重叠。T1 与 T2 资源不冲突可并行；T3 与两者都抢门禁资源，
 自然排在后面，不用画依赖边。T4 纯文档，与代码任务完全并行。
 
+### T13 DELETE 路由回显的是原始值，不是入库值（新增，未开始）
+
+`Sources/BoardKit/API.swift:277` 的 DELETE 回 `["deleted": parts[2], "project": project]`
+——路径段和查询值都是**原始**的。而 GET / POST 回的是入库那条记录，key 已小写、
+project 已 trim。于是 `DELETE /api/memories/Gate?project=p` 答 `{"deleted":"Gate"}`，
+实际删掉的行是 `gate`。
+
+调用方据此打日志会打出一个库里从来不存在的 key。三条路由对同一个字段回两种口径，
+这种不一致迟早要有人踩。改成回归一化后的值，并补一个测试钉住三条路由口径一致。
+
+发现方式：核 T9 的 verifyMemoryDeleted 时反查 Swift 侧回什么，才看出它现在能过
+是因为 DELETE 恰好不规范化。T9 那边已让它对两种拼法都容错，但根在这儿。
+
+`write_scope`: `Sources/BoardKit/API.swift`、`Tests/BoardKitTests/APITests.swift`。
+
+### T14 T7 终审剩余六条（实施中）
+
+T7 已提交（a6e8ee2），中心问题关掉了：终审明确答「找不到任何一条路径，能让节点的活
+没进集成分支而运行报绿」。剩下六条另派节点修，不再占 T7 的返修轮次。
+
+两条 HIGH：`PLAYBOOK.md:262-269` 还列着加 worktree 之前的十一项清单（漏
+`<working_directory>` 和 `<design_decisions>`），照它拼 prompt 的人会漏发工作目录，
+implementer 写进主树——8b 守卫能拦住，不会报绿，但白跑一趟且弄脏用户的树；
+以及 8b 冲突后的返修循环不收敛：节点工作树里看不到集成分支那一侧，改完再合
+一模一样地冲突，三轮到顶判 blocked，而跨趟的 write_scope 重叠本来是文档自己
+说的「合法且无人有错」。
+
+### T15 memory 每项目 100 条上限（实施中）
+
+用户拍板：不做 search，做上限。理由记在这儿以免以后有人「优化」掉——
+
+search 的坏处不是贵，是**让「没找到」和「不存在」长得一样**：agent 搜 `test` 没命中，
+就断定没记过门禁，而 key 其实叫 `verify.swift`。`list` 全量摊开就不会被这样骗。
+这和当初否掉向量化是同一个理由，只是程度轻一点。
+
+所以真正要定的是上限，而上限的作用是让 `list` 保持可读。一条约 300–500 字节正文，
+100 条就是 30–50KB、每次勘察 10–15k token，已经到了「不再免费」的临界。200 条会
+让 agent 从读变成扫，而被扫过去的 hard_rule 等于没生效。
+
+两条硬要求：**满了就拒写，绝不淘汰最旧的**（静默消失的 hard_rule 比从没写过更糟，
+因为 agent 以为它还在）；**已存在的 key 必须仍能覆盖写**——否则满额时改不掉一条过期的
+门禁命令，而最该改的恰恰就是错的那条。
+
 ### T12 APITests 的诊断力（新增，未开始）
 
 `Tests/BoardKitTests/APITests.swift` 全文用 `as!` 链取字段（84、95、114、139、157 等约 40 处）。断言一失败，紧跟的强解包就把测试进程打死：我做源码变异时拿到 `Fatal error: Unexpectedly found nil`（661 行）和 `exited with unexpected signal code 5`，后面的用例根本没跑。
