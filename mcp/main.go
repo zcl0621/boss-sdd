@@ -397,8 +397,8 @@ func registerTools(server *mcp.Server, api *board) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "plan_memory_delete",
-		Title:       "删除一条记忆",
+		Name:  "plan_memory_delete",
+		Title: "删除一条记忆",
 		Description: "按 project+key 删除一条记忆；key 不存在会报错，不会静默当成功处理。" +
 			"只删已经核过、确认不成立的那条。没核成——source 指的文件打不开、命令这轮跑不了——不算不成立，" +
 			"这种就留着别动：下一轮看来，删掉的和从没记过的是一个样子。",
@@ -561,11 +561,18 @@ func toMemoryView(m wireMemory) memoryView {
 // misreport a whitespace-padded project as "a different project" when nothing
 // happened but a trim — a false accusation that points at the board instead
 // of at the caller's own input.
+//
+// The normalization is applied to the caller's side only; got is compared
+// verbatim, the same asymmetry verifyMemoryDeleted documents at length. That
+// is what makes the key comparison able to tell "the board folded the key
+// correctly" apart from "the board did not fold it at all": folding both
+// sides (strings.EqualFold) accepted a board echoing `Gate` for a row stored
+// as `gate`, which is a row that is not in the table.
 func verifyMemoryEcho(project, key string, got wireMemory) error {
 	// Reachable on its own (not merely a weaker echo of the checks below) only
 	// when project/key trim to empty: verifyMemoryEcho("", "", wireMemory{})
-	// would pass both the project and key comparisons below trivially — "" ==
-	// "" and EqualFold("", "") — with no guard here at all. For a non-empty
+	// would pass both the project and key comparisons below trivially — both
+	// reduce to "" == "" — with no guard here at all. For a non-empty
 	// project/key that degenerate case is already caught below (a zeroed
 	// got.Project/got.Key cannot equal a non-empty want value), so this branch
 	// is belt-and-suspenders there; pinned by
@@ -580,8 +587,8 @@ func verifyMemoryEcho(project, key string, got wireMemory) error {
 	if got.Project != wantProject {
 		return fmt.Errorf("看板返回了别的项目的记忆：请求 project=%q，返回 project=%q", wantProject, got.Project)
 	}
-	wantKey := strings.TrimSpace(key)
-	if !strings.EqualFold(got.Key, wantKey) {
+	wantKey := strings.ToLower(strings.TrimSpace(key))
+	if got.Key != wantKey {
 		return fmt.Errorf("看板返回了别的 key 的记忆：请求 key=%q，返回 key=%q", wantKey, got.Key)
 	}
 	// project and key can be right while source is empty — a different bug

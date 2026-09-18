@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -19,7 +20,79 @@ const (
 	appPath = "/Applications/BossSDD.app"
 	// Must match BoardKit.defaultBoardPort.
 	defaultPort = 18888
+	// minBoardVersion is the oldest BoardKit whose loopback wire contract the
+	// checks in this binary are written against. It is compared with the
+	// version /api/health reports, i.e. BoardKit's own boardKitVersion in
+	// Sources/BoardKit/HTTPServer.swift.
+	//
+	// Why a floor at all: appPath above is a fixed location, so "a stale
+	// BossSDD.app sitting in /Applications, a freshly built MCP binary" is a
+	// configuration an operator reaches by rebuilding only one half. Without
+	// this, verdict below checked only that ok/version were present, never
+	// their value, and the skew surfaced much later as a confusing failure
+	// about a memory row rather than about the app.
+	//
+	// The floor moves with the wire contract, not with every release: bump
+	// boardKitVersion's minor component when a route's request or response
+	// shape changes in a way this binary's verify* checks depend on, then
+	// raise this to match. 0.2.0 is the first version whose DELETE
+	// /api/memories route answers with the board's normalized (project, key)
+	// pair; verifyMemoryDeleted in main.go requires exactly that, and against
+	// a 0.1.0 board it reports a row name that was never in the table.
+	minBoardVersion = "0.2.0"
 )
+
+// compareBoardVersion orders two dotted-numeric version strings by component,
+// returning -1/0/+1 and whether both sides could be parsed at all. Missing
+// trailing components read as 0, so "0.2" and "0.2.0" are the same version.
+//
+// Per-component and numeric rather than lexical on purpose: a string compare
+// puts "0.10.0" before "0.9.0", which would read a newer board as stale the
+// first time the minor component reaches double digits.
+func compareBoardVersion(got, want string) (int, bool) {
+	gotParts, ok := parseBoardVersion(got)
+	if !ok {
+		return 0, false
+	}
+	wantParts, ok := parseBoardVersion(want)
+	if !ok {
+		return 0, false
+	}
+	for i := 0; i < len(gotParts) || i < len(wantParts); i++ {
+		g, w := 0, 0
+		if i < len(gotParts) {
+			g = gotParts[i]
+		}
+		if i < len(wantParts) {
+			w = wantParts[i]
+		}
+		switch {
+		case g < w:
+			return -1, true
+		case g > w:
+			return 1, true
+		}
+	}
+	return 0, true
+}
+
+// parseBoardVersion splits a dotted-numeric version into its components,
+// reporting false for anything else — an empty string, a pre-release suffix,
+// a name. Callers must treat that as "no opinion" rather than "too old": a
+// version that is not dotted-numeric did not come from a BossSDD.app build,
+// so the version floor has nothing to say about it.
+func parseBoardVersion(version string) ([]int, bool) {
+	fields := strings.Split(strings.TrimSpace(version), ".")
+	parts := make([]int, 0, len(fields))
+	for _, field := range fields {
+		n, err := strconv.Atoi(field)
+		if err != nil || n < 0 {
+			return nil, false
+		}
+		parts = append(parts, n)
+	}
+	return parts, true
+}
 
 // board talks to the Plan SDD app's loopback API. The app owns the store and all
 // the scheduling invariants; this process only translates MCP calls into requests.
@@ -226,6 +299,22 @@ func (b *board) verdict(r probeResult) error {
 	}
 	if r.probe.OK == nil || r.probe.Version == nil {
 		return fmt.Errorf("端口 %d 上的进程不是看板：健康检查响应缺少 ok/version 字段。%s", b.port, next)
+	}
+	// A distinct failure from the ones above: the port really is the board,
+	// it is just an older build than this binary's checks were written
+	// against. The message therefore points at the app, not at the port —
+	// `lsof` and BOSS_SDD_PORT are the wrong advice here, and following them
+	// wastes the operator's time.
+	//
+	// An unparseable version yields ok == false and is deliberately let
+	// through; see parseBoardVersion.
+	if cmp, ok := compareBoardVersion(*r.probe.Version, minBoardVersion); ok && cmp < 0 {
+		return fmt.Errorf(
+			"端口 %d 上的看板版本过旧：health 报告 version=%q，本 MCP 需要 >= %s。"+
+				"这是 BossSDD.app 没跟着 MCP 一起重建导致的版本不一致；"+
+				"请重新构建并重新安装 app（./Scripts/bundle.sh --install），然后重试。",
+			b.port, *r.probe.Version, minBoardVersion,
+		)
 	}
 	return nil
 }

@@ -61,6 +61,109 @@ func TestVerdictAcceptsRealHealthShape(t *testing.T) {
 	}
 }
 
+// ---- the version floor: a stale BossSDD.app against a current binary ----
+//
+// verdict used to check only that ok/version were *present*, never their
+// value, so "old app installed in /Applications, freshly built MCP binary"
+// sailed through identity verification and failed later, somewhere
+// downstream, with an error about a row name instead of about the app.
+
+// probeAtVersion builds the probeResult a healthy board reporting `version`
+// would produce, so these tests exercise verdict's judgement and nothing else.
+func probeAtVersion(version string) probeResult {
+	ok := true
+	return probeResult{status: http.StatusOK, probe: healthProbe{OK: &ok, Version: &version}}
+}
+
+// The failing direction, which is the only one that proves the floor exists.
+// The error has to name what was found, what is needed, and the remedy —
+// "version too old" alone sends the operator looking.
+func TestVerdictRejectsABoardBelowTheVersionFloor(t *testing.T) {
+	b := &board{port: 18888}
+	err := b.verdict(probeAtVersion("0.1.0"))
+	mustContain(t, err, "18888", "0.1.0", minBoardVersion, "bundle.sh --install")
+}
+
+// A board exactly at the floor is current, not stale: the floor is the
+// oldest version this binary's checks are written against, not the oldest
+// one they refuse.
+func TestVerdictAcceptsABoardExactlyAtTheVersionFloor(t *testing.T) {
+	b := &board{port: 18888}
+	if err := b.verdict(probeAtVersion(minBoardVersion)); err != nil {
+		t.Fatalf("a board exactly at the floor must pass: %v", err)
+	}
+}
+
+// Comparison is per-component and numeric, not lexical: "0.10.0" is newer
+// than "0.9.0" even though it sorts before it as a string.
+func TestVerdictComparesVersionComponentsNumericallyNotLexically(t *testing.T) {
+	if cmp, ok := compareBoardVersion("0.10.0", "0.9.0"); !ok || cmp <= 0 {
+		t.Fatalf("0.10.0 must compare newer than 0.9.0, got cmp=%d ok=%v", cmp, ok)
+	}
+	if cmp, ok := compareBoardVersion("0.2.0", "0.2"); !ok || cmp != 0 {
+		t.Fatalf("a missing trailing component must read as 0, got cmp=%d ok=%v", cmp, ok)
+	}
+}
+
+// Deliberate lenience, not an oversight. The floor exists to tell board
+// builds apart, and every board build reports the dotted-numeric
+// boardKitVersion literal. A version string that is not dotted-numeric did
+// not come from a stale BossSDD.app at all — it is some other process, which
+// is the shape checks' business, not the floor's. The in-repo test doubles
+// report "double" and must keep reaching the routes they exist to exercise.
+func TestVerdictIgnoresAnUnparseableVersion(t *testing.T) {
+	b := &board{port: 18888}
+	if err := b.verdict(probeAtVersion("double")); err != nil {
+		t.Fatalf("a version that is not dotted-numeric is not a stale board and must not trip the floor: %v", err)
+	}
+}
+
+// The other half of "the floor must actually discriminate": a floor set above
+// the version the board in this repo ships would reject every board,
+// including a freshly built one. This reads the single source of truth —
+// Sources/BoardKit/HTTPServer.swift, the literal Scripts/bundle.sh and
+// Scripts/verify.sh both derive from — rather than a copy of it, so the two
+// halves cannot drift apart silently.
+func TestVersionFloorIsNotAheadOfTheBoardThisRepoShips(t *testing.T) {
+	shipped := shippedBoardKitVersion(t)
+	cmp, ok := compareBoardVersion(shipped, minBoardVersion)
+	if !ok {
+		t.Fatalf("boardKitVersion %q is not dotted-numeric, so the floor in this binary can never judge it", shipped)
+	}
+	if cmp < 0 {
+		t.Fatalf("boardKitVersion %q is below minBoardVersion %s: a freshly built app would be rejected as stale", shipped, minBoardVersion)
+	}
+	// And the paired direction: a board one minor behind the shipped one is
+	// what a stale /Applications/BossSDD.app looks like, and must be caught.
+	b := &board{port: 18888}
+	if err := b.verdict(probeAtVersion("0.1.0")); err == nil {
+		t.Fatalf("the floor accepts 0.1.0, the version every pre-%s board reported; it cannot tell a stale app apart", minBoardVersion)
+	}
+}
+
+// shippedBoardKitVersion reads the version the Swift board actually reports
+// on /api/health, from the one declaration that defines it.
+func shippedBoardKitVersion(t *testing.T) string {
+	t.Helper()
+	const path = "../Sources/BoardKit/HTTPServer.swift"
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("cannot read %s: %v", path, err)
+	}
+	for _, line := range strings.Split(string(source), "\n") {
+		if !strings.HasPrefix(line, "public let boardKitVersion") {
+			continue
+		}
+		parts := strings.Split(line, `"`)
+		if len(parts) < 2 {
+			t.Fatalf("cannot read a quoted version out of %q", line)
+		}
+		return parts[1]
+	}
+	t.Fatalf("no `public let boardKitVersion` declaration in %s", path)
+	return ""
+}
+
 // ---- verifyIdentity: caching semantics (Finding 1 / Finding 4) ----
 
 // The classic reported bug and the worse variant the reviewer measured: a
@@ -252,6 +355,30 @@ func TestCallSucceedsWhenBoardAnswersNormally(t *testing.T) {
 	}
 	if !out.OK || out.Version != "9.9.9" || out.Runs != 2 {
 		t.Fatalf("decoded health does not match response: %#v", out)
+	}
+}
+
+// The whole path the operator actually walks, not just verdict's judgement:
+// the process on the port is the board and answers health happily, but it is
+// a build older than this binary's checks. The first tool call must stop
+// there and say so. Before the floor existed this call reached /api/runs and
+// succeeded, and the skew only surfaced later as an error about a memory row.
+func TestCallStopsAtAStaleBoardBeforeReachingTheRoute(t *testing.T) {
+	var reachedRoute atomic.Int64
+	b := newTestBoard(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/health" {
+			w.Write([]byte(`{"ok":true,"version":"0.1.0","port":18888,"runs":0}`))
+			return
+		}
+		reachedRoute.Add(1)
+		w.Write([]byte(`{"ok":true,"version":"0.1.0","port":18888,"runs":0}`))
+	})
+	var out wireHealth
+	err := b.call(context.Background(), "GET", "/api/runs", nil, &out)
+	mustContain(t, err, "0.1.0", minBoardVersion, "bundle.sh --install")
+	if reachedRoute.Load() != 0 {
+		t.Fatalf("a stale board must be refused before the request goes out; the route was reached %d time(s)", reachedRoute.Load())
 	}
 }
 

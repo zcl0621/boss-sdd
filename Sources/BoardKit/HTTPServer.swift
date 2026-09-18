@@ -1,7 +1,17 @@
 import Foundation
 import Network
 
-public let boardKitVersion = "0.1.0"
+/// The single source of truth for this board's version. `/api/health` reports
+/// it, `Scripts/bundle.sh` reads it out of this file for the bundle's
+/// CFBundleShortVersionString, and the Go MCP server holds a floor against it
+/// (`minBoardVersion` in mcp/client.go) so a stale installed app is named as
+/// such instead of failing somewhere downstream.
+///
+/// Bump the minor component whenever the loopback wire contract changes in a
+/// way the MCP server's checks depend on, and raise that floor to match.
+/// 0.2.0: DELETE /api/memories answers with the board's normalized
+/// (project, key) pair rather than the caller's raw spelling.
+public let boardKitVersion = "0.2.0"
 
 /// 18866 长期被已退役的 Python 看板占着；换一个端口比抢端口干净。
 public let defaultBoardPort: UInt16 = 18888
