@@ -17,9 +17,9 @@ Standing rules:
 - Goals are stated as something the user can observe. Non-goals are stated as
   specifically as you can make them.
 - Each open question says why it matters, which way you lean, and what it
-  blocks.
-  A question whose answer can be read out of the code or the constraint files is
-  not an open question; look it up instead of spending the user's attention.
+  blocks. A question whose answer can be read out of the code or the constraint
+  files is not an open question; look it up instead of spending the user's
+  attention.
 - Never derive a non-goals list from the shape of the current implementation.
   That produces a boundary saying the product is whatever the code already does.
 - If you cannot form a boundary, say so plainly and return the questions you do

@@ -157,8 +157,10 @@ you ran in.
    project's memory with `plan_memory_list` before step 3, carrying what it
    returns into the recon lanes as claims for them to check
    ([memory.md](references/memory.md)). Write `off` instead only where the user
-   asked for it off; then leave the four tools alone for the rest of the run,
-   here and at every later point that would have touched them.
+   asked for it off; then leave the four `plan_memory_*` tools alone for the rest
+   of the run, here and at every later point that would have touched them. Off
+   applies to those four and to nothing else: the board tools are a separate
+   question, settled by step 1's first sentence.
 2. Read the project's constraint files, memory files, current git status, and any
    changes the user already has in the working tree. Do not overwrite work that
    is not yours. Record the current `HEAD`, or the last clean commit, as the

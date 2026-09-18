@@ -856,8 +856,7 @@ nodes have been implemented, reviewed, and gated, so the cost of the collision
 has already been paid twice over before anyone sees it. And resolving one is not
 free either: it takes a sync into the node's worktree, a round spent by somebody,
 and a brief that explains the other side to an agent that did not write it.
-Scheduling the overlap
-away costs one pass.
+Scheduling the overlap away costs one pass.
 
 ## Cleanup
 

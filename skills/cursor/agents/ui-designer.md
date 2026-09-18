@@ -30,8 +30,7 @@ Standing rules of your own:
 - When the task can only be satisfied by replacing the project's existing design
   language rather than extending it, that is a decision to report, not to make.
 - Do not commit. Do not push. The orchestrator makes the per-node commit once
-  the
-  node has passed review and its gates.
+  the node has passed review and its gates.
 
 ## Where the authoritative text lives
 

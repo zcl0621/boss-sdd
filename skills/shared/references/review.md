@@ -16,9 +16,9 @@ full of things that were never wrong.
 Dispatch these lanes in one message so they run in parallel.
 
 **Static review, `reviewer`, mandatory for every task regardless of its role.**
-Give it the task's text from the plan, the plan path, the hard rules, the working
-directory, and the diff command. The last two go together and depend on the
-execution mode:
+Give it, each in its own tagged block: the task's text from the plan, the plan
+path, the hard rules, the working directory, and the diff command. The working
+directory and the diff command go together and depend on the execution mode:
 
 - Shared-tree mode: the repository root, and
   `git diff <baseline> -- <scope paths>`. The path restriction is required here.
@@ -44,9 +44,13 @@ The static reviewer checks:
 - Whether the tests cover the behaviour or merely the implementation details.
 - Unnecessary complexity, duplicated logic, and hand-edited generated files.
 
-**Runtime walkthrough, `qa`, when the task carries `ui-designer` or `qa`.** Run
-it when the change affects a UI, a CLI interaction, a deployment script, a
-service integration, or anything else a person interacts with.
+**Runtime walkthrough, `qa`, when the task carries `ui-designer` or `qa`.** The
+marker on the task is what decides this, and every task carrying either one gets
+the walkthrough. The kinds of change that earn a task one of those markers in
+phase 1 are a UI, a CLI interaction, a deployment script, a service integration,
+or anything else a person interacts with; that is a planning criterion, not a
+second condition to re-test here. A marked task whose change looks undramatic to
+you still gets the lane.
 
 Give it, each in its own tagged block:
 
@@ -164,12 +168,12 @@ records as `Base ref`, which is the commit from phase 0 unless worktree mode's
 uncommitted-changes precondition replaced it; read the header rather than
 remembering phase 0. `headRef` is `HEAD`, or the tip of the integration branch if
 you ran in worktree mode, where the branch is what every completed node merged
-into and the individual worktrees hold nothing phase 3 needs. Give every lane the
-plan document's path, the hard rules, the diff range
-`git diff <baseRef>..<headRef>`, and the working directory to read and run in:
-the repository root in shared-tree mode, the integration worktree in worktree
-mode. Unlike task review, this diff is not path restricted:
-the whole point is to see the change as one thing.
+into and the individual worktrees hold nothing phase 3 needs. Give every lane,
+each in its own tagged block: the plan document's path, the hard rules, the diff
+range `git diff <baseRef>..<headRef>`, its lane's question, and the working
+directory to read and run in, which is the repository root in shared-tree mode
+and the integration worktree in worktree mode. Unlike task review, this diff is
+not path restricted: the whole point is to see the change as one thing.
 
 The working directory is not made redundant by the diff range. Refs are
 repo-global, so the range itself resolves from any worktree, but lanes 1 through 5

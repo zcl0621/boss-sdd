@@ -24,10 +24,9 @@ a merge and a second gate run, and a node blocked after its review passed return
 to `review` rather than to `pending`. It also adds a merge lock, which is
 deliberately not an `exclusive_resources` entry and is not subject to the batch
 rules; that file says why. Everything else here holds unchanged, including the
-declarations
-themselves, the ready rule, the batch rules, and the state names. What
-`write_scope` overlap costs you changes from concurrent corruption to a merge
-conflict, and the rule against overlapping a batch stays either way.
+declarations themselves, the ready rule, the batch rules, and the state names.
+What `write_scope` overlap costs you changes from concurrent corruption to a
+merge conflict, and the rule against overlapping a batch stays either way.
 
 ## What each task declares
 
