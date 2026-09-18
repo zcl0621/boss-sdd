@@ -16,6 +16,24 @@ reviewed finish, and wants to watch the state of that while it happens.
 Apple silicon Macs only. `Scripts/bundle.sh` cross-compiles the MCP binary for
 `darwin/arm64` and nothing else, and the app targets macOS 14 or later.
 
+## What the board looks like
+
+This is the window `plan-sdd` reports into, seeded here with a synthetic run so
+the screenshots hold no real project names or paths. Tasks lay out by
+topological layer, so the graph view shows what could run in parallel next to
+what already has, what is blocked, and what is holding an exclusive resource:
+
+![Board window, graph view, light appearance](docs/images/board-graph-light.png)
+
+The same run in the columns view, which groups the same tasks by status
+instead of by dependency layer:
+
+![Board window, columns view, light appearance](docs/images/board-columns-light.png)
+
+And in dark appearance, back on the graph view:
+
+![Board window, graph view, dark appearance](docs/images/board-graph-dark.png)
+
 ## Layout
 
 | Directory | What is in it |
