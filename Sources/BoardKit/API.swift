@@ -273,8 +273,14 @@ public struct API: Sendable {
         case ("DELETE", let parts)
             where parts.count == 3 && parts[0] == "api" && parts[1] == "memories":
             let project = try requiredQuery(request, "project")
-            try store.deleteMemory(project: project, key: parts[2])
-            return try encode(["deleted": parts[2], "project": project])
+            // Report what the store deleted, not what the caller typed: the raw
+            // path segment and query value are pre-normalization, so echoing them
+            // names a row that need not exist (`DELETE .../Gate` answered
+            // `"Gate"` while deleting `gate`). GET and POST already answer with
+            // the stored record; this keeps all three on the store's spelling
+            // without `API.swift` owning a second copy of the folding rule.
+            let removed = try store.deleteMemory(project: project, key: parts[2])
+            return try encode(["deleted": removed.key, "project": removed.project])
 
         default:
             throw BoardError.notFound("no route for \(request.method) \(path)")

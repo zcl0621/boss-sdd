@@ -428,10 +428,18 @@ public final class Store: @unchecked Sendable {
         }
     }
 
-    public func deleteMemory(project: String, key: String) throws {
+    /// Returns the normalized `(project, key)` the delete actually ran against,
+    /// so a caller reporting what it deleted names the row that existed rather
+    /// than the spelling it was handed. Without this the HTTP route had to guess,
+    /// and guessing meant a second copy of the normalization rule living in
+    /// `API.swift` — the two drift, and `DELETE /api/memories/Gate` answers with a
+    /// key that was never in the table. `@discardableResult` because the store's
+    /// own callers delete for the effect, not the echo.
+    @discardableResult
+    public func deleteMemory(project: String, key: String) throws -> (project: String, key: String) {
         let project = try Self.normalizedProject(project)
         let key = try Self.normalizedKey(key)
-        try queue.sync {
+        return try queue.sync {
             let rows = try database.query(
                 #"SELECT 1 FROM memories WHERE project = ? AND "key" = ?"#,
                 [.text(project), .text(key)]
@@ -445,6 +453,7 @@ public final class Store: @unchecked Sendable {
                     [.text(project), .text(key)]
                 )
             }
+            return (project: project, key: key)
         }
     }
 

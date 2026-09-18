@@ -847,6 +847,81 @@ private final class TestServer {
         }
     }
 
+    /// The three memory routes must agree on what they call the thing they acted
+    /// on. GET and POST answer with the stored record, so their key is already
+    /// folded and their project already trimmed; DELETE used to answer with the
+    /// raw path segment and query value it was handed, so `DELETE .../Gate.Swift-Test`
+    /// reported deleting `Gate.Swift-Test` while the row it removed was
+    /// `gate.swift-test` — a caller logging that response logged a key the table
+    /// never held.
+    ///
+    /// Asserted as one spelling shared across all three rather than three
+    /// independent checks: a per-route assertion would have passed both before and
+    /// after the defect existed, because each route was self-consistent. It is the
+    /// agreement that was broken, so it is the agreement that is pinned.
+    @Test func allThreeMemoryRoutesReportTheSameNormalizedProjectAndKey() async throws {
+        try await withServer { server in
+            // Sent mixed-case and padded on both dimensions; the store trims the
+            // project and trims-and-folds the key.
+            let sentProject = "  boss-sdd  "
+            let sentKey = "  Gate.Swift-Test  "
+            let storedProject = "boss-sdd"
+            let storedKey = "gate.swift-test"
+            let encodedProject = try #require(
+                sentProject.addingPercentEncoding(withAllowedCharacters: .alphanumerics),
+                "could not percent-encode the project"
+            )
+            let encodedKey = try #require(
+                sentKey.addingPercentEncoding(withAllowedCharacters: .alphanumerics),
+                "could not percent-encode the key"
+            )
+
+            let (postStatus, posted) = try await server.send(
+                "POST", "/api/memories",
+                json: #"""
+                    {"project":"\#(sentProject)","key":"\#(sentKey)","value":"swift test",
+                     "kind":"gate","source":"README.md:82"}
+                    """#
+            )
+            #expect(postStatus == 200)
+            let postedProject = try field(posted, "project", String.self)
+            let postedKey = try field(posted, "key", String.self)
+
+            let (getStatus, got) = try await server.send(
+                "GET", "/api/memories/\(encodedKey)?project=\(encodedProject)", contentType: nil
+            )
+            #expect(getStatus == 200)
+            let gotProject = try field(got, "project", String.self)
+            let gotKey = try field(got, "key", String.self)
+
+            let (deleteStatus, deleted) = try await server.send(
+                "DELETE", "/api/memories/\(encodedKey)?project=\(encodedProject)", contentType: nil
+            )
+            #expect(deleteStatus == 200)
+            let deletedProject = try field(deleted, "project", String.self)
+            let deletedKey = try field(deleted, "deleted", String.self)
+
+            // All three name the row the store acted on, not the caller's spelling.
+            #expect(postedKey == storedKey)
+            #expect(gotKey == storedKey)
+            #expect(deletedKey == storedKey)
+            #expect(postedProject == storedProject)
+            #expect(gotProject == storedProject)
+            #expect(deletedProject == storedProject)
+
+            // And the agreement itself, stated directly: whatever the routes
+            // report, they report the same thing.
+            #expect(deletedKey == postedKey)
+            #expect(deletedKey == gotKey)
+            #expect(deletedProject == postedProject)
+            #expect(deletedProject == gotProject)
+
+            // The delete really happened, so the echo above is not a report about
+            // a row that survived.
+            #expect(try server.store.memories(project: storedProject).isEmpty)
+        }
+    }
+
     /// A recorded decision, not an accident, and the counterpart to
     /// `aTrailingSlashFallsThroughToTheBatchRoute`: `path.split(separator: "/")`
     /// drops empty subsequences, so `GET /api/memories/?project=p` — an agent whose
