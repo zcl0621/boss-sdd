@@ -146,7 +146,7 @@ this line rests on this repository's own documentation and not on that table.
 Where your installation registers MCP servers differently, its documentation
 wins over this one.
 
-That registration exposes seven tools, named in `mcp/main.go`:
+That registration exposes eleven tools, named in `mcp/main.go`:
 
 | Tool | What it does |
 | --- | --- |
@@ -157,6 +157,10 @@ That registration exposes seven tools, named in `mcp/main.go`:
 | `plan_set_task` | create or update one task |
 | `plan_graph` | read-only graph projection |
 | `plan_get_run` | every task plus the projection |
+| `plan_memory_list` | every memory for a project, or only one kind of them |
+| `plan_memory_get` | one memory, by project and key |
+| `plan_memory_add` | upsert a memory on `(project, key)` |
+| `plan_memory_delete` | remove one memory, by project and key |
 
 Your client may present them under a namespace of its own. Match on these names.
 

@@ -51,7 +51,7 @@ against, except the four marked, which say what they rest on instead.
 | "the model identifiers that are valid for you" | `fable`, `opus`, `sonnet`, `haiku`, routed per role by the Claude Code column of [shared/roles.md](shared/roles.md) |
 | "whether your platform can resume the subagent" ([dispatch.md](shared/references/dispatch.md)) | it can: `SendMessage`, addressed by the agent id the dispatch returned. **Use form A.** |
 | "which of the two worktree cases you are" ([worktree-mode.md](shared/references/worktree-mode.md)) | the second: trees you create with `git worktree add` and name in each node's `<working_directory>` *(the table licenses `isolation: "worktree"` on the `Agent` call and nothing more; the case follows from what it leaves unsaid, below)* |
-| "the `plan-sdd` MCP tools" ([board.md](shared/references/board.md)) | the seven `plan_*` tools of the board server, registered per [INSTALL.md](INSTALL.md) *(from `mcp/main.go` and `README.md` in the repository; the table has no MCP row for any platform)* |
+| "the `plan-sdd` MCP tools" ([board.md](shared/references/board.md)) | the eleven `plan_*` tools of the board server, registered per [INSTALL.md](INSTALL.md) *(from `mcp/main.go` and `README.md` in the repository; the table has no MCP row for any platform)* |
 | "check whether your platform exposes an invocable review skill" | [references/native-review.md](references/native-review.md) *(not from the table; it says what it rests on)* |
 | "wait on running nodes through your platform's completion mechanism" ([dag-contract.md](shared/references/dag-contract.md)) | not covered by the verified table. Use whatever your session gives you for awaiting a dispatched agent, and do not poll in a loop. *(unsourced)* |
 
