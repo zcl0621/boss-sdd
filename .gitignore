@@ -1,0 +1,19 @@
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+*.xcuserstate
+
+# Go
+mcp/plan-sdd-mcp
+
+# 打包产物
+*.app/
+
+# macOS
+.DS_Store

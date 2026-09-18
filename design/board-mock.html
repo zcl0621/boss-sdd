@@ -1,0 +1,570 @@
+<title>Plan SDD 看板</title>
+<style>
+/*
+  Layering follows Apple's Materials guidance:
+    · Liquid Glass (regular variant) is the FUNCTIONAL layer only — toolbar, sidebar,
+      the floating control cluster. HIG: "Don't use Liquid Glass in the content layer."
+      Regular, not clear: these carry a lot of text.
+    · The content layer — canvas, task cards, inspector — uses opaque standard surfaces.
+  Colours below stand in for macOS dynamic system colours (labelColor, separatorColor,
+  controlBackgroundColor, controlAccentColor, systemGreen…). In the SwiftUI build these
+  become the real semantic colours, never hard-coded hex — HIG: "Avoid hard-coding
+  system color values." Labels stay semi-transparent black/white so they stay legible
+  on any material underneath.
+*/
+:root{
+  --desktop-a:#8C9AA3; --desktop-b:#6E7A84; --desktop-c:#AFAEA6;
+  --window-bg:#ECECEC;
+  --control-bg:#FFFFFF;
+  --content-bg:#F6F6F6;
+  --raised:#FFFFFF;
+  --fill-quaternary:rgba(0,0,0,.045);
+  --fill-tertiary:rgba(0,0,0,.08);
+  --label:rgba(0,0,0,.85);
+  --label-2:rgba(0,0,0,.5);
+  --label-3:rgba(0,0,0,.26);
+  --separator:rgba(0,0,0,.11);
+  --accent:#007AFF;
+  --green:#28CD41; --orange:#FF9500; --red:#FF3B30; --gray:#8E8E93;
+  --glass-tint:rgba(246,246,246,.62);
+  --glass-edge:rgba(255,255,255,.7);
+  --glass-shade:rgba(0,0,0,.06);
+  --window-shadow:0 26px 60px rgba(0,0,0,.28), 0 2px 6px rgba(0,0,0,.18);
+  --float-shadow:0 6px 18px rgba(0,0,0,.14), 0 1px 3px rgba(0,0,0,.10);
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue",sans-serif;
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+  --desktop-a:#2A3138; --desktop-b:#161A1E; --desktop-c:#3A3733;
+  --window-bg:#323232;
+  --control-bg:#1E1E1E;
+  --content-bg:#252525;
+  --raised:#2D2D2D;
+  --fill-quaternary:rgba(255,255,255,.05);
+  --fill-tertiary:rgba(255,255,255,.10);
+  --label:rgba(255,255,255,.85);
+  --label-2:rgba(255,255,255,.55);
+  --label-3:rgba(255,255,255,.25);
+  --separator:rgba(255,255,255,.15);
+  --accent:#0A84FF;
+  --green:#32D74B; --orange:#FF9F0A; --red:#FF453A; --gray:#98989D;
+  --glass-tint:rgba(44,44,44,.60);
+  --glass-edge:rgba(255,255,255,.14);
+  --glass-shade:rgba(0,0,0,.30);
+  --window-shadow:0 26px 60px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.4);
+  --float-shadow:0 6px 18px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.3);
+}}
+:root[data-theme="dark"]{
+  --desktop-a:#2A3138; --desktop-b:#161A1E; --desktop-c:#3A3733;
+  --window-bg:#323232; --control-bg:#1E1E1E; --content-bg:#252525; --raised:#2D2D2D;
+  --fill-quaternary:rgba(255,255,255,.05); --fill-tertiary:rgba(255,255,255,.10);
+  --label:rgba(255,255,255,.85); --label-2:rgba(255,255,255,.55); --label-3:rgba(255,255,255,.25);
+  --separator:rgba(255,255,255,.15);
+  --accent:#0A84FF; --green:#32D74B; --orange:#FF9F0A; --red:#FF453A; --gray:#98989D;
+  --glass-tint:rgba(44,44,44,.60); --glass-edge:rgba(255,255,255,.14); --glass-shade:rgba(0,0,0,.30);
+  --window-shadow:0 26px 60px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.4);
+  --float-shadow:0 6px 18px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.3);
+}
+
+*{box-sizing:border-box}
+body{margin:0;color:var(--label);font:13px/1.45 var(--sans);-webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(120% 90% at 12% 8%, var(--desktop-a) 0%, transparent 58%),
+    radial-gradient(100% 80% at 88% 96%, var(--desktop-c) 0%, transparent 52%),
+    var(--desktop-b)}
+.page{padding:30px 16px 34px;display:flex;flex-direction:column;gap:16px;align-items:center}
+
+/* Liquid Glass, regular variant: blurs and lifts the luminosity of what passes under it,
+   with a specular top edge and a shaded bottom edge. Never used on the content layer. */
+.glass{
+  background:var(--glass-tint);
+  -webkit-backdrop-filter:blur(30px) saturate(180%);
+  backdrop-filter:blur(30px) saturate(180%);
+  box-shadow:inset 0 .5px 0 var(--glass-edge), inset 0 -.5px 0 var(--glass-shade);
+}
+
+.window{width:100%;max-width:1200px;border-radius:13px;overflow:hidden;
+  box-shadow:var(--window-shadow);background:transparent;
+  border:.5px solid var(--separator)}
+
+/* ---- unified toolbar (functional layer) ---- */
+.toolbar{position:relative;z-index:3;display:flex;align-items:center;gap:12px;
+  height:46px;padding:0 13px;border-bottom:.5px solid var(--separator)}
+.lights{display:flex;gap:8px;margin-right:4px}
+.lights i{width:12px;height:12px;border-radius:50%;display:block}
+.lights i:nth-child(1){background:#FF5F57}.lights i:nth-child(2){background:#FEBC2E}
+.lights i:nth-child(3){background:#28C840}
+.doc{display:flex;flex-direction:column;justify-content:center;min-width:0;gap:1px}
+.doc .t{font-size:13px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.doc .s{font-size:11px;color:var(--label-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spacer{flex:1}
+/* Segmented control — a system component, so it sits on the glass without its own material. */
+.seg{display:flex;background:var(--fill-tertiary);border-radius:7px;padding:2px;gap:2px}
+.seg button{appearance:none;border:0;background:none;font:inherit;font-size:12px;
+  color:var(--label);padding:3px 12px;border-radius:5px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--raised);font-weight:590;
+  box-shadow:0 1px 2px rgba(0,0,0,.14), inset 0 .5px 0 var(--glass-edge)}
+.seg button:focus-visible{outline:2.5px solid color-mix(in srgb,var(--accent) 55%,transparent);
+  outline-offset:1px}
+.serve{display:flex;align-items:center;gap:6px;font:11px/1 var(--mono);color:var(--label-2);
+  padding:4px 9px;border-radius:7px;background:var(--fill-quaternary)}
+.serve .beacon{width:6px;height:6px;border-radius:50%;background:var(--green)}
+
+.body{display:grid;grid-template-columns:225px minmax(0,1fr) 300px;height:600px}
+
+/* ---- sidebar (functional layer: glass, per HIG's own example) ---- */
+.sidebar{position:relative;z-index:2;display:flex;flex-direction:column;
+  border-right:.5px solid var(--separator);overflow:hidden}
+.side-head{padding:12px 14px 6px;font-size:11px;font-weight:600;color:var(--label-2)}
+.runs{display:flex;flex-direction:column;gap:2px;padding:0 8px 10px;overflow-y:auto}
+/* macOS sidebar selection: an inset rounded fill in the accent colour, not a coloured rail. */
+.run{appearance:none;border:0;background:none;text-align:left;font:inherit;color:var(--label);
+  padding:7px 9px;border-radius:7px;cursor:pointer;display:flex;gap:8px;align-items:flex-start}
+.run:hover{background:var(--fill-quaternary)}
+.run[aria-current="true"]{background:var(--accent);color:#fff}
+.run[aria-current="true"] .p,.run[aria-current="true"] .m{color:rgba(255,255,255,.78)}
+.run:focus-visible{outline:2.5px solid color-mix(in srgb,var(--accent) 55%,transparent);outline-offset:1px}
+.run .glyph{flex:none;margin-top:1px}
+.run .body-col{min-width:0;display:flex;flex-direction:column;gap:1px}
+.run .t{font-size:13px;font-weight:590;letter-spacing:-.01em;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.run .p{font:10.5px/1.35 var(--mono);color:var(--label-2);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.run .m{font-size:11px;color:var(--label-2);font-variant-numeric:tabular-nums;margin-top:2px}
+
+/* ---- content layer: opaque, no glass ---- */
+.main{position:relative;background:var(--content-bg);overflow:hidden;display:flex;flex-direction:column}
+.canvas{flex:1;overflow:auto;padding:14px 18px 62px;scroll-padding-top:14px}
+/* Scroll edge effect: content fades as it passes beneath the floating cluster. */
+.main::after{content:"";position:absolute;left:0;right:0;bottom:0;height:64px;pointer-events:none;
+  background:linear-gradient(to top,var(--content-bg) 18%,transparent);z-index:1}
+
+.stage{position:relative;display:flex;gap:54px;align-items:flex-start;width:max-content;min-width:100%}
+.stage>svg.edges{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+.layer{display:flex;flex-direction:column;gap:9px;position:relative;z-index:1}
+.layer-label{font-size:11px;color:var(--label-3);padding:0 2px 3px;font-variant-numeric:tabular-nums}
+
+/* Task card: an opaque content-layer surface. Status is carried by a symbol and a word,
+   not by a coloured edge — HIG: "Avoid relying solely on color to ... communicate
+   essential information ... use text labels or glyph shapes to identify objects or states." */
+.card{width:190px;appearance:none;text-align:left;font:inherit;color:var(--label);cursor:pointer;
+  background:var(--raised);border:.5px solid var(--separator);border-radius:8px;
+  padding:8px 10px 9px;display:flex;flex-direction:column;gap:4px;
+  box-shadow:0 1px 1.5px rgba(0,0,0,.05)}
+.card:hover{background:color-mix(in srgb,var(--label) 4%,var(--raised))}
+.card:focus-visible{outline:2.5px solid color-mix(in srgb,var(--accent) 55%,transparent);outline-offset:1px}
+.card .top{display:flex;align-items:center;gap:5px}
+.card .id{font:10.5px/1.4 var(--mono);color:var(--label-2);letter-spacing:-.01em}
+.card .state{margin-left:auto;font-size:11px;color:var(--label-2)}
+.card .title{font-size:12px;line-height:16px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .who{font-size:11px;color:var(--label-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card.is-selected{border-color:color-mix(in srgb,var(--accent) 70%,transparent);
+  box-shadow:0 0 0 2.5px color-mix(in srgb,var(--accent) 25%,transparent)}
+.stage.has-selection .card:not(.is-selected):not(.is-related){opacity:.32}
+.glyph{width:14px;height:14px;flex:none;display:block}
+.spin{transform-origin:7px 7px;animation:spin 1.6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+
+/* floating control cluster over the canvas — glass, because it is a control */
+.float{position:absolute;left:18px;bottom:14px;z-index:2;display:flex;align-items:center;gap:10px;
+  padding:6px 11px;border-radius:11px;box-shadow:var(--float-shadow);font-size:11px;color:var(--label-2)}
+.float .k{display:flex;align-items:center;gap:5px}
+.float .sep{width:.5px;height:14px;background:var(--separator)}
+
+/* status columns */
+.columns{display:grid;grid-template-columns:repeat(5,minmax(172px,1fr));gap:14px;min-width:max-content}
+.col-head{display:flex;align-items:center;gap:6px;padding:0 2px 7px;
+  border-bottom:.5px solid var(--separator);margin-bottom:9px}
+.col-head .nm{font-size:11px;font-weight:600}
+.col-head .n{margin-left:auto;font:11px/1 var(--mono);color:var(--label-2);font-variant-numeric:tabular-nums}
+.col-list{display:flex;flex-direction:column;gap:8px}
+.col-empty{font-size:11px;color:var(--label-3);padding:5px 2px}
+
+/* ---- inspector: content layer, opaque ---- */
+.inspector{background:var(--control-bg);border-left:.5px solid var(--separator);
+  overflow-y:auto;min-width:0}
+.insp-head{padding:13px 15px 11px;border-bottom:.5px solid var(--separator)}
+.insp-head .id{font:11px/1.4 var(--mono);color:var(--label-2)}
+.insp-head h2{margin:2px 0 0;font-size:15px;font-weight:600;line-height:20px;letter-spacing:-.01em}
+.insp-head .row{margin-top:8px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px 2px 6px;
+  border-radius:6px;background:var(--fill-quaternary);color:var(--label-2)}
+.field{padding:10px 15px;border-bottom:.5px solid var(--separator)}
+.field h3{margin:0 0 5px;font-size:11px;color:var(--label-2);font-weight:400}
+.field p{margin:0;font-size:12px;line-height:18px}
+.vals{display:flex;flex-wrap:wrap;gap:4px}
+.val{font:10.5px/1.5 var(--mono);padding:2px 6px;border-radius:5px;background:var(--fill-quaternary);
+  color:var(--label);word-break:break-all}
+.val.warn{color:var(--orange);background:color-mix(in srgb,var(--orange) 12%,transparent)}
+.none{font-size:12px;color:var(--label-3)}
+.log{margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.log li{list-style:none;display:grid;grid-template-columns:42px minmax(0,1fr);gap:9px;
+  font-size:11.5px;line-height:16px}
+.log time{font:10.5px/16px var(--mono);color:var(--label-3);font-variant-numeric:tabular-nums}
+.log .what{color:var(--label-2)}
+.log .what b{color:var(--label);font-weight:590}
+
+.caption{max-width:1200px;width:100%;display:flex;gap:22px;flex-wrap:wrap;
+  font-size:11.5px;line-height:17px;color:rgba(255,255,255,.62)}
+.caption div{flex:1 1 250px}
+.caption b{color:rgba(255,255,255,.92);font-weight:600;display:block;margin-bottom:3px;font-size:11px}
+
+@media (max-width:920px){
+  .body{grid-template-columns:1fr;height:auto}
+  .sidebar{border-right:0;border-bottom:.5px solid var(--separator)}
+  .runs{flex-direction:row;padding-bottom:10px}
+  .run{min-width:212px}
+  .main{height:400px}
+  .inspector{border-left:0;border-top:.5px solid var(--separator);max-height:330px}
+  .toolbar{height:auto;padding:8px 12px;flex-wrap:wrap}
+}
+</style>
+
+<div class="page">
+  <div class="window">
+    <div class="toolbar glass">
+      <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="doc"><span class="t" id="run-title"></span><span class="s" id="run-sub"></span></div>
+      <span class="spacer"></span>
+      <div class="seg" role="group" aria-label="视图">
+        <button type="button" id="view-dag" aria-pressed="true">依赖图</button>
+        <button type="button" id="view-board" aria-pressed="false">分栏</button>
+      </div>
+      <span class="serve"><span class="beacon"></span>127.0.0.1:18866</span>
+    </div>
+
+    <div class="body">
+      <nav class="sidebar glass" aria-label="计划">
+        <div class="side-head">运行</div>
+        <div class="runs" id="runs"></div>
+      </nav>
+
+      <div class="main">
+        <div class="canvas" id="canvas"></div>
+        <div class="float glass" id="float"></div>
+      </div>
+
+      <aside class="inspector" id="inspector" aria-label="任务详情"></aside>
+    </div>
+  </div>
+
+  <div class="caption">
+    <div><b>玻璃只在功能层</b>工具栏、侧栏和悬浮控件用 Liquid Glass 的 regular 变体（文字多，按 HIG 该用 regular）。画布、任务卡、检查器全是不透明的内容层——HIG 明确写着内容层不要用玻璃。</div>
+    <div><b>状态不只靠颜色</b>每张卡片带一个 SF Symbols 风格的图形加一个词。颜色是系统语义色，到 SwiftUI 里换成真正的动态系统色，不写死十六进制。</div>
+    <div><b>没有装饰</b>没有彩色竖条、没有渐变卡片。层级由不透明度、0.5pt 分隔线和圆角的同心关系表达——窗口 13、卡片 8、控件 7、标签 5。</div>
+  </div>
+</div>
+
+<script>
+const RUNS = [
+  {
+    id:"fc46951cd4f4453a837d330c49bbcece", title:"收尾消息通道迁移（剩余 task）",
+    project:"~/Project/example-app/.worktrees/t1-channel", status:"running",
+    summary:"goal 模式续推：其余按 DAG 推进；全部共用 gate:full-suite，实际串行（模拟器 / broker / 端口 / 构建锁共享）。",
+    tasks:[
+      {id:"T-AR",s:"done",t:"把 run_turn 拆到圈复杂度 ≤ 7（纯重构，零行为变化）",dep:[],ws:["daemon/provider/"],xr:["gate:full-suite"],who:"implementer",d:"复核通过：行为对照测试全绿，复杂度从 21 降到 6。"},
+      {id:"T-AI-1",s:"done",t:"交互轮次卡在未知画面时推送截屏并可回打字",dep:["T-AR"],ws:["daemon/provider/","daemon/jobs.py"],xr:["gate:full-suite","simulator:A1B2C3D4","daemon-port:8473","broker:example-mqtt"],who:"implementer",d:"实现完成并经 T-AI-2 独立 QA。"},
+      {id:"T-AI-2",s:"done",t:"T-AI-1 的独立 QA（真卡住复现 + 反面用例）",dep:["T-AI-1"],ws:["uitests/"],xr:["gate:full-suite","simulator:A1B2C3D4","daemon-port:8473"],who:"qa",d:"两条用例均复现并在修复后转绿。"},
+      {id:"T-AS",s:"done",t:"前台超过 180 秒的命令被误判为已停止",dep:["T-AI-1"],ws:["daemon/provider/","daemon/tests/"],xr:["gate:full-suite","broker:example-mqtt"],who:"implementer",d:"改为按事件判活，不再用墙钟。"},
+      {id:"T-AT",s:"done",t:"同一轮次里第二次提问被去重逻辑吞掉",dep:["T-AI-1","T-AI-2"],ws:["daemon/provider/","daemon/tests/"],xr:["gate:full-suite","broker:example-mqtt"],who:"implementer",d:"去重键补上轮次序号。"},
+      {id:"T-AU",s:"done",t:"画面指纹把状态栏的分钟倒计时算了进去",dep:["T-AS"],ws:["daemon/provider/","daemon/tests/"],xr:["gate:full-suite","broker:example-mqtt"],who:"implementer",d:"指纹前先剥掉状态栏行。"},
+      {id:"T-AV",s:"done",t:"访问日志把回调查询串明文写进落盘文件",dep:[],ws:["daemon/server.py","daemon/tests/"],xr:["gate:full-suite"],who:"implementer",d:"查询串在落盘前统一打码。"},
+      {id:"T-AW",s:"review",t:"无人接管的面板在停止后留在会话里",dep:["T-AT"],ws:["daemon/provider/","daemon/tests/"],xr:["gate:full-suite"],who:"reviewer",d:"实现完成，等待独立复核；停止路径已补上面板回收。"},
+      {id:"T-AX",s:"done",t:"提示行把进度指示挤出 8 行窗口，停止打断不了轮次",dep:["T-AW"],ws:["daemon/provider/","daemon/tests/"],xr:["gate:full-suite","broker:example-mqtt"],who:"implementer",d:"扫描窗口按实际行数取，不再写死 8。"},
+      {id:"T-AY",s:"running",t:"停止撞上还没开闸的提问线程",dep:["T-AW"],ws:["daemon/provider/","daemon/jobs.py"],xr:["gate:full-suite","broker:example-mqtt"],who:"implementer",d:"已派发；提问线程注册提前到开闸之前。"},
+      {id:"T-AZ",s:"pending",t:"被停止的提问在下一轮又弹出，任务卡在执行中",dep:["T-AY"],ws:["daemon/provider/","daemon/tests/"],xr:["gate:full-suite","broker:example-mqtt"],who:"",d:""},
+      {id:"T-AH",s:"pending",t:"删掉客户端上的实时终端查看器（留 9 删 2）",dep:["T-AI-2"],ws:["daemon/live_tui/","daemon/ops.py"],xr:["gate:full-suite","simulator:A1B2C3D4"],who:"",d:""},
+      {id:"T-AJ",s:"pending",t:"删除后的残留（脚本文案、分享功能核查）",dep:["T-AH"],ws:["daemon/scripts/tunnel.sh","daemon/live_tui/"],xr:["gate:full-suite"],who:"",d:""},
+      {id:"T-AM",s:"pending",t:"冒烟测试「排队计数」偶发失败",dep:[],ws:["daemon/tests/smoke_test.py","daemon/jobs.py"],xr:["gate:full-suite"],who:"",d:""},
+      {id:"T-S",s:"pending",t:"客户端给宿主上不存在的会话渲染出了聊天界面",dep:[],ws:["client/App/","client/Kit/Sources/"],xr:["gate:full-suite","simulator:A1B2C3D4","daemon-port:8473"],who:"",d:""},
+      {id:"T-AN",s:"pending",t:"重连退避遇到 401/403/404 这类「答案」应立刻停",dep:[],ws:["client/App/Services/","client/Kit/Sources/"],xr:["gate:full-suite","simulator:A1B2C3D4"],who:"",d:""}
+    ],
+    events:[
+      {at:"14:02",task:"T-AY",what:"转入执行",note:"gate:full-suite 已由 T-AX 释放"},
+      {at:"13:47",task:"T-AX",what:"标记完成",note:"扫描窗口按实际行数取"},
+      {at:"13:20",task:"T-AW",what:"转入复核",note:"实现完成，等待独立复核"},
+      {at:"12:58",task:"",what:"更新计划",note:"goal 模式续推，其余按 DAG"}
+    ]
+  },
+  {
+    id:"a45a719cf429434b90b0cc518f5a5f4e", title:"只读数据网关 + 查询护栏",
+    project:"~/Project/example-gateway", status:"running",
+    summary:"用户拍板：推送等仓库开放（不动）；切日按本地时区（现实现即是）；网络策略暂不收窄；超时上限改为网关侧主动终止 = T21。",
+    tasks:[
+      {id:"T1",s:"done",t:"主库建只读账号",dep:[],ws:["infra/primary-db/users/"],xr:["primary-db-user-catalog"],who:"implementer",d:"账号建成，权限清单已核对。"},
+      {id:"T2",s:"done",t:"分析库只读账号 + 监听配置（含重启）",dep:[],ws:["infra/analytics-db/"],xr:["analytics-db"],who:"implementer",d:"重启后监听地址已验证。"},
+      {id:"T3",s:"done",t:"访问组与接入密钥",dep:[],ws:["infra/access/"],xr:["access-api"],who:"implementer",d:""},
+      {id:"T4",s:"done",t:"网关主体：五数据源 + 三层只读护栏 + 四工具",dep:[],ws:["gateway/"],xr:[],who:"implementer",d:"四个工具均可用，护栏单测覆盖三层。"},
+      {id:"T6",s:"done",t:"使用口径（映射 / 字段 / 配方）",dep:[],ws:["gateway/skill/"],xr:[],who:"implementer",d:""},
+      {id:"T11",s:"done",t:"补充：SQL 字符串引号一律双写",dep:["T4","T6"],ws:["gateway/skill/"],xr:[],who:"implementer",d:"抵消 T4 双解释规则的代价。"},
+      {id:"T5",s:"done",t:"端到端联调与交叉编译",dep:["T1","T2","T4","T11"],ws:["gateway/dist/"],xr:[],who:"implementer",d:"两个目标平台均产出。"},
+      {id:"T12",s:"done",t:"修误拒：系统库表名被当成保留动词",dep:["T4"],ws:["gateway/internal/guard/"],xr:[],who:"implementer",d:""},
+      {id:"T10",s:"done",t:"复杂度门禁 + 提交前钩子",dep:["T4"],ws:[".githooks/","scripts/"],xr:[],who:"implementer",d:""},
+      {id:"T7",s:"done",t:"面向使用方的 README 与安全说明",dep:["T3","T5","T12"],ws:["gateway/README.md","gateway/docs/"],xr:[],who:"writer",d:""},
+      {id:"T8",s:"done",t:"归档到知识库",dep:["T6","T7","T10"],ws:["docs/plans/"],xr:["wiki-api"],who:"writer",d:""},
+      {id:"T13",s:"done",t:"护栏修复：方言注释 + 顶层 WITH 误拒",dep:[],ws:["gateway/internal/guard/"],xr:[],who:"implementer",d:""},
+      {id:"T14",s:"done",t:"存储层修复：提前 break 排空残行绕过超时",dep:[],ws:["gateway/internal/store/"],xr:[],who:"implementer",d:""},
+      {id:"T17",s:"done",t:"重建产物 + 真实数据源回归",dep:["T13","T14"],ws:["gateway/dist/"],xr:[],who:"implementer",d:""},
+      {id:"T15",s:"done",t:"钩子修复：复杂度工具失败时 fail-closed",dep:[],ws:[".githooks/"],xr:[],who:"implementer",d:""},
+      {id:"T16",s:"done",t:"维护者文档：凭据文件数表述 + 钩子启用说明",dep:["T14","T15"],ws:["gateway/docs/"],xr:["wiki-api"],who:"writer",d:""},
+      {id:"T19",s:"done",t:"渲染函数复杂度 20 → ≤ 15",dep:[],ws:["gateway/internal/render/"],xr:[],who:"implementer",d:""},
+      {id:"T18",s:"running",t:"护栏误拒 / 放行收尾 + 存量复杂度",dep:[],ws:["gateway/internal/guard/"],xr:[],who:"implementer",d:"已派发；依据：ready_task_ids 含 T18。"},
+      {id:"T20",s:"running",t:"钩子提示固定版本 + 文档双份漂移治理",dep:[],ws:[".githooks/","scripts/"],xr:["wiki-api"],who:"implementer",d:"已派发；与 T16 共用 wiki-api，T16 已 done 故不冲突。"},
+      {id:"T21",s:"running",t:"查询时长兜底：网关侧超时后主动终止",dep:[],ws:["infra/resource-control/"],xr:["primary-db-user-catalog"],who:"implementer",d:"改自「数据库侧加上限」，用户拍板后重挂。"},
+      {id:"T9",s:"blocked",t:"（已取消）第三方数据源接入",dep:[],ws:["infra/route-thirdparty/"],xr:["access-api","thirdparty-db"],who:"",d:"用户决定本轮不做：对端库未开通只读权限。"}
+    ],
+    events:[
+      {at:"17:59",task:"T21",what:"转入执行",note:"用户拍板后重新挂上"},
+      {at:"17:31",task:"T20",what:"转入执行",note:"T16 已 done，wiki-api 已释放"},
+      {at:"16:48",task:"T19",what:"标记完成",note:"复杂度 15，门禁通过"},
+      {at:"16:02",task:"T18",what:"转入执行",note:"已派发"}
+    ]
+  }
+];
+
+/* SF Symbols stand-ins. Each is the symbol the SwiftUI build will ask for by name,
+   drawn here because SF Symbols is not a webfont. Shape carries the state; colour
+   only reinforces it. */
+const SYMBOL={
+  done:{name:"checkmark.circle.fill",color:"var(--green)",
+    d:'<circle cx="7" cy="7" r="6.1" fill="currentColor"/><path d="M4.3 7.2 6.2 9.1 9.8 5.2" fill="none" stroke="var(--raised)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'},
+  running:{name:"progress.indicator",color:"var(--accent)",
+    d:'<circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-opacity=".28" stroke-width="1.6"/><path class="spin" d="M7 1.5a5.5 5.5 0 0 1 5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>'},
+  review:{name:"exclamationmark.circle.fill",color:"var(--orange)",
+    d:'<circle cx="7" cy="7" r="6.1" fill="currentColor"/><path d="M7 3.6v4.1" fill="none" stroke="var(--raised)" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="10.1" r=".95" fill="var(--raised)"/>'},
+  blocked:{name:"exclamationmark.octagon.fill",color:"var(--red)",
+    d:'<path d="M4.9 1.1h4.2L12.9 4.9v4.2L9.1 12.9H4.9L1.1 9.1V4.9z" fill="currentColor"/><path d="M4.8 4.8l4.4 4.4M9.2 4.8 4.8 9.2" fill="none" stroke="var(--raised)" stroke-width="1.5" stroke-linecap="round"/>'},
+  ready:{name:"arrow.right.circle",color:"var(--accent)",
+    d:'<circle cx="7" cy="7" r="6.1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.6 7h4.6M7.3 5.1 9.2 7l-1.9 1.9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'},
+  upstream_blocked:{name:"circle.dashed",color:"var(--gray)",
+    d:'<circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-dasharray="2.1 2.5"/>'},
+  resource_blocked:{name:"lock.circle.fill",color:"var(--orange)",
+    d:'<circle cx="7" cy="7" r="6.1" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="4.4" y="6.6" width="5.2" height="4" rx="1.1" fill="currentColor"/><path d="M5.6 6.6V5.5a1.4 1.4 0 0 1 2.8 0v1.1" fill="none" stroke="currentColor" stroke-width="1.2"/>'},
+  pending:{name:"circle",color:"var(--gray)",
+    d:'<circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.3"/>'}
+};
+const STATE_LABEL={pending:"等上游",ready:"就绪",running:"执行中",review:"待复核",blocked:"阻塞",
+  done:"完成",upstream_blocked:"等上游",resource_blocked:"资源占用"};
+const COLUMNS=[["pending","待开始"],["running","执行中"],["review","待复核"],["blocked","阻塞"],["done","已完成"]];
+
+let runIndex=0, view="dag", selected=null;
+const el=id=>document.getElementById(id);
+
+function icon(state,size=14){
+  const sym=SYMBOL[state]||SYMBOL.pending;
+  return `<svg class="glyph" viewBox="0 0 14 14" width="${size}" height="${size}" aria-hidden="true"
+    style="color:${sym.color}">${sym.d}</svg>`;
+}
+
+/* Mirrors BoardKit.deriveGraph: layers, ready set, transitive blockers, resource conflicts. */
+function project(run){
+  const byId=new Map(run.tasks.map(t=>[t.id,t]));
+  const deps=new Map(run.tasks.map(t=>[t.id,t.dep.filter(d=>byId.has(d))]));
+  const dependents=new Map(run.tasks.map(t=>[t.id,[]]));
+  deps.forEach((ps,c)=>ps.forEach(p=>dependents.get(p).push(c)));
+  const waiting=new Map(run.tasks.map(t=>[t.id,deps.get(t.id).filter(d=>byId.get(d).s!=="done")]));
+
+  const rank=new Map(run.tasks.map((t,i)=>[t.id,i])), left=new Set(byId.keys()), layers=[];
+  while(left.size){
+    const layer=[...left].filter(id=>deps.get(id).every(p=>!left.has(p)));
+    if(!layer.length){layers.push([...left]);break}
+    layer.sort((a,b)=>rank.get(a)-rank.get(b));
+    layers.push(layer); layer.forEach(id=>left.delete(id));
+  }
+
+  const blockers=new Map();
+  layers.flat().forEach(id=>{
+    const set=new Set();
+    deps.get(id).forEach(d=>{if(byId.get(d).s!=="done"){set.add(d);(blockers.get(d)||[]).forEach(x=>set.add(x))}});
+    blockers.set(id,[...set].sort((a,b)=>rank.get(a)-rank.get(b)));
+  });
+
+  const holders=run.tasks.filter(t=>t.s==="running"||t.s==="review").map(t=>t.id);
+  const conflicts=new Map(run.tasks.map(t=>[t.id,[]]));
+  run.tasks.forEach(t=>{
+    if(!t.xr.length) return;
+    holders.forEach(h=>{
+      if(h===t.id) return;
+      const overlap=t.xr.filter(r=>byId.get(h).xr.includes(r));
+      if(overlap.length) conflicts.get(t.id).push({id:h,res:overlap});
+    });
+  });
+
+  const ready=new Set(run.tasks.filter(t=>t.s==="pending"&&!waiting.get(t.id).length
+    &&!conflicts.get(t.id).length).map(t=>t.id));
+  return {byId,deps,dependents,waiting,layers,blockers,conflicts,ready};
+}
+
+function stateOf(task,g){
+  if(["done","running","review","blocked"].includes(task.s)) return task.s;
+  if(g.blockers.get(task.id).length) return "upstream_blocked";
+  if(g.conflicts.get(task.id).length) return "resource_blocked";
+  return g.ready.has(task.id)?"ready":"pending";
+}
+
+function related(g,id){
+  const up=new Set(), down=new Set();
+  const walk=(cur,src,into)=>(src.get(cur)||[]).forEach(n=>{if(!into.has(n)){into.add(n);walk(n,src,into)}});
+  if(id){walk(id,g.deps,up);walk(id,g.dependents,down)}
+  return new Set([...up,...down]);
+}
+
+function tail(path,keep=2){
+  const parts=path.split("/").filter(Boolean);
+  return parts.length<=keep?path:"…/"+parts.slice(-keep).join("/");
+}
+
+function renderSidebar(){
+  el("runs").replaceChildren(...RUNS.map((run,i)=>{
+    const done=run.tasks.filter(t=>t.s==="done").length;
+    const b=document.createElement("button");
+    b.type="button"; b.className="run"; b.setAttribute("aria-current",String(i===runIndex));
+    b.innerHTML=`${icon("running",13)}<span class="body-col">
+      <span class="t">${run.title}</span>
+      <span class="p">${tail(run.project)}</span>
+      <span class="m">${done} / ${run.tasks.length} 完成</span></span>`;
+    b.onclick=()=>{runIndex=i;selected=null;render()};
+    return b;
+  }));
+}
+
+function renderToolbar(run,g){
+  el("run-title").textContent=run.title;
+  const active=run.tasks.filter(t=>t.s==="running"||t.s==="review").length;
+  const done=run.tasks.filter(t=>t.s==="done").length;
+  el("run-sub").textContent=
+    `${run.project} · 完成 ${done}/${run.tasks.length} · 活动 ${active} · 就绪 ${g.ready.size}`;
+  el("float").innerHTML=
+    `<span class="k">${icon("ready",12)}就绪 ${g.ready.size}</span><span class="sep"></span>
+     <span class="k">${icon("running",12)}活动 ${active}</span><span class="sep"></span>
+     <span class="k">${g.layers.length} 个并行层</span>`;
+}
+
+function card(task,g){
+  const state=stateOf(task,g);
+  const b=document.createElement("button");
+  b.type="button"; b.className="card"; b.dataset.taskId=task.id;
+  const meta=task.who||(g.waiting.get(task.id).length?`等 ${g.waiting.get(task.id).length} 项上游`
+    :state==="ready"?"可立即派发":"未指派");
+  b.innerHTML=`<span class="top">${icon(state)}<span class="id">${task.id}</span>
+      <span class="state">${STATE_LABEL[state]}</span></span>
+    <span class="title">${task.t}</span><span class="who">${meta}</span>`;
+  b.onclick=()=>{selected=selected===task.id?null:task.id;render()};
+  return b;
+}
+
+function renderDag(run,g,canvas){
+  const stage=document.createElement("div");
+  stage.className="stage"+(selected?" has-selection":"");
+  const kin=related(g,selected), nodes=new Map();
+  g.layers.forEach((ids,i)=>{
+    const col=document.createElement("div"); col.className="layer";
+    const label=document.createElement("div"); label.className="layer-label";
+    label.textContent=`第 ${i+1} 层 · ${ids.length} 个可并行`;
+    col.append(label);
+    ids.forEach(id=>{
+      const c=card(g.byId.get(id),g);
+      if(id===selected) c.classList.add("is-selected");
+      if(kin.has(id)) c.classList.add("is-related");
+      col.append(c); nodes.set(id,c);
+    });
+    stage.append(col);
+  });
+  const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+  svg.setAttribute("class","edges");
+  stage.append(svg); canvas.replaceChildren(stage);
+
+  const base=stage.getBoundingClientRect();
+  g.deps.forEach((parents,child)=>parents.forEach(parent=>{
+    const a=nodes.get(parent)?.getBoundingClientRect(), b=nodes.get(child)?.getBoundingClientRect();
+    if(!a||!b) return;
+    const x1=a.right-base.left, y1=a.top-base.top+a.height/2;
+    const x2=b.left-base.left, y2=b.top-base.top+b.height/2, mid=(x1+x2)/2;
+    const path=document.createElementNS("http://www.w3.org/2000/svg","path");
+    path.setAttribute("d",`M${x1} ${y1} C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}`);
+    const lit=selected&&(parent===selected||child===selected);
+    path.setAttribute("fill","none");
+    path.setAttribute("stroke",lit?"var(--accent)":"var(--label-3)");
+    path.setAttribute("stroke-width",lit?"1.75":"1");
+    if(selected&&!lit) path.setAttribute("opacity",".3");
+    svg.append(path);
+  }));
+}
+
+function renderBoard(run,g,canvas){
+  const wrap=document.createElement("div"); wrap.className="columns";
+  COLUMNS.forEach(([status,label])=>{
+    const items=run.tasks.filter(t=>{
+      const s=stateOf(t,g);
+      return status==="pending"
+        ?["pending","ready","upstream_blocked","resource_blocked"].includes(s):s===status;
+    });
+    const col=document.createElement("section");
+    col.innerHTML=`<div class="col-head">${icon(status,13)}<span class="nm">${label}</span>
+      <span class="n">${String(items.length).padStart(2,"0")}</span></div>`;
+    const list=document.createElement("div"); list.className="col-list";
+    if(!items.length) list.innerHTML=`<div class="col-empty">暂无</div>`;
+    items.forEach(t=>{
+      const c=card(t,g);
+      if(t.id===selected) c.classList.add("is-selected");
+      list.append(c);
+    });
+    col.append(list); wrap.append(col);
+  });
+  canvas.replaceChildren(wrap);
+}
+
+function values(list,cls="val"){
+  if(!list.length) return `<span class="none">—</span>`;
+  return `<div class="vals">${list.map(v=>`<span class="${cls}">${v}</span>`).join("")}</div>`;
+}
+
+function renderInspector(run,g){
+  const box=el("inspector");
+  if(!selected||!g.byId.has(selected)){
+    box.innerHTML=`<div class="insp-head"><div class="id">${run.id.slice(0,10)}</div>
+        <h2>运行概览</h2>
+        <div class="row"><span class="pill">${icon("running",12)}执行中</span>
+          <span class="pill">${g.layers.length} 层</span></div></div>
+      <div class="field"><h3>摘要</h3><p>${run.summary}</p></div>
+      <div class="field"><h3>最近活动</h3><ul class="log">${run.events.map(e=>
+        `<li><time>${e.at}</time><span class="what">${e.task?`<b>${e.task}</b> `:""}${e.what} — ${e.note}</span></li>`
+      ).join("")}</ul></div>
+      <div class="field"><h3>提示</h3><p class="none">选中任务后，这里显示它的依赖、写入范围与独占资源。</p></div>`;
+    return;
+  }
+  const task=g.byId.get(selected), state=stateOf(task,g), conflicts=g.conflicts.get(task.id);
+  box.innerHTML=`
+    <div class="insp-head">
+      <div class="id">${task.id}</div>
+      <h2>${task.t}</h2>
+      <div class="row"><span class="pill">${icon(state,12)}${STATE_LABEL[state]}</span>
+        <span class="pill">${task.who||"未指派"}</span></div>
+    </div>
+    <div class="field"><h3>进展</h3>${task.d?`<p>${task.d}</p>`:`<p class="none">尚无记录</p>`}</div>
+    <div class="field"><h3>依赖</h3>${values(task.dep)}</div>
+    <div class="field"><h3>仍在等待</h3>${values(g.waiting.get(task.id))}</div>
+    <div class="field"><h3>写入范围</h3>${values(task.ws)}</div>
+    <div class="field"><h3>独占资源</h3>${values(task.xr,conflicts.length?"val warn":"val")}</div>
+    ${conflicts.length?`<div class="field"><h3>资源冲突</h3>
+      ${values(conflicts.map(c=>`${c.id} · ${c.res.join(" / ")}`),"val warn")}</div>`:""}
+    <div class="field"><h3>下游</h3>${values(g.dependents.get(task.id))}</div>`;
+}
+
+function render(){
+  const run=RUNS[runIndex], g=project(run);
+  renderSidebar(); renderToolbar(run,g);
+  el("view-dag").setAttribute("aria-pressed",String(view==="dag"));
+  el("view-board").setAttribute("aria-pressed",String(view==="board"));
+  const canvas=el("canvas");
+  view==="dag"?renderDag(run,g,canvas):renderBoard(run,g,canvas);
+  renderInspector(run,g);
+}
+
+el("view-dag").onclick=()=>{view="dag";render()};
+el("view-board").onclick=()=>{view="board";render()};
+render();
+</script>
