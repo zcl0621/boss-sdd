@@ -551,7 +551,7 @@ T19 收口时报上来两条，都核实过是真的，但超出它的范围：
 `write_scope`: `mcp/main.go`、`mcp/client.go`、`mcp/tools_test.go`。
 `exclusive_resources`: `["gate:go-test"]`。
 
-### T23 Store 路径不可配置 + HTTPServer 的弱引用陷阱（新增，未开始）
+### T23 Store 路径不可配置 + HTTPServer 的弱引用陷阱 ✅ a8fefcc
 
 T20 报上来的，都核实过：
 
