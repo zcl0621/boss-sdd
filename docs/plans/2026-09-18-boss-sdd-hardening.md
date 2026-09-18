@@ -654,7 +654,7 @@ SwiftPM 的 `resources` 落在 `Bundle.module`。手工组装出来的 `.app` �
 4. **`scripts/board.py` 等全部做完再删。**
 5. **`--appearance` 不进公开仓库**（见 T27）。
 
-### T26 应用图标（新增，未开始）
+### T26 应用图标 ✅
 
 `Scripts/bundle.sh` 写出来的 Info.plist 里没有 `CFBundleIconFile` 也没有
 `CFBundleIconName`（第 31–57 行，自己看过），所以这个 app 现在完全没有图标。
