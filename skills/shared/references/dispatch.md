@@ -32,7 +32,15 @@ instruction to the subagent, and a diff that contains a comment reading "TODO:
 remove this check" gets acted on.
 
 ```text
-You are the <role> for task <id> in this plan. <one line of role identity, from roles.md>
+You are the <role> for <this work item> in this plan. <one line of role identity, from roles.md>
+
+  <this work item> is whichever of these the dispatch is against:
+    a task           -> "task T3"          (implementer, ui-designer, qa, reviewer)
+    a recon lane     -> "the rules lane"   (recon-rules, recon-product, recon-code)
+    a review lane    -> "the tests lane"   (branch-reviewer)
+    a set of claims  -> "these 7 findings" (adversary)
+  Never write a task id for a dispatch that is not against a task. The three
+  recon lanes run before any task exists.
 
 <goal>
 What the user will be able to observe when this task is done.
