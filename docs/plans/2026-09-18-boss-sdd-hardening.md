@@ -206,6 +206,12 @@ memory 以 **project** 为维度（`Run` 已有 `project` 字段，复用它，�
 就退化成一个自信的错误来源——这正是本仓库存在要防的那类失败。
 
 - 接口：list（按 project，可按 kind 过滤）、get、add（同 key 覆盖）、delete。
+- **不做 UI**（用户已拍板）：memory 只有存储和接口，看板窗口里不加展示。
+  后续也别顺手加——它的读者是 agent，不是人。
+- **不做向量化**：一个 project 的 memory 是几十条量级，`list` 一次全取即可；
+  检索键是 `kind` 精确过滤，不是语义相似度。而且向量检索返回「大致相关」，
+  对一条门禁命令来说大致对就是最坏结果——宁可 miss 触发重新勘察，
+  也不要拿邻近项目的门禁跑绿。
 - 写路径沿用既有的 Host 白名单、`Origin` 拒绝、`application/json` 强制。
 - 验收：`swift test`；测试必须用临时目录，不得碰 `~/.claude/plan-sdd/board.sqlite3`。
 
