@@ -1,0 +1,119 @@
+# plan-sdd role declarations for Codex.
+#
+# Merge into the user-level ~/.codex/config.toml, or the project-level
+# .codex/config.toml, which Codex loads only for a project you trust.
+#
+# ONE SUBSTITUTION MAKES THIS WORK: replace every <SKILL_DIR> with the expanded
+# absolute path you installed the skill into -- the value of $SKILL_DIR, not the
+# five characters "$HOME" and not a "~". TOML stores a string as written and this
+# repository has not established that Codex expands anything inside a path value,
+# so a config_file reading "$HOME/.agents/skills/plan-sdd/agents/qa.toml" may
+# well be looked up with a literal dollar sign in it. Write the path out:
+#
+#   config_file = "/absolute/path/to/.agents/skills/plan-sdd/agents/qa.toml"
+#
+# VERIFY BEFORE STARTING CODEX. Leave a <SKILL_DIR> in, or paste an unexpanded
+# variable, and that role's config_file points at a path that does not exist;
+# this repository has not run Codex and cannot tell you whether it errors or
+# silently drops the role. These three lines answer it without Codex:
+#
+#   grep -nE '^[^#]*(SKILL_DIR|\$HOME|"~)' ~/.codex/config.toml   # must print nothing
+#   grep -c '^config_file' ~/.codex/config.toml                   # must print 9
+#   grep -oE '^config_file = "[^"]+"' ~/.codex/config.toml | cut -d'"' -f2 |
+#     while read p; do [ -f "$p" ] || echo "MISSING $p"; done
+#
+# All three anchor on real TOML lines, so the example paths in these comments do
+# not trip them. The second counts every config_file in the file, so it reads 9
+# only if these nine roles are the only agents declared; adjust the number if you
+# have others. The third prints one MISSING line per layer that is not on disk,
+# and prints nothing when all nine resolve.
+#
+# Nine roles, exactly the nine the skill dispatches. Do not rename them: the
+# shared body and every dispatch prompt refer to them by these names.
+#
+# Per-role model and reasoning effort are NOT set here. [agents.<name>] accepts
+# config_file and description and nothing else; the tier lives in the TOML layer
+# config_file points at, one per role under <SKILL_DIR>/agents/.
+
+# ---------------------------------------------------------------------------
+# Global settings.
+#
+# Six keys in the agents namespace are global -- agents.enabled,
+# agents.interrupt_message, agents.max_concurrent_threads_per_session,
+# agents.max_threads (the legacy alias of that one), and the two below. They set
+# a default for every role at once and cannot be narrowed to one role here. That
+# is a statement about those six keys, not about the namespace: the nine
+# agents.<role>.config_file keys below are in the same namespace and are
+# per-role by construction.
+#
+# THE TWO LINES BELOW SHIP UNCOMMENTED ON PURPOSE. "low" is on no rung of the
+# ladder and no role layer sets it, which makes it a canary: on the first run,
+# any role that reports running at low fell through to this default, so its
+# layer did not take. No role at low means the layers took. Read
+# "The canary in the global block" in codex-platform.md before changing it --
+# commenting this line out does not make the run safer, it makes the failure
+# invisible by handing the fallback to a Codex built-in default this repository
+# does not know the value of.
+agents.default_subagent_model = "gpt-5.6"
+agents.default_subagent_reasoning_effort = "low"
+
+# Optional, and not needed for the roles below to work. Left commented because
+# this repository does not know your installation's defaults for them.
+# agents.enabled = true
+# agents.max_concurrent_threads_per_session = 4   # agents.max_threads is the legacy alias
+# agents.interrupt_message = "Stop what you are doing and report where you got to."
+
+# Codex's own reviewer, /review, takes its model from review_model and otherwise
+# from the current session model. It is a different thing from the roles below;
+# see codex-platform.md. The VALUE is sourced; the PLACEMENT is not. The
+# verified table records review_model as a setting and not where in the file it
+# belongs, so config root is this repository's reading, the same kind of
+# assumption as the key names inside a role layer. If Codex rejects it here or
+# ignores it, check your own configuration reference for the section it wants.
+# review_model = "gpt-5.6"
+
+# ---------------------------------------------------------------------------
+# The nine roles.
+#
+# What Codex does with description is not documented: the source lists the field
+# and gives it no meaning. These are written as though Codex reads them when it
+# picks an agent type -- each says what the role is for and who it is not -- so
+# that they are useful if it does and inert if it does not. See
+# codex-platform.md, "Dispatching a subagent".
+# ---------------------------------------------------------------------------
+
+[agents.recon-rules]
+config_file = "<SKILL_DIR>/agents/recon-rules.toml"
+description = "Read-only survey of what rules this repository is under: the hard rules quoted verbatim, the gate commands as runnable lines, whether its tests can run in parallel, and what it could not find. Changes nothing. Runs before any task exists."
+
+[agents.recon-product]
+config_file = "<SKILL_DIR>/agents/recon-product.toml"
+description = "Read-only survey of what the user is trying to solve and where the edge of it is: goals stated as observable behaviour, non-goals, and the open questions with what each one blocks. Changes nothing. Does not invent scope."
+
+[agents.recon-code]
+config_file = "<SKILL_DIR>/agents/recon-code.toml"
+description = "Read-only survey of where a change lands: entry points, call chains, data models, existing patterns, tests, and the recipe for starting the application. Changes nothing."
+
+[agents.implementer]
+config_file = "<SKILL_DIR>/agents/implementer.toml"
+description = "Makes one planned task true inside its declared write scope, test first, and reports every command it ran with the raw output. Writes code. Does not review it and does not widen its own scope."
+
+[agents.ui-designer]
+config_file = "<SKILL_DIR>/agents/ui-designer.toml"
+description = "Implements a visual or interaction task after settling its direction against the project's existing design language, and states what it reused, what it created, and every divergence. Writes code."
+
+[agents.qa]
+config_file = "<SKILL_DIR>/agents/qa.toml"
+description = "Starts the actual running system, exercises the change, and records what was observed rather than whether it was correct. Needs a run recipe; without one it stops."
+
+[agents.reviewer]
+config_file = "<SKILL_DIR>/agents/reviewer.toml"
+description = "Reviews one node's scoped diff having not written it, and reports what is wrong with the evidence for each thing. Does not fix anything and does not read outside the diff it was given."
+
+[agents.branch-reviewer]
+config_file = "<SKILL_DIR>/agents/branch-reviewer.toml"
+description = "Reviews a whole branch along one assigned dimension, or audits every task in the plan against its stated acceptance criteria. Reports along that dimension only. Changes nothing."
+
+[agents.adversary]
+config_file = "<SKILL_DIR>/agents/adversary.toml"
+description = "Takes findings somebody else produced and tries to knock each one down, returning confirmed, dismissed or unsure with the evidence. Stays on the claims it was given."

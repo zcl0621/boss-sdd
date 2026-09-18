@@ -1,0 +1,9 @@
+# plan-sdd role layer: recon-product -- strong rung.
+# The key names here are an assumption, and so is the scoping -- that a key which
+# is global in config.toml becomes this role's when written in a layer. The
+# values are not assumptions. Both failures look identical from inside a run, so
+# the install ships a canary that catches either: read "The canary in the global
+# block" in codex-platform.md once before trusting this file.
+
+agents.default_subagent_model = "gpt-5.6"
+agents.default_subagent_reasoning_effort = "high"
