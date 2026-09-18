@@ -438,22 +438,54 @@ func TestVerifyMemoryListTrimsProjectLikeTheBoardDoes(t *testing.T) {
 	}
 }
 
-// verifyMemoryDeleted must tolerate BOTH of DELETE's possible echoes: today's
-// actual behaviour (Sources/BoardKit/API.swift ~line 277 echoes the raw path
-// segment and raw query value, unlike GET/POST) and the normalized echo
-// GET/POST already use — so it does not start rejecting valid deletes the day
-// that Swift-side inconsistency is fixed.
-func TestVerifyMemoryDeletedAcceptsTodaysRawEcho(t *testing.T) {
-	err := verifyMemoryDeleted(" proj ", " Gate ", wireMemoryDeleted{Deleted: " Gate ", Project: " proj "})
+// DELETE now answers with the board's normalized (project, key) pair, the way
+// GET and POST always did: Store.deleteMemory returns what it removed and
+// API.swift's DELETE branch encodes that. So the caller's side is normalized
+// and the response must match exactly — a padded, mixed-case caller spelling
+// still verifies clean, which is the case the strict form must not break.
+func TestVerifyMemoryDeletedAcceptsTheNormalizedEchoForAPaddedMixedCaseCaller(t *testing.T) {
+	err := verifyMemoryDeleted(" proj ", " Gate ", wireMemoryDeleted{Deleted: "gate", Project: "proj"})
 	if err != nil {
-		t.Fatalf("today's DELETE echoes the raw input verbatim; that must be accepted: %v", err)
+		t.Fatalf("a caller typing \" Gate \" against project \" proj \" must still verify clean: %v", err)
 	}
 }
 
-func TestVerifyMemoryDeletedAcceptsANormalizedEchoToo(t *testing.T) {
-	err := verifyMemoryDeleted(" proj ", " Gate ", wireMemoryDeleted{Deleted: "gate", Project: "proj"})
-	if err != nil {
-		t.Fatalf("a normalized echo (if that route is ever made consistent with GET/POST) must also be accepted: %v", err)
+// The hole the old `got.Project != project && got.Project != trimmedProject`
+// pair of accepted spellings left open. Store.normalizedProject trims before the row is ever
+// touched, so a board answering with the caller's untrimmed project has named
+// a project it did not delete from. The old form accepted it because the
+// caller's raw spelling was one of the two accepted answers.
+func TestVerifyMemoryDeletedRejectsAnUntrimmedProjectEcho(t *testing.T) {
+	err := verifyMemoryDeleted(" proj ", "gate", wireMemoryDeleted{Deleted: "gate", Project: " proj "})
+	if err == nil {
+		t.Fatal("a board echoing back the caller's untrimmed project has not named the row it deleted; that must be reported")
+	}
+	if !strings.Contains(err.Error(), "别的项目") {
+		t.Fatalf("expected the wrong-project message, got %v", err)
+	}
+}
+
+// The matching hole on the key side, which `strings.EqualFold` could not see.
+// Store.normalizedKey lower-cases before the DELETE runs, so the deleted row
+// is `gate`; a board answering `Gate` is naming a key that is not in the
+// table. EqualFold called that a match.
+func TestVerifyMemoryDeletedRejectsAnUnfoldedKeyEcho(t *testing.T) {
+	err := verifyMemoryDeleted("proj", "Gate", wireMemoryDeleted{Deleted: "Gate", Project: "proj"})
+	if err == nil {
+		t.Fatal("the board stores keys lower-cased; an unfolded echo names a row that does not exist and must be reported")
+	}
+	if !strings.Contains(err.Error(), "别的 key") {
+		t.Fatalf("expected the wrong-key message, got %v", err)
+	}
+}
+
+// Trimming got.Deleted was the other half of the old tolerance. The board
+// never stores a padded key, so a padded echo is the board's own bug, not the
+// caller's input leaking through.
+func TestVerifyMemoryDeletedRejectsAPaddedKeyEcho(t *testing.T) {
+	err := verifyMemoryDeleted("proj", "gate", wireMemoryDeleted{Deleted: " gate ", Project: "proj"})
+	if err == nil {
+		t.Fatal("a whitespace-padded deleted key is not a key the board can have stored")
 	}
 }
 
@@ -644,23 +676,23 @@ func newMemoryContractDouble(t *testing.T) *board {
 			}
 			encodeRecord(w, rec)
 
-		// DELETE looks the record up by its normalized project+key (so it
-		// actually finds the row Store would find), but echoes back the RAW
-		// (per-segment-decoded, but otherwise untouched) path segment and RAW
-		// query value it was called with — reproducing
-		// Sources/BoardKit/API.swift ~line 277's
-		// `encode(["deleted": parts[2], "project": project])`, which uses the
-		// unnormalized inputs rather than Store's normalized ones the way
-		// GET/POST do. That inconsistency is real and is logged as its own
-		// Swift-side node, not something to paper over in the double.
+		// DELETE looks the record up by its normalized project+key and echoes
+		// back that same normalized pair, reproducing
+		// Sources/BoardKit/API.swift's DELETE branch as it now stands:
+		// `store.deleteMemory` returns the (project, key) it actually removed
+		// and the route encodes `["deleted": removed.key, "project":
+		// removed.project]`. It used to echo the raw path segment and raw
+		// query value instead (`DELETE .../Gate` answering `"Gate"` while
+		// deleting `gate`); that is fixed on the Swift side, so a double that
+		// still echoed raw would be modelling a server that no longer exists
+		// and would keep verifyMemoryDeleted's matching tolerance alive here.
 		case r.Method == "DELETE" && isAPI && len(segments) == 3 && segments[1] == "memories":
 			rawProject, ok := requireProject(w, r)
 			if !ok {
 				return
 			}
-			rawKey := segments[2]
 			project := doubleNormalizedProject(rawProject)
-			key := doubleNormalizedKey(rawKey)
+			key := doubleNormalizedKey(segments[2])
 			if _, found := store[project+"\x00"+key]; !found {
 				writeErr(w, 404, "not_found", fmt.Sprintf("memory %s not found for project %s", key, project))
 				return
@@ -668,7 +700,7 @@ func newMemoryContractDouble(t *testing.T) *board {
 			delete(store, project+"\x00"+key)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(200)
-			json.NewEncoder(w).Encode(map[string]string{"deleted": rawKey, "project": rawProject})
+			json.NewEncoder(w).Encode(map[string]string{"deleted": key, "project": project})
 
 		default:
 			writeErr(w, 404, "not_found", "no route for "+r.Method+" "+r.URL.Path)
@@ -970,6 +1002,36 @@ func TestToolPlanMemoryDeleteDetectsWrongKeyEcho(t *testing.T) {
 	}
 	if !result.IsError {
 		t.Fatalf("expected plan_memory_delete to reject a response naming a different deleted key (verifyMemoryDeleted must be wired in), got success: %#v", result.StructuredContent)
+	}
+}
+
+// The same tightening at the handler level, against a board that behaves the
+// way the board did before 4f26a4d: it echoes the caller's raw path segment
+// and raw query value instead of the pair the store acted on. That server
+// deleted `gate` under project `proj` and reported `Gate` under ` proj `, and
+// the old verifier accepted both halves — the untrimmed project because the
+// caller's raw spelling was explicitly allowed, the unfolded key because
+// EqualFold does not care about case. It now surfaces as a tool error.
+//
+// This is also the version-skew case: a current MCP binary talking to a stale
+// BossSDD.app fails plan_memory_delete here rather than reporting a row name
+// that was never in the table.
+func TestToolPlanMemoryDeleteRejectsAPreFixRawEchoingBoard(t *testing.T) {
+	b := newMaliciousBoard(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		json.NewEncoder(w).Encode(map[string]string{"deleted": "Gate", "project": " proj "})
+	})
+	session := newToolSession(t, b)
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "plan_memory_delete",
+		Arguments: map[string]any{"project": " proj ", "key": "Gate"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool transport error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected plan_memory_delete to reject a raw echo of project/key (the row deleted was \"gate\" under \"proj\"), got success: %#v", result.StructuredContent)
 	}
 }
 

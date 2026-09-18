@@ -598,33 +598,51 @@ func verifyMemoryEcho(project, key string, got wireMemory) error {
 // verifyMemoryDeleted is verifyMemoryEcho's counterpart for DELETE, whose
 // response is a {"deleted","project"} pair rather than a full memory.
 //
-// Unlike GET and POST, DELETE (Sources/BoardKit/API.swift ~line 277) echoes
-// back the *raw* path segment and query value it was called with, not the
-// board's normalized project/key that GET/POST echo — an inconsistency on the
-// Swift side, tracked separately, not fixed here. So this check has to accept
-// either spelling: the caller's raw input (today's actual behaviour) or the
-// normalized one (what GET/POST already return, and what DELETE would return
-// too if that inconsistency were ever fixed). Project only needs a trim
-// either way; key needs trim-and-fold either way, and folding a
-// already-normalized value is a no-op, so one fold-and-trim comparison
-// covers both cases for key. Project has no case-folding on the server side,
-// so it additionally needs the untrimmed-raw form accepted for the current
-// (unfixed) DELETE behaviour.
+// All three memory routes now answer with the board's *normalized* spelling:
+// Store.deleteMemory returns the (project, key) pair it actually deleted and
+// Sources/BoardKit/API.swift's DELETE branch encodes that pair, the way GET
+// and POST already echoed the stored record. So the comparison here is the
+// same shape as verifyMemoryEcho's — normalize the caller's input the way the
+// board would, then require the response to match it exactly:
+//
+//   - project is trimmed only. Store.normalizedProject trims and deliberately
+//     does not case-fold (MemoryTests.projectsAreNotCaseFolded pins that), so
+//     folding here would accept a project the board never stored.
+//   - key is trimmed and lower-cased, mirroring Store.normalizedKey.
+//
+// The normalization is applied to the caller's side only; got is compared
+// verbatim. That asymmetry is the whole point. A caller legitimately types
+// " Gate " and must not be told the delete went wrong, but a board that
+// answers " proj " or "Gate" has named a row that is not the row it deleted,
+// and naming the wrong row is exactly what this function exists to catch.
+// Normalizing got as well (EqualFold, or trimming got.Deleted) would forgive
+// the board for the one mistake worth reporting.
 func verifyMemoryDeleted(project, key string, got wireMemoryDeleted) error {
-	// Same reachability note as verifyMemoryEcho's identical-looking guard:
-	// dead weight for a non-empty project/key (the mismatch checks below
-	// already catch a zeroed response then), load-bearing only when project
-	// and key both trim to empty. Pinned rather than dropped for the same
-	// reason.
+	// Unreachable through plan_memory_delete against a real board, and kept
+	// anyway. Checked rather than assumed: an empty/whitespace-only project
+	// makes memoryProjectQuery emit "project=", which API.swift's
+	// requiredQuery rejects with 400 ("must not be empty"), and a non-empty
+	// but blank project dies one step later in Store.normalizedProject; an
+	// empty key makes memoryKeyPath produce "/api/memories/?project=...",
+	// which splits to 2 segments ("api", "memories") — verified with a
+	// Foundation probe — and DELETE has no 2-segment memories route, so it
+	// 404s at the default branch (it does not fall through to the list route,
+	// which is GET-only). Either way board.call returns an error and this
+	// function is never reached. It stays because it is the only check that
+	// fires when project and key both normalize to empty: the two comparisons
+	// below are satisfied trivially then ("" == ""), so a zeroed response
+	// would otherwise be reported as a real delete. Pinned by
+	// TestVerifyMemoryDeletedRejectsZeroedRecordEvenWithEmptyProjectAndKey.
 	if got.Deleted == "" || got.Project == "" {
 		return fmt.Errorf("看板返回的删除结果缺少字段，形状不对：%+v", got)
 	}
-	trimmedProject := strings.TrimSpace(project)
-	if got.Project != project && got.Project != trimmedProject {
-		return fmt.Errorf("看板删除了别的项目下的记忆：请求 project=%q，返回 project=%q", project, got.Project)
+	wantProject := strings.TrimSpace(project)
+	if got.Project != wantProject {
+		return fmt.Errorf("看板删除了别的项目下的记忆：请求 project=%q，返回 project=%q", wantProject, got.Project)
 	}
-	if !strings.EqualFold(strings.TrimSpace(got.Deleted), strings.TrimSpace(key)) {
-		return fmt.Errorf("看板删除了别的 key：请求 key=%q，返回 deleted=%q", key, got.Deleted)
+	wantKey := strings.ToLower(strings.TrimSpace(key))
+	if got.Deleted != wantKey {
+		return fmt.Errorf("看板删除了别的 key：请求 key=%q，返回 deleted=%q", wantKey, got.Deleted)
 	}
 	return nil
 }
