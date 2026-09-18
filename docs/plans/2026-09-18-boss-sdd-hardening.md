@@ -595,6 +595,36 @@ T20 报上来的，都核实过：
 
 `write_scope`: `Sources/BossSDD/`（若走第二条还包括 `Package.swift`、`Scripts/bundle.sh`）。
 `depends_on`: []
+### T25 UI 与设计稿逐项对齐（新增，未开始）
+
+用户实际看了 app 之后提的：中间那块太灰,和 `design/board-mock.html` 不一样。
+要求浅色和深色都对一遍。
+
+**已测到的（都来自渲染像素,不是 API 取值）**：
+
+| 区域 | 实测 | 设计稿 | |
+|---|---|---|---|
+| 依赖图画布 | `#AEAEAE` | `--content-bg: #F6F6F6` | 差很远 |
+| 卡片 | `#FFFEFF` | `--raised: #FFFFFF` | ok |
+| 侧栏 | `#E4E5E5`（活动）/ `#EAEAEA`（非活动） | `--window-bg: #ECECEC` | 略深 |
+| 详情栏 | `#FFFEFF` | `--control-bg: #FFFFFF` | ok |
+
+画布那行的根因：`BoardWindow.swift:44` 用 `Color(nsColor: .underPageBackgroundColor)`。
+
+**这里有一个方法论教训,比这个 bug 本身值钱**：我先用 AppKit 取 `underPageBackgroundColor`
+的分量,两次都得到 `#F6F6F6`,据此告诉用户「底色和设计稿是对的」。但真实窗口里渲染出来
+是 `#AEAEAE`。前台/后台各截一次都是 `#AEAEAE`,排除了截图方法的问题。
+**语义颜色的取值不能靠 API 问,只能靠渲染出来取像素。** 我那句「对上了」是错的,已收回。
+
+**深色拿不到真机截图**：`-AppleInterfaceStyle Dark` 这个 argv 覆盖对外观不起作用
+（`-AppleLanguages` 起作用,外观不起）,macOS 没有单 app 的每次启动外观开关。
+实测深色启动后四个取样值和浅色完全一致。所以深色要么等用户临时切系统外观,
+要么改成显式色值——显式色值没有「问 API 和渲染不一致」的问题,可由构造保证。
+
+`write_scope`: `Sources/BossSDD/`。
+`exclusive_resources`: `["gate:swift-test"]`。
+`depends_on`: T24（同写 `Sources/BossSDD/`）。
+
 ## 风险与未决项
 
 - 本轮仍无法用看板追踪：MCP 工具本会话未加载。状态落在本文件，重启后补录。
