@@ -19,7 +19,7 @@ struct GraphLayout {
 
         for (column, ids) in layers.enumerated() {
             let x = CGFloat(column) * (Metrics.cardWidth + Metrics.layerSpacing)
-            labels.append(("第 \(column + 1) 层 · \(ids.count) 个可并行", CGPoint(x: x, y: 0)))
+            labels.append((loc("graph.layer", column + 1, ids.count), CGPoint(x: x, y: 0)))
             for (row, id) in ids.enumerated() {
                 let y = Self.labelHeight + CGFloat(row) * (TaskCard.height + Metrics.rowSpacing)
                 frames[id] = CGRect(x: x, y: y, width: Metrics.cardWidth, height: TaskCard.height)

@@ -8,7 +8,7 @@ struct RunSidebar: View {
 
     var body: some View {
         List(selection: $model.selectedRunID) {
-            Section("运行") {
+            Section(loc("sidebar.runs")) {
                 ForEach(model.runs) { run in
                     RunRow(run: run).tag(run.id)
                 }
@@ -18,9 +18,9 @@ struct RunSidebar: View {
         .overlay {
             if model.runs.isEmpty {
                 ContentUnavailableView {
-                    Label("还没有运行记录", systemImage: "list.bullet.indent")
+                    Label(loc("sidebar.noRuns"), systemImage: "list.bullet.indent")
                 } description: {
-                    Text("agent 调用 POST /api/runs 后会出现在这里。")
+                    Text(loc("sidebar.noRuns.detail"))
                 }
             }
         }
@@ -38,11 +38,11 @@ private struct RunRow: View {
                 Text(run.title)
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
-                Text(shortPath(run.project.isEmpty ? "未指定项目" : run.project))
+                Text(shortPath(run.project.isEmpty ? loc("sidebar.noProject") : run.project))
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text("\(doneCount) / \(run.tasks.count) 完成")
+                Text(loc("sidebar.progress", doneCount, run.tasks.count))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()

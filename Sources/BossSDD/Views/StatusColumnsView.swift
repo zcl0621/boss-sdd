@@ -6,22 +6,23 @@ struct StatusColumnsView: View {
     let graph: GraphProjection
     @Binding var selectedTaskID: String?
 
-    private static let columns: [(TaskStatus, String)] = [
-        (.pending, "待开始"), (.running, "执行中"), (.review, "待复核"),
-        (.blocked, "阻塞"), (.done, "已完成"),
+    private static let columns: [(status: TaskStatus, key: String)] = [
+        (.pending, "columns.pending"), (.running, "columns.running"),
+        (.review, "columns.review"), (.blocked, "columns.blocked"),
+        (.done, "columns.done"),
     ]
 
     var body: some View {
         ScrollView([.horizontal, .vertical]) {
             HStack(alignment: .top, spacing: 14) {
-                ForEach(Self.columns, id: \.0) { status, label in
+                ForEach(Self.columns, id: \.status) { status, key in
                     let tasks = run.tasks.filter { $0.status == status }
                     VStack(alignment: .leading, spacing: 9) {
                         HStack(spacing: 6) {
                             StatusGlyph(state: VisualState.of(
                                 BoardTask(id: "_", title: "", status: status), in: graph
                             ))
-                            Text(label).font(.system(size: 11, weight: .semibold))
+                            Text(loc(key)).font(.system(size: 11, weight: .semibold))
                             Spacer(minLength: 4)
                             Text(String(format: "%02d", tasks.count))
                                 .font(.system(size: 11, design: .monospaced))
@@ -37,7 +38,7 @@ struct StatusColumnsView: View {
                         }
 
                         if tasks.isEmpty {
-                            Text("暂无").font(.system(size: 11)).foregroundStyle(.tertiary)
+                            Text(loc("columns.empty")).font(.system(size: 11)).foregroundStyle(.tertiary)
                                 .padding(.horizontal, 2)
                         }
                         ForEach(tasks) { task in

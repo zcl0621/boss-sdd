@@ -8,29 +8,33 @@ struct MenuBarContent: View {
 
     var body: some View {
         if let model {
-            Text(model.serverIsHealthy ? "写入接口 \(model.serverSummary)" : model.serverSummary)
+            Text(model.serverIsHealthy
+                 ? loc("menu.writeAPI", model.serverSummary) : model.serverSummary)
             Divider()
             ForEach(model.runs.prefix(8)) { run in
-                Button("\(run.title) — \(progress(run))") {
+                Button {
                     model.selectedRunID = run.id
                     model.selectedTaskID = nil
                     show()
+                } label: {
+                    // Run title and counts are data, never translated.
+                    Text(verbatim: "\(run.title) — \(progress(run))")
                 }
             }
-            if model.runs.isEmpty { Text("还没有运行记录").foregroundStyle(.secondary) }
+            if model.runs.isEmpty { Text(loc("menu.noRuns")).foregroundStyle(.secondary) }
             Divider()
-            Button("打开看板") { show() }.keyboardShortcut("0", modifiers: .command)
-            Button("从旧 JSON 导入") { model.importLegacyRuns() }
-            Toggle("开机自动启动", isOn: Binding(
+            Button(loc("menu.openBoard")) { show() }.keyboardShortcut("0", modifiers: .command)
+            Button(loc("menu.importLegacy")) { model.importLegacyRuns() }
+            Toggle(loc("menu.launchAtLogin"), isOn: Binding(
                 get: { model.launchesAtLogin },
                 set: { model.setLaunchesAtLogin($0) }
             ))
         } else {
-            Text(startupError ?? "正在启动…")
-            Button("打开看板") { show() }
+            Text(startupError ?? loc("app.starting"))
+            Button(loc("menu.openBoard")) { show() }
         }
         Divider()
-        Button("退出 Plan SDD") { NSApplication.shared.terminate(nil) }
+        Button(loc("menu.quit")) { NSApplication.shared.terminate(nil) }
             .keyboardShortcut("q", modifiers: .command)
     }
 

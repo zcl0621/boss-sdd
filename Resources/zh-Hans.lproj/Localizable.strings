@@ -1,0 +1,103 @@
+/* BossSDD 界面文案 —— 简体中文。键名与 en.lproj 一一对应。 */
+
+/* 任务状态：卡片、胶囊标签、悬浮统计条 */
+"state.waiting" = "等上游";
+"state.ready" = "就绪";
+"state.running" = "执行中";
+"state.review" = "待复核";
+"state.blocked" = "阻塞";
+"state.done" = "完成";
+"state.resourceHeld" = "资源占用";
+
+/* 运行状态 */
+"run.status.pending" = "待开始";
+"run.status.planning" = "规划中";
+"run.status.awaitingConfirmation" = "待确认";
+"run.status.running" = "执行中";
+"run.status.review" = "待验收";
+"run.status.blocked" = "受阻";
+"run.status.done" = "已完成";
+
+/* 工具栏视图切换 */
+"board.view.graph" = "依赖图";
+"board.view.columns" = "分栏";
+
+/* 写入接口状态 */
+"server.stopped" = "服务未启动";
+/* 端口是标识符不是数量：用 %@，免得按 locale 加千位分隔变成「网口 18,991」。 */
+"server.badge.port" = "网口 %@";
+"server.badge.port.help" = "写入接口不在默认端口，调用方需要指定端口";
+"server.badge.down" = "接口未启动";
+"server.badge.down.help" = "agent 现在无法写入看板";
+"server.badge.failed.help" = "写入接口启动失败";
+
+/* 旧 JSON 导入与开机自启 */
+"import.skipped" = "跳过 %1$lld 个：%2$@";
+"import.skipped.separator" = "；";
+"login.failed" = "开机自启设置失败：%@";
+
+/* 启动 */
+"app.starting" = "正在启动…";
+"app.startFailed" = "看板无法启动";
+
+/* 看板窗口 */
+"board.noRunSelected" = "没有选中的运行";
+"board.noRunSelected.detail" = "左侧选一个运行，或让 agent 建一个。";
+"board.view" = "视图";
+"board.details" = "详情";
+"board.details.help" = "显示或隐藏详情栏";
+"board.subtitle" = "%1$@ · 完成 %2$lld/%3$lld · 活动 %4$lld · 就绪 %5$lld";
+"board.tally.ready" = "就绪 %lld";
+"board.tally.active" = "活动 %lld";
+"board.graphInvalid" = "依赖图无效，调度已停用";
+
+/* 依赖图层标题 */
+"graph.layer" = "第 %1$lld 层 · %2$lld 个可并行";
+
+/* 详情栏 */
+"inspector.runOverview" = "运行概览";
+"inspector.ready" = "就绪 %lld";
+"inspector.summary" = "摘要";
+"inspector.summary.empty" = "尚无进度说明";
+"inspector.activity" = "最近活动";
+"inspector.event.init" = "创建计划";
+"inspector.event.task" = "更新子任务";
+"inspector.event.update" = "更新计划";
+"inspector.unassigned" = "未指派";
+"inspector.progress" = "进展";
+"inspector.progress.empty" = "尚无记录";
+"inspector.dependsOn" = "依赖";
+"inspector.waitingOn" = "仍在等待";
+"inspector.writeScope" = "写入范围";
+"inspector.exclusiveResources" = "独占资源";
+"inspector.resourceConflicts" = "资源冲突";
+"inspector.dependents" = "下游";
+
+/* 菜单栏 */
+"menu.writeAPI" = "写入接口 %@";
+"menu.noRuns" = "还没有运行记录";
+"menu.openBoard" = "打开看板";
+"menu.importLegacy" = "从旧 JSON 导入";
+"menu.launchAtLogin" = "开机自动启动";
+"menu.quit" = "退出 Plan SDD";
+
+/* 运行侧栏 */
+"sidebar.runs" = "运行";
+"sidebar.noRuns" = "还没有运行记录";
+"sidebar.noRuns.detail" = "agent 调用 POST /api/runs 后会出现在这里。";
+"sidebar.noProject" = "未指定项目";
+"sidebar.progress" = "%1$lld / %2$lld 完成";
+
+/* 分栏视图 */
+"columns.pending" = "待开始";
+"columns.running" = "执行中";
+"columns.review" = "待复核";
+"columns.blocked" = "阻塞";
+"columns.done" = "已完成";
+"columns.empty" = "暂无";
+
+/* 任务卡片 */
+"card.waiting" = "等 %lld 项上游";
+"card.dispatchable" = "可立即派发";
+"card.unassigned" = "未指派";
+"card.accessibility" = "%1$@，%2$@，%3$@";
