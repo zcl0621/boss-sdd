@@ -15,6 +15,7 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 - `plan_set_tasks` 改成单事务。
 - 发布一份全英文、三平台的技能：DAG + spec + TDD + 多角色 subagent + goal 模式 +
   code review + 门禁的聚合体。
+- 看板按 project 维度记忆可复用的勘察结论，让下一轮不必从零重学门禁和启动方式。
 - README 说清楚三家怎么装，并提示使用者按自己的订阅调整各角色模型。
 
 ## 非目标
@@ -176,6 +177,52 @@ developers.openai.com/codex/integrations/github、cursor.com/docs/skills、curso
 - `depends_on`: `["T7"]`
 - 三个包装层都要补本平台的 worktree 支持说明；Codex 那份如果事实表没有依据，
   就明写「未覆盖」，不许补一段像模像样的配置。
+
+### T8 看板侧 project memory 存储与接口
+
+- `depends_on`: []
+- `write_scope`: `Sources/BoardKit/Store.swift`, `Sources/BoardKit/Models.swift`,
+  `Sources/BoardKit/API.swift`, `Tests/BoardKitTests/MemoryTests.swift`,
+  `Tests/BoardKitTests/APITests.swift`
+- `exclusive_resources`: `["gate:swift-test"]`
+- role: implementer `[complexity: high]`
+
+memory 以 **project** 为维度（`Run` 已有 `project` 字段，复用它，不另起概念）。
+新增 `memories` 表与四个接口。每条至少带：`project`、`key`、`value`、`kind`、
+`source`、`created_at`、`updated_at`。
+
+`source` 是设计的关键，不是附属字段：它记这条是从哪个文件哪一行、或哪条命令的
+输出读出来的。没有它，下一轮拿到一条 `swift test` 无从判断是否还作数，memory
+就退化成一个自信的错误来源——这正是本仓库存在要防的那类失败。
+
+- 接口：list（按 project，可按 kind 过滤）、get、add（同 key 覆盖）、delete。
+- 写路径沿用既有的 Host 白名单、`Origin` 拒绝、`application/json` 强制。
+- 验收：`swift test`；测试必须用临时目录，不得碰 `~/.claude/plan-sdd/board.sqlite3`。
+
+### T9 MCP 侧 memory 四工具
+
+- `depends_on`: `["T8"]`
+- `write_scope`: `mcp/main.go`, `mcp/summary.go`, `mcp/tools_test.go`
+- `exclusive_resources`: `["gate:go-test"]`
+- role: implementer
+- `plan_memory_list` / `plan_memory_get` / `plan_memory_add` / `plan_memory_delete`。
+- 验收：`cd mcp && go test -count=1 ./...`。
+
+### T10 技能侧接入 memory
+
+- `depends_on`: `["T7", "T9"]`
+- `write_scope`: `skills/shared/`
+- role: skill-author
+- 阶段 0 改成：先 list 本 project 的 memory → 对每条按 `source` 做**廉价复验**
+  （那个文件还在吗、那条命令还在配置里吗）→ **只对缺失和复验不过的派勘察泳道**。
+  不许拿 memory 直接顶替勘察结论。
+- 每隔若干个 task 整理一次 memory（并入 goal 模式已有的 checkpoint，不另设节奏）：
+  把本轮学到的耐久事实写进去、删掉被推翻的、合并重复的。
+- 必须可降级：没有看板 / 没有 memory 接口时，退回现在的全量勘察，流程不变。
+- 验收：无中文、无本机路径；两种情况（有 memory、无 memory）各走一遍阶段 0
+  都不需要临场发挥。
+
+注：T10 与 T7 都写 `skills/shared/`，范围重叠，不能同批派发；T7 先落地。
 
 ### T6 README（英文）
 
