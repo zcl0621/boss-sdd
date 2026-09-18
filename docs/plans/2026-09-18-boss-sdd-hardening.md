@@ -31,6 +31,12 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 - 可移植版不依赖 Claude Code 独有的 `Workflow` 工具；勘察与复核统一表达成角色化 subagent 扇出。
   Claude Code 变体可以额外说明用 `Workflow` 并行更省事，但不作为前提。
 - 每个 subagent 就是一个角色，角色有自己的身份、输入契约、交付契约和模型档位。
+- **阶段 3 走"原生复核器优先 + 交接门禁"**：三家都自带一个跑在本地分支上的复核器
+  （`/code-review`、`/review`、`/review-bugbot`），比自己派 subagent 复核更专。但这三个
+  都是**用户敲的斜杠命令，agent 启动不了**（Claude Code 这条我的运行环境写明了
+  user-triggered and billed、不许绕道调用）。所以技能把它表达成交接：主 agent 备好分支 →
+  提示用户敲命令 → 用户贴回结论 → 技能用 adversarial-verifier 逐条反证分诊。
+  技能自带的多角色分支复核保留为不依赖人工按键的那条路，两条并存不互斥。
 
 ### 平台事实（已查证，非凭记忆）
 
@@ -41,8 +47,15 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 | 角色定义 | `.claude/agents/<n>.md`，`Agent` 工具带 `model` | `config.toml` 的 `[agents.<n>]`（`config_file`、`description`、`default_subagent_model`） | `.cursor/agents/<n>.md`，frontmatter 有 `model` / `readonly` / `is_background` |
 | 模型写法 | `opus` / `sonnet` / `haiku` / `fable` | `gpt-5.6`，另有 `default_subagent_reasoning_effort` | `claude-opus-5[effort=high]`、`composer-2.5`、`gpt-5.6-sol`、`inherit` |
 | frontmatter 扩展 | `allowed-tools`、`argument-hint` | 仅 name/description | `paths`（glob 限定） |
+| 原生分支复核 | `/code-review`（当前分支）；`/code-review ultra <PR#>` 走云端多 agent | `/review` → Review uncommitted changes / 对 base 分支；`review_model` 单独配模型 | `/review-bugbot`（相对 base 的全部改动，含未提交）；`/review` 同义 |
+| 原生 PR 复核 | `/code-review ultra <PR#>` | GitHub 集成，`@codex review`，读 `AGENTS.md` 里的 Code Review rules | PR 评论 `bugbot run` / `cursor review` |
+| 复核规则文件 | — | `AGENTS.md` | `.cursor/BUGBOT.md`（根目录那份总是加载，再沿变更文件向上找） |
 
-来源：developers.openai.com/codex/skills、/codex/config-reference、cursor.com/docs/skills、cursor.com/docs/subagents。
+来源：developers.openai.com/codex/skills、/codex/config-reference、developers.openai.com/codex/cli/features、
+developers.openai.com/codex/integrations/github、cursor.com/docs/skills、cursor.com/docs/subagents、cursor.com/docs/bugbot。
+查证日期 2026-09-18。
+
+**Bugbot 是 Cursor 的产品，不是 Codex 的**——这点先前记反了，已按官方文档更正。
 
 ## Tasks
 
