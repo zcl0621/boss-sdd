@@ -43,14 +43,17 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 
 | | Claude Code | Codex | Cursor |
 |---|---|---|---|
-| 技能位置 | `~/.claude/skills/<name>/` | `.agents/skills/<name>/`、`$HOME/.agents/skills/` | `.cursor/skills/`、`.agents/skills/`，并兼容读 `.claude/skills/`、`.codex/skills/` |
+| 技能位置 | `~/.claude/skills/<name>/` | `.agents/skills/<name>/`、`$HOME/.agents/skills/` | 项目级 `.agents/skills/`、`.cursor/skills/`；用户级 `~/.agents/skills/`、`~/.cursor/skills/`；兼容读 `.claude/skills/`、`.codex/skills/`、`~/.claude/skills/`、`~/.codex/skills/`；仓库内任意位置的 `.cursor/skills/` 也会被发现（monorepo） |
+| 同名技能优先级 | — | — | **官方文档未规定**——早先写的「`.cursor/` 冲突时优先」是我编的，已推翻 |
+| Cursor SKILL.md frontmatter | — | — | `name`（必须匹配父文件夹名）、`description`、`paths`、`disable-model-invocation`、`icon`、`color`、`metadata`；`globs` 作为旧拼法仍被接受但新技能应用 `paths` |
+| Cursor 技能显式调用 | — | — | 在 Agent chat 里键入 `/` 并搜索技能名 |
 | 显式调用 | `/name` | `$name` | `/name` |
 | 角色定义 | `.claude/agents/<n>.md`，`Agent` 工具带 `model` | `config.toml` 的 `[agents.<n>]`，**只接受两个键**：`config_file`（"Path to a TOML config layer for that role"）、`description` | `.cursor/agents/<n>.md`，frontmatter 为 `name` / `description` / `model` / `readonly` / `is_background` |
 | Codex 配置位置 | — | 用户级 `~/.codex/config.toml`；项目级 `.codex/config.toml`（需信任该项目） | — |
 | Codex agents 全局键 | — | `agents.enabled`、`agents.interrupt_message`、`agents.max_concurrent_threads_per_session`、`agents.max_threads`（旧别名）、`agents.default_subagent_model`、`agents.default_subagent_reasoning_effort` —— **这六个都是全局，不是逐角色** | — |
 | Codex reasoning effort 取值 | — | `minimal` / `low` / `medium` / `high` / `xhigh`（`xhigh` 依模型而定） | — |
 | Codex review_model | — | "Optional model override used by `/review` (defaults to the current session model)" | — |
-| 模型写法 | `opus` / `sonnet` / `haiku` / `fable` | `gpt-5.6`，另有 `default_subagent_reasoning_effort`、`default_subagent_model` | `inherit`、`composer-2`、`composer-2.5`、`gpt-5.6-sol`、`claude-opus-5`；括号参数 `fast` / `effort` / `context`，例 `claude-opus-5[effort=high,context=300k]` |
+| 模型写法 | `opus` / `sonnet` / `haiku` / `fable` | `gpt-5.6`，另有 `default_subagent_reasoning_effort`、`default_subagent_model` | `inherit`、`composer-2`、`composer-2.5`、`gpt-5.6-sol`、`claude-opus-5`；括号参数 `fast` / `effort` / `context`，例 `claude-opus-5[effort=high,context=300k]`、`composer-2.5[]`（空括号形式文档有例） |
 | frontmatter 扩展 | `allowed-tools`、`argument-hint` | 仅 name/description | `paths`（glob 限定） |
 | 原生分支复核 | `/code-review`（当前分支）；`/code-review ultra <PR#>` 走云端多 agent | `/review` → Review uncommitted changes / 对 base 分支；`review_model` 单独配模型 | `/review-bugbot`（相对 base 的全部改动，含未提交）；`/review` 同义 |
 | 原生 PR 复核 | `/code-review ultra <PR#>` | GitHub 集成，`@codex review`，读 `AGENTS.md` 里的 Code Review rules | PR 评论 `bugbot run` / `cursor review` |
@@ -191,8 +194,9 @@ developers.openai.com/codex/integrations/github、cursor.com/docs/skills、curso
   简单。给出选择依据，不要暗示 worktree 总是更好。
 - **必须可降级**：平台不支持 worktree 时，整份文档在共享树模式下照样走得通。
 
-平台支持（已查证）：Claude Code 的 `Agent` 工具有 `isolation: "worktree"`，
-无改动时自动清理；Cursor 文档写明支持每个 subagent 独立 worktree；
+平台支持（已查证）：Claude Code 的 `Agent` 工具有 `isolation: "worktree"`，无改动时自动清理；
+**Cursor 的 subagent 默认共用父 agent 的检出、并发编辑会互相覆盖**，隔离要逐次用自然语言
+要求且没有具名开关（先前写的「Cursor 支持每个 subagent 独立 worktree」已推翻）；
 **Codex 侧事实表没有覆盖，不许编**。
 
 - 验收：无中文、无本机路径、无 `Workflow` 依赖；两种模式各走一遍执行路径都
