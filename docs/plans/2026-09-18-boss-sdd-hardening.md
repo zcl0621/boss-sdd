@@ -512,6 +512,23 @@ computer-use 那套的 `request_access` + `app_screenshot`，它走的是另一�
 那正是 T6 刚刚删掉的那类说法（「built from real run data」，没人打开过那个文件），
 在这儿重演一遍只会更糟，因为图比句子更像证据。
 
+**第三个阻塞（2026-09-19 实际动手时才撞到）**：用户要求截图也是英文的，
+而 **app 的界面全是中文**——`Sources/BossSDD/` 下 79 条用户可见中文字符串，
+分布在 10 个文件里（`Theme.swift` 14 条状态名、`BoardWindow.swift` 14 条、
+`InspectorView.swift` 19 条、`MenuBarContent.swift` 8 条等）。README 和技能
+正文都是英文，界面是中文，截图放进去就露馅。见 T24。
+
+**第四个阻塞**：computer-use 的 `request_access` 看不见这个 app。
+实测：`list_apps` 用 `boss` / `plan` / `sdd` 查都是空；直接跑二进制、
+改用 `open -n -a ... --env` 走 LaunchServices 重启（health 确认活着，
+`{"port":18895,"ok":true,"runs":1}`）之后仍然查不到；而
+`System Events` 的 `background only` 进程列表里**有** `BossSDD`。
+推断（未证实）是这套工具只枚举常规激活策略的 app，而本 app 是
+`LSUIElement = true` 的附属程序。
+
+剩下的路是 `screencapture -l <windowid>`，它不受这个限制，但要用户在
+系统设置里给当前进程授予「屏幕录制」权限。这一步只能用户自己点。
+
 ### T22 verifyMemoryEcho 的同款盲点 + 版本错配无人诊断（新增，未开始）
 
 T19 收口时报上来两条，都核实过是真的，但超出它的范围：
@@ -559,6 +576,25 @@ T20 报上来的，都核实过：
 `Sources/BoardKit/API.swift`、`Sources/BossSDD/BoardModel.swift`、`Tests/BoardKitTests/`。
 `exclusive_resources`: `["gate:swift-test"]`。
 
+### T24 app 界面英文化（新增，未开始，需用户拍板走哪条路）
+
+`Sources/BossSDD/` 下 79 条用户可见中文字符串。仓库是公开且全英文的
+（README、三份打包、`skills/shared/` 正文都是英文，后者还有 ASCII-only 门禁），
+唯独界面是中文。用户要求 README 截图是英文的，所以这条挡在 T21 前面。
+
+两条路，代价不同，**要用户定**：
+
+1. **直接翻成英文**。改动最小，仓库从此前后一致。代价是用户自己日常用的
+   也变英文了。
+2. **做本地化**（英文为 base，中文作为一份 localization）。两边都留住，
+   但要引入 `.lproj` / String Catalog、给 79 条串都建 key，工作量是第一条的
+   几倍，而且 SwiftPM 的资源打包和 `bundle.sh` 的组装步骤都要跟着改。
+
+我倾向第一条：这是个单机自用工具，公开仓库的一致性比保留中文界面值钱，
+而且用户读英文没有障碍。但这是用户的界面，不该我替他决定。
+
+`write_scope`: `Sources/BossSDD/`（若走第二条还包括 `Package.swift`、`Scripts/bundle.sh`）。
+`depends_on`: []
 ## 风险与未决项
 
 - 本轮仍无法用看板追踪：MCP 工具本会话未加载。状态落在本文件，重启后补录。
