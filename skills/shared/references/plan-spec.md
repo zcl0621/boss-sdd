@@ -16,12 +16,33 @@ convention, ask the user where it goes rather than choosing for them.
 Status: running
 Run id: <the board's run_id, or "no board">
 Base ref: <the commit recorded in phase 0>
+Execution mode: shared-tree | worktree
+Integration branch: <name>                 (worktree mode only)
+Main working tree: <absolute path>         (worktree mode only)
+Integration worktree: <absolute path>      (worktree mode only)
 Updated: <date>
 ```
 
 `Status` uses the same plan-level vocabulary as the board: `pending`, `planning`,
-`awaiting_confirmation`, `running`, `review`, `blocked`, `done`. Keep it current
-at the same moments you would write to the board. With a board this header
+`awaiting_confirmation`, `running`, `review`, `blocked`, `done`. `Execution mode`
+records where the nodes write, and a later session cannot infer it from the
+repository. Keep it current at the same moments you would write to the board.
+
+In shared-tree mode `Execution mode` is the whole of it and the three lines under
+it are omitted. In worktree mode all three are required, because none of them can
+be reconstructed later: the integration branch holds every node's merged work and
+is the deliverable; the main working tree is the user's and is the tree that must
+be left alone; the integration worktree is where the merges and the post-merge
+gates ran. A recovering session given only the branch name cannot tell those two
+trees apart, and the one it guesses wrong is the user's.
+[worktree-mode.md](worktree-mode.md) says when to write them.
+
+`Base ref` has to stay current too. [worktree-mode.md](worktree-mode.md) has the
+one case where the phase 0 value is replaced rather than merely recorded: a user
+who clears their working tree by committing before a worktree run. This header is
+where that replacement lives, and everything downstream reads the base from here.
+
+With a board this header
 duplicates what the board holds, which is deliberate: it is what a later session
 reads when the board is gone, and it is where the plan status lives when there
 never was one. Without a board it is the only record of the plan's own status,

@@ -1,18 +1,9 @@
----
-name: plan-sdd
-description: >-
-  Survey the project, write a spec-backed task DAG (dependencies, write scope,
-  exclusive resources), then dispatch independent subagents to implement and
-  review the nodes in dependency order while tracking every state change on a
-  live local board. Use when the requirement is roughly settled and the change
-  spans several steps or several files. Two modes: confirm mode asks when a
-  question would change the outcome; goal mode (user says "run it to the end",
-  "I'm going away", or passes --goal) drives the whole plan to close-out without
-  waiting for replies, parking anything it cannot answer instead of guessing.
-  Not for a one-line fix, an explanation, a diagnosis, or a status question.
----
-
 # Plan SDD
+
+This file is the portable body of the plan-sdd skill, shared by every platform.
+It is not an entry point and carries no frontmatter, so nothing discovers it on
+its own: you got here from a platform wrapper, which holds the skill's name, the
+description that decides when it triggers, and the invocation syntax.
 
 You are the orchestrator of a multi-step change. You do not write the
 implementation, and you do not review it. You survey, plan, dispatch, adjudicate,
@@ -37,7 +28,8 @@ whatever mechanism your platform provides for running an independent agent with
 its own context and its own model setting, and issue several such calls in one
 message when the text says to run them in parallel. The per-platform wrapper that
 pointed you here names that mechanism, where role definitions live, and the model
-identifiers that are valid for you.
+identifiers that are valid for you. When the wrapper and this document disagree
+on a platform detail, the wrapper wins; on behaviour, this document wins.
 
 Status tracking runs through the `plan-sdd` MCP tools when they are available.
 They are optional. The board is an observability layer, not the scheduler: it
@@ -70,6 +62,9 @@ whichever case you are in.
    node writes into the same working tree at the same time. If two nodes'
    declared scopes overlap and you dispatch them together, they will corrupt each
    other's work and you will not find out until the gates fail confusingly.
+   (An optional mode gives each node its own worktree. It removes the file half
+   of this rule and none of the resource half. See
+   [Execution modes](#execution-modes).)
 6. **Goal mode removes "stop and wait". It does not license guessing.** An
    unanswered question gets parked in the "needs a decision from the user" list,
    and every task that depends on the answer takes the `blocked` status, with a
@@ -117,6 +112,35 @@ Even in goal mode, stop and hand back to the user when:
   downstream, not the run. Give all of them the `blocked` status and let
   everything else keep running.
 - Every safe path is blocked and no further real progress is possible.
+
+## Execution modes
+
+Where the nodes write. This is a separate axis from the operating modes above,
+which are about when you stop to ask.
+
+**Shared-tree mode (default).** Every node writes into the one working tree, at
+the same time. `write_scope` and `exclusive_resources` keep them off each other.
+This is what the rest of this document describes, and it needs nothing from the
+platform.
+
+**Worktree mode (optional).** Each dispatched node gets its own git worktree on
+its own branch, cut from the integration branch, and its work reaches the rest of
+the plan by merging. It changes six steps of the phase 2 loop, all specified in
+[worktree-mode.md](references/worktree-mode.md), which also has the basis for
+choosing between the two and a precondition to check before picking it.
+
+Two things about it are worth knowing before you pick, because both read
+backwards:
+
+- Isolating files does not isolate ports, devices, databases, or test locks.
+  `exclusive_resources` carries more weight in worktree mode than in the default.
+- A node's gates passing in its own tree do not make it `done`. Its work has to
+  be committed, merged, and gated again on the merged result.
+
+If the platform cannot give a subagent its own worktree, or you are not sure it
+can, run shared-tree mode and carry on. Neither mode is ever a precondition, and
+a shared-tree run is not a degraded run. State in the delivery report which mode
+you ran in.
 
 ## Phase 0: align and survey
 
@@ -214,6 +238,11 @@ The outer loop schedules by [the DAG contract](references/dag-contract.md). Insi
 each node runs a state machine: implement, independent review, fix and re-review,
 gates, done. That loop is internal to the node and never becomes an edge in the
 DAG.
+
+The steps below are written for shared-tree mode. In worktree mode, steps 1, 2,
+3, 4, 5 and 8 change, step 8 in particular growing from one action into three;
+[worktree-mode.md](references/worktree-mode.md) gives each one in full. Read it
+instead of adapting these yourself.
 
 Each scheduling pass ("pass" here, never "round"; a round is one turn of the fix
 loop inside a node, of which there are at most three):
@@ -451,6 +480,16 @@ going wrong at.
   in the batch are mid-write.
 - Reporting a run as finished while any node is still `blocked`. It closes out as
   partial, with the blocked nodes named.
+- Deleting the worktree or branch of a `blocked` node when cleaning up in
+  worktree mode. That tree is the evidence of what went wrong and cannot be
+  reconstructed from the integration branch.
+- Treating a node's gates passing in its own worktree as `done`. In worktree mode
+  the commit, the merge and the gate run after it are part of the node.
+- Merging a node's branch in worktree mode before you have committed its work.
+  The branch is still at its branch point until then, so the merge is empty and
+  the gate that follows proves nothing.
+- Checking the integration branch out in the user's main working tree, or
+  committing or stashing the user's changes to clear the way for worktree mode.
 
 ## Start here
 
@@ -465,7 +504,9 @@ going wrong at.
 5. Write the plan document ([plan-spec.md](references/plan-spec.md)) with the DAG
    in it ([dag-contract.md](references/dag-contract.md)), then mirror it to the
    board if you have one, and check the graph is valid either way.
-6. In confirm mode, stop and present. In goal mode, start the scheduling loop.
+6. Pick the execution mode and record it in the plan's Status header. Shared-tree
+   unless you have a reason and the platform can do worktrees.
+7. In confirm mode, stop and present. In goal mode, start the scheduling loop.
 
 ## Reference files
 
@@ -483,4 +524,6 @@ going wrong at.
 - [references/native-review-handoff.md](references/native-review-handoff.md): the
   platform branch reviewers and why they are a handoff.
 - [references/gates.md](references/gates.md): gate discipline.
+- [references/worktree-mode.md](references/worktree-mode.md): the optional
+  per-node worktree execution mode, and how to choose between the two.
 - [roles.md](roles.md): the role roster and model tiers.
