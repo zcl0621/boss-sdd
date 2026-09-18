@@ -470,6 +470,368 @@ private final class TestServer {
         }
     }
 
+    // MARK: - Project memory (/api/memories)
+
+    /// `project` rides in the query string because it may be an absolute path;
+    /// `key` is a constrained slug and sits in the path like a run or task ID.
+    @Test func memoryRoutesRoundTripOverHTTP() async throws {
+        try await withServer { server in
+            let (addStatus, added) = try await server.send(
+                "POST", "/api/memories",
+                json: #"""
+                    {"project":"boss-sdd","key":"gate.swift-test","value":"swift test",
+                     "kind":"gate","source":"README.md:82"}
+                    """#
+            )
+            #expect(addStatus == 200)
+            #expect(added["key"] as? String == "gate.swift-test")
+            #expect(added["value"] as? String == "swift test")
+            #expect(added["kind"] as? String == "gate")
+            #expect(added["source"] as? String == "README.md:82")
+
+            let (getStatus, got) = try await server.send(
+                "GET", "/api/memories/gate.swift-test?project=boss-sdd", contentType: nil
+            )
+            #expect(getStatus == 200)
+            #expect(got["value"] as? String == "swift test")
+            // `source` is carried on the read path, not merely stored.
+            #expect(got["source"] as? String == "README.md:82")
+
+            let (listStatus, listed) = try await server.send(
+                "GET", "/api/memories?project=boss-sdd", contentType: nil
+            )
+            #expect(listStatus == 200)
+            let entries = listed["memories"] as! [[String: Any]]
+            #expect(entries.map { $0["key"] as! String } == ["gate.swift-test"])
+            #expect(entries.map { $0["source"] as! String } == ["README.md:82"])
+
+            // The same key again overwrites rather than duplicating.
+            _ = try await server.send(
+                "POST", "/api/memories",
+                json: #"""
+                    {"project":"boss-sdd","key":"gate.swift-test","value":"swift test --parallel",
+                     "kind":"gate","source":"Package.swift:1"}
+                    """#
+            )
+            let (_, relisted) = try await server.send(
+                "GET", "/api/memories?project=boss-sdd", contentType: nil
+            )
+            let after = relisted["memories"] as! [[String: Any]]
+            #expect(after.count == 1)
+            #expect(after[0]["value"] as? String == "swift test --parallel")
+
+            let (deleteStatus, deleted) = try await server.send(
+                "DELETE", "/api/memories/gate.swift-test?project=boss-sdd", contentType: nil
+            )
+            #expect(deleteStatus == 200)
+            #expect(deleted["deleted"] as? String == "gate.swift-test")
+
+            let (missing, _) = try await server.send(
+                "GET", "/api/memories/gate.swift-test?project=boss-sdd", contentType: nil
+            )
+            #expect(missing == 404)
+        }
+    }
+
+    /// The dimension, over the wire: an absolute path as the project survives
+    /// percent-encoding in the query string, and the two projects stay separate.
+    @Test func memoriesAreIsolatedPerProjectOverHTTP() async throws {
+        try await withServer { server in
+            let alpha = "/Users/someone/Project/alpha"
+            let beta = "/Users/someone/Project/beta"
+            _ = try await server.send(
+                "POST", "/api/memories",
+                json: #"{"project":"\#(alpha)","key":"gate","value":"swift test","kind":"gate","source":"a:1"}"#
+            )
+            _ = try await server.send(
+                "POST", "/api/memories",
+                json: #"{"project":"\#(beta)","key":"gate","value":"go test ./...","kind":"gate","source":"b:1"}"#
+            )
+
+            let encodedAlpha = alpha.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
+            let encodedBeta = beta.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
+
+            let (_, alphaBody) = try await server.send(
+                "GET", "/api/memories/gate?project=\(encodedAlpha)", contentType: nil
+            )
+            #expect(alphaBody["value"] as? String == "swift test")
+            #expect(alphaBody["project"] as? String == alpha)
+
+            let (_, betaBody) = try await server.send(
+                "GET", "/api/memories/gate?project=\(encodedBeta)", contentType: nil
+            )
+            #expect(betaBody["value"] as? String == "go test ./...")
+
+            let (_, alphaList) = try await server.send(
+                "GET", "/api/memories?project=\(encodedAlpha)", contentType: nil
+            )
+            #expect((alphaList["memories"] as! [[String: Any]]).count == 1)
+        }
+    }
+
+    @Test func memoryListFiltersByKind() async throws {
+        try await withServer { server in
+            for (key, kind) in [("gate.swift", "gate"), ("gate.go", "gate"), ("start", "run_recipe")] {
+                _ = try await server.send(
+                    "POST", "/api/memories",
+                    json: #"{"project":"p","key":"\#(key)","value":"v","kind":"\#(kind)","source":"s:1"}"#
+                )
+            }
+
+            let (all, allBody) = try await server.send("GET", "/api/memories?project=p", contentType: nil)
+            #expect(all == 200)
+            #expect((allBody["memories"] as! [[String: Any]]).count == 3)
+
+            let (_, gates) = try await server.send(
+                "GET", "/api/memories?project=p&kind=gate", contentType: nil
+            )
+            #expect((gates["memories"] as! [[String: Any]]).map { $0["key"] as! String }
+                == ["gate.go", "gate.swift"])
+
+            let (_, recipes) = try await server.send(
+                "GET", "/api/memories?project=p&kind=run_recipe", contentType: nil
+            )
+            #expect((recipes["memories"] as! [[String: Any]]).map { $0["key"] as! String } == ["start"])
+
+            let (_, none) = try await server.send(
+                "GET", "/api/memories?project=p&kind=convention", contentType: nil
+            )
+            #expect((none["memories"] as! [[String: Any]]).isEmpty)
+
+            let (badKind, badBody) = try await server.send(
+                "GET", "/api/memories?project=p&kind=gates", contentType: nil
+            )
+            #expect(badKind == 400)
+            #expect(((badBody["error"] as! [String: Any])["message"] as! String).contains("run_recipe"))
+        }
+    }
+
+    /// Same argument as the batch-route guard test: `handle` runs `checkOrigin`
+    /// before `route`, and `checkOrigin` never looks at the path, so the refusals
+    /// alone would also hold for a route that does not exist. The positive control
+    /// at the end is what gives them meaning — the same URL and body, guards
+    /// satisfied, really does reach the memory route and write.
+    @Test func memoryWritesAreRefusedByTheSharedOriginAndContentTypeGuards() async throws {
+        try await withServer { server in
+            let payload = #"{"project":"p","key":"gate","value":"swift test","kind":"gate","source":"s:1"}"#
+
+            let (typeStatus, typeBody) = try await server.send(
+                "POST", "/api/memories", json: payload, contentType: "text/plain"
+            )
+            #expect(typeStatus == 400)
+            #expect(((typeBody["error"] as! [String: Any])["message"] as! String).contains("application/json"))
+
+            let (originStatus, _) = try await server.send(
+                "POST", "/api/memories", json: payload, origin: "https://example.com"
+            )
+            #expect(originStatus == 403)
+
+            // Neither refusal wrote anything.
+            #expect(try server.store.memories(project: "p").isEmpty)
+
+            // Positive control: same URL, same body, guards satisfied.
+            let (allowed, _) = try await server.send("POST", "/api/memories", json: payload)
+            #expect(allowed == 200)
+            #expect(try server.store.memory(project: "p", key: "gate").value == "swift test")
+
+            // DELETE is not content-type gated (nor is `DELETE /api/runs/{id}`),
+            // but the Origin refusal covers every method, this one included.
+            let (deleteOrigin, _) = try await server.send(
+                "DELETE", "/api/memories/gate?project=p", contentType: nil, origin: "https://example.com"
+            )
+            #expect(deleteOrigin == 403)
+            #expect(try server.store.memory(project: "p", key: "gate").value == "swift test")
+
+            // Positive control for the delete route too.
+            let (deleted, _) = try await server.send(
+                "DELETE", "/api/memories/gate?project=p", contentType: nil
+            )
+            #expect(deleted == 200)
+            #expect(try server.store.memories(project: "p").isEmpty)
+        }
+    }
+
+    @Test func memoryWritesRequireASourceAndAKnownKind() async throws {
+        try await withServer { server in
+            let (noSource, noSourceBody) = try await server.send(
+                "POST", "/api/memories",
+                json: #"{"project":"p","key":"gate","value":"swift test","kind":"gate","source":"  "}"#
+            )
+            #expect(noSource == 400)
+            #expect(((noSourceBody["error"] as! [String: Any])["message"] as! String).contains("source"))
+
+            let (missingSource, missingBody) = try await server.send(
+                "POST", "/api/memories",
+                json: #"{"project":"p","key":"gate","value":"swift test","kind":"gate"}"#
+            )
+            #expect(missingSource == 400)
+            #expect(((missingBody["error"] as! [String: Any])["message"] as! String).contains("source"))
+
+            let (badKind, badKindBody) = try await server.send(
+                "POST", "/api/memories",
+                json: #"{"project":"p","key":"gate","value":"v","kind":"gates","source":"s:1"}"#
+            )
+            #expect(badKind == 400)
+            #expect(((badKindBody["error"] as! [String: Any])["message"] as! String).contains("exclusive_resource"))
+
+            #expect(try server.store.memories(project: "p").isEmpty)
+        }
+    }
+
+    /// The percent-decode → validator seam. `route` splits the path on "/" and
+    /// only *then* percent-decodes each segment, so `%2F` survives the split and
+    /// arrives at the store as a key containing a slash. That is the one place a
+    /// traversal-shaped key could slip past path structure, so it is pinned here
+    /// rather than left to the store-level alphabet tests, which never go through
+    /// a URL. Unicode covers the `isASCII` branch of `isValidMemoryKey`.
+    @Test func encodedSeparatorsAndUnicodeInAKeyAreRefused() async throws {
+        try await withServer { server in
+            // A real key, so a bypass would have something to hit.
+            _ = try await server.send(
+                "POST", "/api/memories",
+                json: #"{"project":"p","key":"gate","value":"swift test","kind":"gate","source":"s:1"}"#
+            )
+
+            // %2F decodes to "/" inside the segment: rejected, never routed around.
+            let (slash, slashBody) = try await server.send(
+                "GET", "/api/memories/gate%2Fx?project=p", contentType: nil
+            )
+            #expect(slash == 400)
+            #expect(((slashBody["error"] as! [String: Any])["message"] as! String).contains("key"))
+
+            // %2E%2E%2F is "../": same refusal, not a path that climbs anywhere.
+            let (dots, _) = try await server.send(
+                "GET", "/api/memories/%2E%2E%2Fgate?project=p", contentType: nil
+            )
+            #expect(dots == 400)
+
+            // 门禁, percent-encoded. Non-ASCII stays non-ASCII through the fold.
+            let (unicode, _) = try await server.send(
+                "GET", "/api/memories/%E9%97%A8%E7%A6%81?project=p", contentType: nil
+            )
+            #expect(unicode == 400)
+
+            // The same refusals on the write and delete paths.
+            let (writeStatus, _) = try await server.send(
+                "POST", "/api/memories",
+                json: #"{"project":"p","key":"gate/x","value":"v","kind":"gate","source":"s:1"}"#
+            )
+            #expect(writeStatus == 400)
+            let (deleteStatus, _) = try await server.send(
+                "DELETE", "/api/memories/gate%2Fx?project=p", contentType: nil
+            )
+            #expect(deleteStatus == 400)
+
+            // Nothing above reached, changed or removed the real entry.
+            #expect(try server.store.memories(project: "p").map(\.key) == ["gate"])
+        }
+    }
+
+    /// Keys fold to lower case over the wire too, so the URL a caller builds from a
+    /// capitalised key still reaches the one row.
+    @Test func memoryKeysAreCaseFoldedOverHTTP() async throws {
+        try await withServer { server in
+            _ = try await server.send(
+                "POST", "/api/memories",
+                json: #"{"project":"p","key":"Gate.Swift-Test","value":"swift test","kind":"gate","source":"s:1"}"#
+            )
+            let (_, listed) = try await server.send("GET", "/api/memories?project=p", contentType: nil)
+            let entries = listed["memories"] as! [[String: Any]]
+            #expect(entries.map { $0["key"] as! String } == ["gate.swift-test"])
+
+            let (upper, upperBody) = try await server.send(
+                "GET", "/api/memories/GATE.SWIFT-TEST?project=p", contentType: nil
+            )
+            #expect(upper == 200)
+            #expect(upperBody["value"] as? String == "swift test")
+        }
+    }
+
+    /// A recorded decision, not an accident, and the counterpart to
+    /// `aTrailingSlashFallsThroughToTheBatchRoute`: `path.split(separator: "/")`
+    /// drops empty subsequences, so `GET /api/memories/?project=p` — an agent whose
+    /// `$KEY` variable came out empty — loses the empty segment and matches the
+    /// *list* route, answering 200 with a list-shaped body rather than 404. A naive
+    /// client reading `.value` off that gets null instead of an error.
+    ///
+    /// The fix belongs to the router, which is shared and out of this task's scope;
+    /// pinned here so the behaviour is visible and any later router change has to
+    /// come past this test on purpose.
+    @Test func aTrailingSlashOnTheMemoryGetFallsThroughToTheListRoute() async throws {
+        try await withServer { server in
+            _ = try await server.send(
+                "POST", "/api/memories",
+                json: #"{"project":"p","key":"gate","value":"swift test","kind":"gate","source":"s:1"}"#
+            )
+
+            let (status, body) = try await server.send(
+                "GET", "/api/memories/?project=p", contentType: nil
+            )
+            #expect(status == 200)
+            // List-shaped, not memory-shaped: `memories` present, `value` absent.
+            #expect(body["memories"] != nil)
+            #expect(body["value"] == nil)
+            #expect((body["memories"] as! [[String: Any]]).count == 1)
+
+            // Without a project it is at least a 400 rather than a wrong-shaped 200.
+            let (noProject, _) = try await server.send("GET", "/api/memories/", contentType: nil)
+            #expect(noProject == 400)
+
+            // The delete route has no such fallthrough: DELETE has no list route, so
+            // the trailing slash 404s instead of doing something broader.
+            let (deleted, _) = try await server.send(
+                "DELETE", "/api/memories/?project=p", contentType: nil
+            )
+            #expect(deleted == 404)
+            #expect(try server.store.memories(project: "p").count == 1)
+        }
+    }
+
+    @Test func memoryReadsRequireAProject() async throws {
+        try await withServer { server in
+            let (list, listBody) = try await server.send("GET", "/api/memories", contentType: nil)
+            #expect(list == 400)
+            #expect(((listBody["error"] as! [String: Any])["message"] as! String).contains("project"))
+
+            let (get, _) = try await server.send("GET", "/api/memories/gate", contentType: nil)
+            #expect(get == 400)
+
+            let (remove, _) = try await server.send("DELETE", "/api/memories/gate", contentType: nil)
+            #expect(remove == 400)
+
+            // Present-but-empty (`?project=`) is a different mistake from absent —
+            // the caller built the URL and lost the value — and gets its own message.
+            //
+            // The assertion has to name the API's exact wording, because both
+            // layers refuse this request: with `requiredQuery`'s empty check gone,
+            // `""` falls through to `Store.normalizedProject`, which throws
+            // "project must not be empty" — also a 400, also accurate, also
+            // containing "must not be empty" and not "missing". A test written
+            // against those looser properties passes with the API branch deleted,
+            // which makes it no test of the split at all.
+            //
+            // There is no structural discriminator to use instead: every route that
+            // calls `requiredQuery("project")` hands the result straight to the
+            // store, so no input reaches one guard without reaching the other. The
+            // wording is the only thing that differs — and "query parameter" is a
+            // durable discriminator rather than an arbitrary one, because it is a
+            // fact only the HTTP layer knows. `Store` has no concept of a request,
+            // so its message cannot legitimately acquire that phrase.
+            let (empty, emptyBody) = try await server.send(
+                "GET", "/api/memories?project=", contentType: nil
+            )
+            #expect(empty == 400)
+            let emptyMessage = (emptyBody["error"] as! [String: Any])["message"] as! String
+            #expect(emptyMessage.contains("query parameter 'project'"))
+            #expect(emptyMessage.contains("must not be empty"))
+            #expect(!emptyMessage.contains("missing"))
+            // And the two mistakes really do read differently, not just accidentally.
+            let (_, absentBody) = try await server.send("GET", "/api/memories", contentType: nil)
+            let absentMessage = (absentBody["error"] as! [String: Any])["message"] as! String
+            #expect(absentMessage != emptyMessage)
+        }
+    }
+
     @Test func unknownStatusReportsTheAllowedSet() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"状态"}"#)

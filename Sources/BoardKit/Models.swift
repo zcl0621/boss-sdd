@@ -123,6 +123,69 @@ public struct Run: Codable, Sendable, Identifiable {
     }
 }
 
+/// What a remembered fact is *about*. A closed set, so `kind` stays a usable
+/// filter instead of drifting into a dozen spellings of the same category — the
+/// same reason `TaskStatus` is closed. The five specific kinds are the answers
+/// the recon phase rediscovers on every run; `note` is the escape hatch for a
+/// fact worth keeping that fits none of them.
+public enum MemoryKind: String, Codable, CaseIterable, Sendable {
+    /// A verification command that must pass, e.g. `swift test`.
+    case gate
+    /// How to build, start or exercise the thing, e.g. `./Scripts/bundle.sh --install`.
+    case runRecipe = "run_recipe"
+    /// How this codebase does things: layout, naming, test placement, style.
+    case convention
+    /// A constraint a task may not violate, whatever else it does.
+    case hardRule = "hard_rule"
+    /// A resource only one task may hold at a time; feeds `BoardTask.exclusiveResource`.
+    case exclusiveResource = "exclusive_resource"
+    /// Anything else worth carrying between runs.
+    case note
+}
+
+/// One remembered fact about a project, carried across runs so the recon phase
+/// does not rediscover it from scratch every time.
+///
+/// `source` is load-bearing, not decoration. A stored gate command that has since
+/// changed is worse than no memory at all: an agent runs the wrong gate and
+/// reports green. `source` — a file and line, or the command whose output this
+/// was read from — is what makes a stale entry cheaply falsifiable, so it is
+/// required on write and present on every read path.
+public struct Memory: Codable, Sendable, Hashable {
+    /// The dimension, matching `Run.project`. There is no second notion of project identity.
+    public var project: String
+    public var key: String
+    public var value: String
+    public var kind: MemoryKind
+    public var source: String
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        project: String,
+        key: String,
+        value: String,
+        kind: MemoryKind = .note,
+        source: String,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.project = project
+        self.key = key
+        self.value = value
+        self.kind = kind
+        self.source = source
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case project, key, value, kind, source
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
 /// Maximum events retained per run, matching the previous board's cap.
 public let eventHistoryLimit = 200
 
@@ -167,4 +230,16 @@ public func isValidRunID(_ id: String) -> Bool {
 
 public func isValidTaskID(_ id: String) -> Bool {
     !id.isEmpty && id.count <= 64 && !id.contains(where: { $0.isNewline || $0.isWhitespace })
+}
+
+/// Memory keys land in URL path segments, so they keep the same unambiguous
+/// alphabet run IDs do, plus `.` for dotted slugs like `gate.swift-test`.
+///
+/// Checks the alphabet only. Callers reach keys through `Store`, which trims and
+/// lower-cases first — uppercase input is folded, not rejected, so this predicate
+/// never sees a capital letter from that path.
+public func isValidMemoryKey(_ key: String) -> Bool {
+    !key.isEmpty && key.count <= 64 && key.allSatisfy {
+        $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == ".")
+    }
 }

@@ -98,6 +98,17 @@ public final class Store: @unchecked Sendable {
             note TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS events_by_run ON events(run_id, seq);
+        CREATE TABLE IF NOT EXISTS memories(
+            project TEXT NOT NULL,
+            "key" TEXT NOT NULL,
+            value TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            source TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY(project, "key")
+        );
+        CREATE INDEX IF NOT EXISTS memories_by_kind ON memories(project, kind);
         """
 
     // MARK: - Observation
@@ -298,6 +309,155 @@ public final class Store: @unchecked Sendable {
             }
         }
         notify()
+    }
+
+    // MARK: - Memories
+
+    /// Project memory: facts about a project worth carrying between runs, keyed on
+    /// `Run.project` so there is no second notion of project identity.
+    ///
+    /// These writes deliberately do **not** call `notify()`. Observers exist to
+    /// re-read the board — the runs, their tasks and the derived DAG — and a memory
+    /// changes none of that. Waking every observer to reload a board that did not
+    /// move would be pure churn, and the SwiftUI board has nothing to redraw.
+    /// Only run/task writes are board state, so only they notify.
+
+    public func memories(project: String, kind: MemoryKind? = nil) throws -> [Memory] {
+        let project = try Self.normalizedProject(project)
+        return try queue.sync {
+            var sql = #"SELECT * FROM memories WHERE project = ?"#
+            var bindings: [SQLValue] = [.text(project)]
+            if let kind {
+                sql += " AND kind = ?"
+                bindings.append(.text(kind.rawValue))
+            }
+            sql += #" ORDER BY "key""#
+            return try database.query(sql, bindings).map(Self.decodeMemory)
+        }
+    }
+
+    public func memory(project: String, key: String) throws -> Memory {
+        let project = try Self.normalizedProject(project)
+        let key = try Self.normalizedKey(key)
+        return try queue.sync {
+            let rows = try database.query(
+                #"SELECT * FROM memories WHERE project = ? AND "key" = ?"#,
+                [.text(project), .text(key)]
+            )
+            guard let row = rows.first else {
+                throw BoardError.notFound("memory \(key) not found for project \(project)")
+            }
+            return Self.decodeMemory(row)
+        }
+    }
+
+    /// Upsert on `(project, key)`: writing the same key again overwrites in place
+    /// rather than adding a second row, and `created_at` survives the overwrite so
+    /// "first learned" stays answerable.
+    @discardableResult
+    public func upsertMemory(
+        project: String, key: String, value: String, kind: MemoryKind, source: String
+    ) throws -> Memory {
+        let project = try Self.normalizedProject(project)
+        let key = try Self.normalizedKey(key)
+        // `source` is what makes a stale memory falsifiable, so an entry without
+        // one is refused outright rather than stored as a confident orphan.
+        let source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else {
+            throw BoardError.invalid("source must not be empty: name the file and line, or the command this was read from")
+        }
+        let now = Date()
+        return try queue.sync {
+            try database.transaction {
+                try database.run(
+                    #"""
+                    INSERT INTO memories(project, "key", value, kind, source, created_at, updated_at)
+                    VALUES(?,?,?,?,?,?,?)
+                    ON CONFLICT(project, "key") DO UPDATE SET
+                        value = excluded.value, kind = excluded.kind,
+                        source = excluded.source, updated_at = excluded.updated_at
+                    """#,
+                    [
+                        .text(project), .text(key), .text(value), .text(kind.rawValue),
+                        .text(source), .double(now.timeIntervalSince1970),
+                        .double(now.timeIntervalSince1970),
+                    ]
+                )
+                let rows = try database.query(
+                    #"SELECT * FROM memories WHERE project = ? AND "key" = ?"#,
+                    [.text(project), .text(key)]
+                )
+                guard let row = rows.first else {
+                    throw BoardError.invalid("memory \(key) was not written")
+                }
+                return Self.decodeMemory(row)
+            }
+        }
+    }
+
+    public func deleteMemory(project: String, key: String) throws {
+        let project = try Self.normalizedProject(project)
+        let key = try Self.normalizedKey(key)
+        try queue.sync {
+            let rows = try database.query(
+                #"SELECT 1 FROM memories WHERE project = ? AND "key" = ?"#,
+                [.text(project), .text(key)]
+            )
+            guard !rows.isEmpty else {
+                throw BoardError.notFound("memory \(key) not found for project \(project)")
+            }
+            try database.transaction {
+                try database.run(
+                    #"DELETE FROM memories WHERE project = ? AND "key" = ?"#,
+                    [.text(project), .text(key)]
+                )
+            }
+        }
+    }
+
+    /// An empty project would be a bucket every project shares, which is the one
+    /// thing the dimension exists to prevent. Refuse it rather than silently
+    /// making a global memory.
+    private static func normalizedProject(_ project: String) throws -> String {
+        let trimmed = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw BoardError.invalid("project must not be empty") }
+        return trimmed
+    }
+
+    /// Keys are trimmed **and** lower-cased before they ever reach SQL.
+    ///
+    /// SQLite's default collation is BINARY, so without the fold `gate.swift-test`
+    /// and `Gate.swift-test` are two rows: two recon agents recording the same fact
+    /// with different capitalisation both succeed, `kind=gate` returns both, and a
+    /// later reader cannot tell which is current — while `deleteMemory("Gate")`
+    /// 404s with `gate` sitting right there. That is precisely the drift `MemoryKind`
+    /// is a closed enum to prevent, and the argument does not stop applying just
+    /// because the value is the key rather than the category. Folding here rather
+    /// than with `COLLATE NOCASE` keeps one spelling in the table, so what a caller
+    /// reads back is the key every other caller will also read back.
+    private static func normalizedKey(_ key: String) throws -> String {
+        let folded = key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard isValidMemoryKey(folded) else { throw BoardError.invalid("invalid memory key: \(key)") }
+        return folded
+    }
+
+    /// An unrecognised stored `kind` falls back to `.note` rather than throwing.
+    /// Intended, and the same choice `loadRun` already makes for `TaskStatus` and
+    /// `RunStatus`: a read must not be the thing that fails. A row written by a
+    /// future version with a kind this build does not know comes back readable and
+    /// mislabelled, which loses a filter; throwing would instead make one unknown
+    /// row poison every list for the whole project. `value` and `source` — the two
+    /// fields a reader actually acts on — are returned verbatim either way.
+    private static func decodeMemory(_ row: Row) -> Memory {
+        Memory(
+            project: row.string("project"),
+            key: row.string("key"),
+            value: row.string("value"),
+            kind: MemoryKind(rawValue: row.string("kind")) ?? .note,
+            source: row.string("source"),
+            createdAt: Date(timeIntervalSince1970: row.double("created_at")),
+            updatedAt: Date(timeIntervalSince1970: row.double("updated_at"))
+        )
     }
 
     // MARK: - Mutation guards
