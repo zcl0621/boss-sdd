@@ -106,10 +106,11 @@ output is the evidence; your description of it is not.
 </output_contract>
 
 <forbidden>
-Do not commit. Do not push. Do not widen the scope. Do not refactor code that
-this task does not require you to change. Do not delete or weaken a test to make
-the suite pass. Do not hand-edit generated files, historical migrations, or
-vendored directories.
+Do not stage anything: no `git add`, no `git add -A`, no `git commit -a`. Leave
+your changes in the working tree. Do not commit. Do not push. Do not widen the
+scope. Do not refactor code that this task does not require you to change. Do
+not delete or weaken a test to make the suite pass. Do not hand-edit generated
+files, historical migrations, or vendored directories.
 </forbidden>
 ```
 
@@ -171,7 +172,8 @@ When a node fails, the implementer gets the evidence, not a verdict. Which
 message you send depends on whether your platform can resume the subagent that
 did the work. Decide that first, because the two messages are not
 interchangeable: sending the short one to a fresh subagent leaves it with no
-goal, no write scope, no rules, and no acceptance commands.
+working directory, no goal, no write scope, no rules, and no acceptance
+commands.
 
 Either form counts as one round, and both tell the subagent which round it is on.
 That matters: round 3 is the last, and a subagent that knows it should say it is

@@ -297,14 +297,30 @@ from any ranking in the verified table; see the honesty note at the end of this
 section.
 
 **Codex.** One model, `gpt-5.6`. Roles are declared under `[agents.<name>]` in
-`config.toml` with `config_file`, `description`, and `default_subagent_model`,
-and reasoning effort is set with `default_subagent_reasoning_effort`. A separate
-`review_model` configures Codex's own native reviewer, which is a different
-thing from the roles here; see
-[native-review-handoff.md](references/native-review-handoff.md). The verified
-source names the effort setting but not the values it accepts, so the Codex
-column below says where on that axis a role belongs and you supply the literal
-token your configuration reference lists.
+`config.toml`, and that table accepts **exactly two keys**: `config_file`, "Path
+to a TOML config layer for that role", and `description`. Nothing else goes in
+it.
+
+**In particular the model and effort settings do not.**
+`agents.default_subagent_model` and `agents.default_subagent_reasoning_effort`
+are global keys, two of the six under `agents.`, and a global key sets one value
+for every role at once. So per-role tiering cannot be written where the role is
+declared. It lives inside the TOML layer `config_file` points at, one layer file
+per role, which is what that key is for. Write
+`default_subagent_reasoning_effort` under `[agents.<name>]` and you have written
+a key that table does not accept, in the one place a reader most expects it to
+work.
+
+The effort values are `minimal`, `low`, `medium`, `high` and `xhigh`, with
+`xhigh` model-dependent, so whether your model offers the top one is a thing to
+check rather than assume. Those are the tokens; what the verified facts do not
+record is what the model and effort settings are called *inside* a layer file,
+so take those key names from your own configuration reference and do not assume
+they repeat the global spelling.
+
+A separate `review_model` configures Codex's own native reviewer, which is a
+different thing from the roles here; see
+[native-review-handoff.md](references/native-review-handoff.md).
 
 **Cursor.** Model IDs `inherit`, `composer-2`, `composer-2.5`, `gpt-5.6-sol`,
 `claude-opus-5`, with bracket parameters `fast`, `effort`, and `context`, as in
@@ -324,12 +340,13 @@ routing is, and it is the part you will re-tune first.
 **Claude Code: the model name.** Four names for four rungs, nothing to decide.
 
 **Codex: reasoning effort.** The verified source names exactly one Codex model,
-so `default_subagent_model` has nothing to vary and the rung has to ride on
-`default_subagent_reasoning_effort`. If your installation offers more than one
-model, invert that: make the model the coarse axis, since a model change moves
-capability further than an effort change, and use effort to separate rungs
-inside one model. The recommendation here is effort, because that is what the
-verified facts support.
+so the model has nothing to vary and the rung has to ride on reasoning effort.
+If your installation offers more than one model, invert that: make the model the
+coarse axis, since a model change moves capability further than an effort
+change, and use effort to separate rungs inside one model. The recommendation
+here is effort, because that is what the verified facts support. Either way the
+per-role value goes in the layer file `config_file` names, for the reason above:
+both `agents.` settings are global and cannot be narrowed to one role.
 
 **Cursor: the model ID for the routine rungs, a bracket parameter for the step
 into reserve.** Three distinct IDs cover the three routine rungs, `composer-2`
@@ -355,17 +372,17 @@ steps, not keep a fourth that changes nothing.
 
 | Role | Tier | Claude Code | Codex (`gpt-5.6` effort) | Cursor |
 | --- | --- | --- | --- | --- |
-| `recon-rules` | reading | `haiku` | lowest | `composer-2` |
-| `recon-code` | reading | `haiku` | lowest | `composer-2` |
-| `recon-product` | strong | `opus` | highest routine | `claude-opus-5` |
-| `implementer` | reasoning | `sonnet` | mid | `composer-2.5` |
-| `ui-designer` | reasoning | `sonnet` | mid | `composer-2.5` |
-| `implementer` or `ui-designer`, `[complexity: high]` | strong | `opus` | highest routine | `claude-opus-5` |
-| `qa` | reasoning | `sonnet` | mid | `composer-2.5` |
-| `reviewer` | strong | `opus` | highest routine | `claude-opus-5` |
-| `branch-reviewer` | strong | `opus` | highest routine | `claude-opus-5` |
-| `adversary` | reasoning | `sonnet` | mid | `composer-2.5` |
-| escalation reserve | reserve | `fable` | highest available | `claude-opus-5[effort=high]` |
+| `recon-rules` | reading | `haiku` | `minimal` | `composer-2` |
+| `recon-code` | reading | `haiku` | `minimal` | `composer-2` |
+| `recon-product` | strong | `opus` | `high` | `claude-opus-5` |
+| `implementer` | reasoning | `sonnet` | `medium` | `composer-2.5` |
+| `ui-designer` | reasoning | `sonnet` | `medium` | `composer-2.5` |
+| `implementer` or `ui-designer`, `[complexity: high]` | strong | `opus` | `high` | `claude-opus-5` |
+| `qa` | reasoning | `sonnet` | `medium` | `composer-2.5` |
+| `reviewer` | strong | `opus` | `high` | `claude-opus-5` |
+| `branch-reviewer` | strong | `opus` | `high` | `claude-opus-5` |
+| `adversary` | reasoning | `sonnet` | `medium` | `composer-2.5` |
+| escalation reserve | reserve | `fable` | `xhigh` | `claude-opus-5[effort=high]` |
 
 `PLAYBOOK.md` sets the choosing rule, risk and difficulty rather than cost, and
 gives the user's own choice of model the final say. What follows is why each row
@@ -463,12 +480,13 @@ lanes A and C block phase 1 entirely.
 **Two rungs collapse on two of the three platforms, and pretending otherwise
 helps nobody.** On Cursor, reserve is `claude-opus-5[effort=high]` and strong is
 `claude-opus-5`, the same model with a parameter, so the escalation step is a
-parameter change and a step down from reserve barely moves. On Codex, "highest
-available" and "highest routine" resolve to the same effort token unless your
-configuration reference gives you a rung above what you routinely run, in which
-case they differ by exactly that. Read the ladder as four rungs on Claude Code
-and as three distinct steps plus a parameter on the other two, and do not plan
-an escalation you cannot actually perform.
+parameter change and a step down from reserve barely moves. On Codex, reserve is
+`xhigh` and strong is `high`, one real step apart while your model offers
+`xhigh` and the same token when it does not, since `xhigh` is model-dependent.
+Check that before you plan on it, and where it is absent say the ladder has
+three rungs rather than keeping a reserve that changes nothing. Read the ladder
+as four rungs on Claude Code and as three distinct steps plus a parameter on the
+other two, and do not plan an escalation you cannot actually perform.
 
 ### What was verified and what was not
 
@@ -490,12 +508,15 @@ Expect to adjust two things in particular:
 
 - **Which models your subscription offers.** Both platforms gate model access by
   plan, so a row may name something you cannot select.
-- **The ordering inside those two columns.** Codex's documentation names
-  `default_subagent_reasoning_effort` as the axis without enumerating the values
-  it accepts, so those cells describe a position rather than a token you can
-  paste. Cursor's documentation lists its model IDs without ranking them; the
-  order they appear in above is a placement, and your own experience of those
-  models should override it.
+- **The ordering inside those two columns.** Codex's five effort values are
+  documented, `minimal` through `xhigh`, so the Codex cells are tokens you can
+  paste rather than positions to resolve. What is not documented is which rung
+  each one belongs to. Four rungs onto five tokens is a placement, and this one
+  leaves `low` spare, between the reading rung and the reasoning rung: move the
+  reading lanes up to it if they come back thin on `minimal`. Cursor's
+  documentation lists its model IDs without ranking them; the order they appear
+  in above is a placement too, and your own experience of those models should
+  override both.
 
 If you need a platform fact that is not here, go to that platform's own
 configuration reference. Do not carry a value across from another column, and do
