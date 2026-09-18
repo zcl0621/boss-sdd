@@ -530,7 +530,7 @@ computer-use 那套的 `request_access` + `app_screenshot`，它走的是另一�
 剩下的路是 `screencapture -l <windowid>`，它不受这个限制，但要用户在
 系统设置里给当前进程授予「屏幕录制」权限。这一步只能用户自己点。
 
-### T22 verifyMemoryEcho 的同款盲点 + 版本错配无人诊断（新增，未开始）
+### T22 verifyMemoryEcho 的同款盲点 + 版本错配无人诊断 ✅
 
 T19 收口时报上来两条，都核实过是真的，但超出它的范围：
 
