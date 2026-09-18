@@ -45,7 +45,11 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 |---|---|---|---|
 | 技能位置 | `~/.claude/skills/<name>/` | `.agents/skills/<name>/`、`$HOME/.agents/skills/` | `.cursor/skills/`、`.agents/skills/`，并兼容读 `.claude/skills/`、`.codex/skills/` |
 | 显式调用 | `/name` | `$name` | `/name` |
-| 角色定义 | `.claude/agents/<n>.md`，`Agent` 工具带 `model` | `config.toml` 的 `[agents.<n>]`（`config_file`、`description`、`default_subagent_model`） | `.cursor/agents/<n>.md`，frontmatter 为 `name` / `description` / `model` / `readonly` / `is_background` |
+| 角色定义 | `.claude/agents/<n>.md`，`Agent` 工具带 `model` | `config.toml` 的 `[agents.<n>]`，**只接受两个键**：`config_file`（"Path to a TOML config layer for that role"）、`description` | `.cursor/agents/<n>.md`，frontmatter 为 `name` / `description` / `model` / `readonly` / `is_background` |
+| Codex 配置位置 | — | 用户级 `~/.codex/config.toml`；项目级 `.codex/config.toml`（需信任该项目） | — |
+| Codex agents 全局键 | — | `agents.enabled`、`agents.interrupt_message`、`agents.max_concurrent_threads_per_session`、`agents.max_threads`（旧别名）、`agents.default_subagent_model`、`agents.default_subagent_reasoning_effort` —— **这六个都是全局，不是逐角色** | — |
+| Codex reasoning effort 取值 | — | `minimal` / `low` / `medium` / `high` / `xhigh`（`xhigh` 依模型而定） | — |
+| Codex review_model | — | "Optional model override used by `/review` (defaults to the current session model)" | — |
 | 模型写法 | `opus` / `sonnet` / `haiku` / `fable` | `gpt-5.6`，另有 `default_subagent_reasoning_effort`、`default_subagent_model` | `inherit`、`composer-2`、`composer-2.5`、`gpt-5.6-sol`、`claude-opus-5`；括号参数 `fast` / `effort` / `context`，例 `claude-opus-5[effort=high,context=300k]` |
 | frontmatter 扩展 | `allowed-tools`、`argument-hint` | 仅 name/description | `paths`（glob 限定） |
 | 原生分支复核 | `/code-review`（当前分支）；`/code-review ultra <PR#>` 走云端多 agent | `/review` → Review uncommitted changes / 对 base 分支；`review_model` 单独配模型 | `/review-bugbot`（相对 base 的全部改动，含未提交）；`/review` 同义 |
@@ -62,6 +66,17 @@ developers.openai.com/codex/integrations/github、cursor.com/docs/skills、curso
 查证日期 2026-09-18；Cursor 的模型写法、frontmatter、隔离/并行/续聊于同日复核（cursor.com/docs/subagents），
 补回了首次记录时漏掉的 `composer-2`、`context` 括号参数和 `name`/`description` 两个字段——
 这张表是给 subagent 当唯一可信来源用的，漏记会被当成「凭空捏造」判掉。
+
+**第三次同类事故**：给 T5b 的派发里，我把 `agents.enabled`、
+`agents.max_concurrent_threads_per_session`、`~/.codex/config.toml`、`/etc/codex/skills`
+和 skill 目录结构当成「已查证表的 Codex 列」列了出来，而表里一条都没有。T5b 照着转述并
+归因给表，复核逐条 grep `docs/` 才发现。核准后这些大多为真，但**逐角色分档那条是反的**：
+`default_subagent_model` 和 `default_subagent_reasoning_effort` 都是**全局**键，
+`[agents.<n>]` 只收 `config_file` 和 `description`；逐角色分档要落在 `config_file`
+指向的那一层 TOML 里。
+
+结构性教训：**我往派发 prompt 里写的每一条平台事实，必须先进表。** 三次事故全是
+「我定了唯一可信来源，然后自己从旁路喂事实」。
 
 **第二次同类事故**：Cursor 的 worktree 和内置 subagent 两条，我直接写进派发 prompt
 喂给了 T5c，而没有先进表——等于自己绕过了自己定的唯一可信来源。T5c 照做了但把
