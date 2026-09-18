@@ -16,11 +16,22 @@ full of things that were never wrong.
 Dispatch these lanes in one message so they run in parallel.
 
 **Static review, `reviewer`, mandatory for every task regardless of its role.**
-Give it the task's text from the plan, the plan path, the hard rules, and the
-diff command. The diff command runs from the node's baseline and is restricted to
-the node's `write_scope`: `git diff <baseline> -- <scope paths>`. Leave the paths
-off and the reviewer sees whatever the other nodes in the batch are writing at
-the same moment, and reports on code that is not this task's.
+Give it the task's text from the plan, the plan path, the hard rules, the working
+directory, and the diff command. The last two go together and depend on the
+execution mode:
+
+- Shared-tree mode: the repository root, and
+  `git diff <baseline> -- <scope paths>`. The path restriction is required here.
+  Leave it off and the reviewer sees whatever the other nodes in the batch are
+  writing at the same moment, and reports on code that is not this task's.
+- Worktree mode: this node's worktree, and
+  `git -C <node worktree> diff <branch point>`, unrestricted. Nothing else is
+  writing in that tree, so the whole diff is this task's, and an unrestricted one
+  also reveals writes outside the declared scope.
+
+Getting this wrong in worktree mode does not degrade the review, it empties it:
+a reviewer pointed at the repository root sees none of the node's work and
+reports that the task was never implemented.
 
 The static reviewer checks:
 
@@ -40,6 +51,10 @@ service integration, or anything else a person interacts with.
 Give it, each in its own tagged block:
 
 - the task's text from the plan, including its acceptance criteria
+- the working directory to start the application in: the repository root in
+  shared-tree mode, this node's worktree in worktree mode. In worktree mode the
+  application it must exercise is the one in that tree, not the one at the
+  repository root, which does not contain the change.
 - **the run recipe from recon lane C, verbatim**: the start command, the port or
   URL, the seed or fixture step, the test accounts or credentials, and the
   services that must already be running. This lane cannot start the application
@@ -82,12 +97,16 @@ It cannot answer any of those from the finding text alone, so give it:
 
 - the claims themselves, one per tagged block so it can answer them individually,
   each carrying whatever location the producing lane cited
-- the repository path and permission to read anything in it, since "already
-  handled somewhere the reviewer did not look" means going and looking
+- the working directory it should read and run in, and permission to read
+  anything in it, since "already handled somewhere the reviewer did not look"
+  means going and looking. This is the same directory the lane it is challenging
+  worked in: the repository root, or in worktree mode the node's worktree for a
+  task-review claim and the integration worktree for a branch-review one.
 - **the same diff the lane that produced the claim was looking at.** In task
-  review that is `git diff <baseline> -- <scope paths>`. In branch review it is
-  the unrestricted `git diff <baseRef>..<headRef>`. Sending the wrong one makes
-  the adversary argue about a different change than the one under challenge.
+  review that is `git diff <baseline> -- <scope paths>`, or in worktree mode
+  `git -C <node worktree> diff <branch point>`. In branch review it is the
+  unrestricted `git diff <baseRef>..<headRef>`. Sending the wrong one makes the
+  adversary argue about a different change than the one under challenge.
 - the baseline ref, so it can run `git log -S` or `git blame` to test whether a
   line predates this work
 - the acceptance criteria and the project's hard rules, which decide whether a
@@ -127,7 +146,7 @@ If a lane fails twice, say so in the close-out and name which check therefore di
 not happen. Do not treat a lane that never ran as a lane that found nothing, and
 do not cover for it by judging its dimension yourself. In branch review, a lane 6
 that will not run leaves you with no per-task verdicts, and the completion
-conditions in [SKILL.md](../SKILL.md) cannot be met; that is a partial close-out,
+conditions in [PLAYBOOK.md](../PLAYBOOK.md) cannot be met; that is a partial close-out,
 not a clean one.
 
 ### Re-review after a fix
@@ -140,10 +159,29 @@ runs out while nobody is looking at the fix.
 ## Branch review
 
 Once every task's status is `done` or `blocked`, set the plan to `review` and
-check the whole change. `baseRef` is the commit recorded in phase 0; `headRef` is
-`HEAD`. Give every lane the plan document's path, the hard rules, and the diff
-range `git diff <baseRef>..<headRef>`. Unlike task review, this diff is not path
-restricted: the whole point is to see the change as one thing.
+check the whole change. `baseRef` is whatever the plan document's Status header
+records as `Base ref`, which is the commit from phase 0 unless worktree mode's
+uncommitted-changes precondition replaced it; read the header rather than
+remembering phase 0. `headRef` is `HEAD`, or the tip of the integration branch if
+you ran in worktree mode, where the branch is what every completed node merged
+into and the individual worktrees hold nothing phase 3 needs. Give every lane the
+plan document's path, the hard rules, the diff range
+`git diff <baseRef>..<headRef>`, and the working directory to read and run in:
+the repository root in shared-tree mode, the integration worktree in worktree
+mode. Unlike task review, this diff is not path restricted:
+the whole point is to see the change as one thing.
+
+The working directory is not made redundant by the diff range. Refs are
+repo-global, so the range itself resolves from any worktree, but lanes 1 through 5
+read source files and lane 6 goes looking for the code and tests that satisfy each
+task's acceptance criteria. A lane given no directory reads the main working tree,
+which in worktree mode sits at the baseline and holds none of the run's work, so
+coverage and the task audit report as `missing` what is present on the integration
+branch. Nothing else supplies this: branch-review lanes get the short per-lane
+list described here rather than the context bundle from
+[dispatch.md](dispatch.md), whose `<working_directory>` block covers implementers
+only. It is the same directory the adversary is already told to use for a
+branch-review claim, below; the five lanes it challenges get it here.
 
 Fan out six `branch-reviewer` subagents in parallel. Five look for problems along
 one dimension each:
@@ -176,7 +214,7 @@ along on one of the five:
    It returns a verdict for every task including the blocked ones, and it does
    not skip a task because another lane already mentioned it. This is the lane
    that produces the per-task verdicts the completion conditions in
-   [SKILL.md](../SKILL.md) require. You must not write those verdicts yourself:
+   [PLAYBOOK.md](../PLAYBOOK.md) require. You must not write those verdicts yourself:
    you are the one who ran the tasks, and a completion audit performed by the
    party being audited is not an audit.
 

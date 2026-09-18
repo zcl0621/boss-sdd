@@ -16,6 +16,19 @@ There is no worktree isolation and no branch isolation. Every node writes into
 the same tree at the same time. Safety comes entirely from the `write_scope` and
 `exclusive_resources` declarations below and from you scheduling around them.
 
+That is the default. The optional worktree mode in
+[worktree-mode.md](worktree-mode.md) gives each node its own tree and its own
+branch. It leaves the content of this file standing and changes how two of its
+rules read, each flagged where it is stated: the definition of `done` below gains
+a merge and a second gate run, and a node blocked after its review passed returns
+to `review` rather than to `pending`. It also adds a merge lock, which is
+deliberately not an `exclusive_resources` entry and is not subject to the batch
+rules; that file says why. Everything else here holds unchanged, including the
+declarations
+themselves, the ready rule, the batch rules, and the state names. What
+`write_scope` overlap costs you changes from concurrent corruption to a merge
+conflict, and the rule against overlapping a batch stays either way.
+
 ## What each task declares
 
 - `id`. Short, unique within the run, and stable once created.
@@ -60,6 +73,12 @@ any stage, on a real blocker    -> blocked
 (see [review.md](review.md)), and the task's gates have all passed. An
 implementation subagent returning a result is not `done`.
 
+In worktree mode `done` means more than that, and you must not close a node on
+this paragraph alone: the node's work has also been committed, merged into the
+integration branch, and gated again after the merge. Gates passing in a node's
+own worktree prove it works alone and prove nothing about it working alongside
+what merged before it. See [worktree-mode.md](worktree-mode.md).
+
 A valid finding sends the node from `review` back to `running` within the same
 node. Three fix and review rounds maximum. That transition is not a DAG edge and
 must never be drawn as one.
@@ -95,6 +114,13 @@ If a blocker later clears, including a parked question the user finally answers,
 set the node back to `pending`, walk its downstream and return each node that was
 blocked only by this one to `pending` as well, revalidate, and let them re-enter
 the derived ready set.
+
+`pending` is right because it means unstarted, and a node blocked before or
+during implementation is unstarted. The one exception is in worktree mode, where
+a node can block after its implementation and review have already passed, waiting
+on a reconciliation task. Returning that one to `pending` would send a fresh
+implementer at work that is already finished. It returns to `review` instead; see
+[worktree-mode.md](worktree-mode.md).
 
 `running` and `review` are both active states. The node holds its `write_scope`
 and its `exclusive_resources` through implementation, independent review, runtime

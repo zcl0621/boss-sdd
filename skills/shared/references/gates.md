@@ -39,6 +39,13 @@ Watch the exclusive resources here. A gate that takes a serial test lock is why
 `exclusive_resources` exists, and a task holds its resources through its gate
 stage, not just through implementation.
 
+In worktree mode a task's gates run inside that task's worktree, which means a
+full build per tree, and a second gate run per task after its branch merges. The
+close-out set runs on the integration branch. The three rules above are unchanged
+by any of that, and a gate that contends for a machine-global resource still
+serialises on `exclusive_resources`, because a worktree isolates files and not
+ports, devices, or databases. See [worktree-mode.md](worktree-mode.md).
+
 ## Recording the result
 
 Paste the raw output. Not a summary of it, not "5/5 passed" on its own. The exit

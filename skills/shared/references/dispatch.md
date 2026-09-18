@@ -11,12 +11,12 @@ assembling the prompt by feel.
 
 ## The context bundle
 
-Throughout this skill, "the full context bundle" means all eleven tagged blocks
+Throughout this skill, "the full context bundle" means all twelve tagged blocks
 plus the role identity line:
 
-`<goal>`, `<background>`, `<design_decisions>`, `<write_scope>`, `<hard_rules>`,
-`<protected_changes>`, `<acceptance>`, `<how_to_work>`, `<stop_conditions>`,
-`<output_contract>`, `<forbidden>`.
+`<working_directory>`, `<goal>`, `<background>`, `<design_decisions>`,
+`<write_scope>`, `<hard_rules>`, `<protected_changes>`, `<acceptance>`,
+`<how_to_work>`, `<stop_conditions>`, `<output_contract>`, `<forbidden>`.
 
 In other words: the whole structure below, with nothing left out because it was
 said earlier in the conversation. The subagent was not in that conversation.
@@ -41,6 +41,17 @@ You are the <role> for <this work item> in this plan. <one line of role identity
     a set of claims  -> "these 7 findings" (adversary)
   Never write a task id for a dispatch that is not against a task. The three
   recon lanes run before any task exists.
+
+<working_directory>
+The absolute path of the directory to work in. Read, write and run everything
+there. Do not touch files outside it.
+
+In shared-tree mode this is the repository root. In worktree mode it is this
+node's own worktree, which is a different directory from the repository root and
+from every other node's. Fill it in either way; never leave it out and never
+leave it to be inferred, because an agent that infers it will infer the
+repository root and in worktree mode that is the wrong tree.
+</working_directory>
 
 <goal>
 What the user will be able to observe when this task is done.
@@ -196,31 +207,32 @@ from the original dispatch, and then the three rework blocks and a different
 closing instruction.
 
 "The full context bundle" means everything listed at the top of this file, all
-eleven tagged blocks and not a subset of them: the role identity line, `<goal>`,
-`<background>`, `<design_decisions>`, `<write_scope>`, `<hard_rules>`,
-`<protected_changes>`, `<acceptance>`, `<how_to_work>`, `<stop_conditions>`,
-**`<output_contract>` and `<forbidden>`**. Those last two are the ones most
-easily dropped and the most costly to drop: without `<output_contract>` the
-subagent returns prose saying it finished instead of the raw command output you
-need to judge it on, and without `<forbidden>` nothing tells it not to commit,
-not to push, and not to widen its scope.
+twelve tagged blocks and not a subset of them: the role identity line,
+`<working_directory>`, `<goal>`, `<background>`, `<design_decisions>`,
+`<write_scope>`, `<hard_rules>`, `<protected_changes>`, `<acceptance>`,
+`<how_to_work>`, `<stop_conditions>`, **`<output_contract>` and `<forbidden>`**.
+Those last two are the ones most easily dropped and the most costly to drop:
+without `<output_contract>` the subagent returns prose saying it finished instead
+of the raw command output you need to judge it on, and without `<forbidden>`
+nothing tells it not to commit, not to push, and not to widen its scope.
 
 ```text
 <role identity line, then every block of the context bundle verbatim:
- goal, background, design_decisions, write_scope, hard_rules,
- protected_changes, acceptance, how_to_work, stop_conditions,
+ working_directory, goal, background, design_decisions, write_scope,
+ hard_rules, protected_changes, acceptance, how_to_work, stop_conditions,
  output_contract, forbidden>
 
 <work_already_done>
-Another agent has already implemented this task. Its work is in the working tree.
-You are continuing it, not starting over. Read the current state of the files in
-your write scope before changing anything, and do not revert work that the
-findings below do not ask you to change.
+Another agent has already implemented this task. Its work is in the directory
+named in <working_directory> above. You are continuing it, not starting over.
+Read the current state of the files in your write scope before changing anything,
+and do not revert work that the findings below do not ask you to change.
 </work_already_done>
 
 <current_diff>
-The output of `git diff <baseline> -- <scope paths>`, so you can see what is
-already there without reconstructing it.
+What is already there, so you do not have to reconstruct it. In shared-tree mode
+that is `git diff <baseline> -- <scope paths>`; in worktree mode it is
+`git -C <node worktree> diff <branch point>`, unrestricted.
 </current_diff>
 
 <review_findings>

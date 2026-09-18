@@ -123,5 +123,5 @@ to skip.
 This is the one case that stops the whole run rather than blocking individual
 tasks, and it stops it in goal mode too. Every task's scope descends from the
 product boundary, so there is nothing left that is safe to run, which is the
-"every safe path is blocked" stop condition in [SKILL.md](../SKILL.md). Report
+"every safe path is blocked" stop condition in [PLAYBOOK.md](../PLAYBOOK.md). Report
 what you have and wait.

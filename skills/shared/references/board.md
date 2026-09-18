@@ -174,7 +174,7 @@ job when you choose a batch.
   never become ready and never become `blocked`, and phase 3 waits on it forever.
 - A single task can be in `review` while the plan is still `running`. The plan
   goes to `review` during branch close-out, and to `done` only once every
-  completion condition in [SKILL.md](../SKILL.md) holds. A gate that could not be
+  completion condition in [PLAYBOOK.md](../PLAYBOOK.md) holds. A gate that could not be
   run keeps its reason in the summary.
 - `running` and `review` are both active states. A node holds its declared write
   scope and exclusive resources through implementation, independent review,

@@ -31,12 +31,19 @@ anything here.
 
 What "input" covers is not the same for every role, so read it per entry rather
 than assuming a common bundle. `implementer` and `ui-designer` are the only two
-that receive the eleven tagged blocks from
+that receive the full context bundle, whose blocks are listed in
 [dispatch.md](references/dispatch.md). The three recon lanes receive the three
 blocks in [recon.md](references/recon.md) and nothing else. The review roles
 receive the short per-lane lists in [review.md](references/review.md). Hand a
 read-only lane a `<write_scope>` and a TDD block and you have given it
 instructions that contradict the file defining it.
+
+This file deliberately states no count for that bundle. It carried one twice, and
+both times the bundle grew while the number here did not, which is worse than
+carrying nothing: an orchestrator trusting a stale count sends one block fewer
+than the bundle has, and the block it stops short of is the one most recently
+added. Take the list from `dispatch.md` every time, and count it there if you
+need a number.
 
 ## recon-rules
 
@@ -113,11 +120,16 @@ handed it will build against it as though it were established practice here.
 
 **Identity.** "You make this one task true, inside its write scope, test first."
 
-**Input.** All eleven tagged blocks of the context bundle in
-[dispatch.md](references/dispatch.md), with nothing dropped because it was said
-earlier in a conversation this subagent was not in. A task marked `[complexity:
-high]` gets a fuller `<background>`: the adjacent contracts, the callers, the
-failure modes recon flagged, not just the files it will edit.
+**Input.** The full context bundle: every tagged block listed in
+[dispatch.md](references/dispatch.md), read off that list rather than off a count
+kept here, with nothing dropped because it was said earlier in a conversation this
+subagent was not in. `<working_directory>` is the block whose omission costs most.
+In worktree mode an implementer that is not told its own worktree writes into the
+main working tree, and every isolation property of that mode is gone.
+
+A task marked `[complexity: high]` gets a fuller `<background>`: the adjacent
+contracts, the callers, the failure modes recon flagged, not just the files it
+will edit.
 
 **Delivery.** Its `<output_contract>`: the files it changed and why, every
 command it ran with the raw output pasted in full including the failures, and
@@ -225,7 +237,7 @@ blocked ones and including tasks another lane already mentioned.
 **Stop.** A lane that cannot answer its question says so and says why; a lane
 that returns nothing at all gets re-dispatched on its own. Lane 6 has one
 further rule, and it binds the orchestrator rather than the subagent: those
-verdicts feed the completion conditions in [SKILL.md](SKILL.md) directly, and
+verdicts feed the completion conditions in [PLAYBOOK.md](PLAYBOOK.md) directly, and
 the party who ran the tasks may not write them.
 
 ## adversary
@@ -259,7 +271,7 @@ that something is wrong.
 ## Model tiers
 
 Four rungs, strongest first. This ladder is what "step down one tier" in
-[SKILL.md](SKILL.md) counts along.
+[PLAYBOOK.md](PLAYBOOK.md) counts along.
 
 1. **reserve** - escalation only.
 2. **strong** - the strongest tier routine work may start on.
@@ -355,7 +367,7 @@ steps, not keep a fourth that changes nothing.
 | `adversary` | reasoning | `sonnet` | mid | `composer-2.5` |
 | escalation reserve | reserve | `fable` | highest available | `claude-opus-5[effort=high]` |
 
-`SKILL.md` sets the choosing rule, risk and difficulty rather than cost, and
+`PLAYBOOK.md` sets the choosing rule, risk and difficulty rather than cost, and
 gives the user's own choice of model the final say. What follows is why each row
 sits where it does, which is what you need in order to move one.
 
@@ -393,7 +405,7 @@ match what the task promised, and that noticing is a judgment, which is why the
 floor rule below covers it.
 
 **`implementer` and `ui-designer` move to strong on a `[complexity: high]`
-task.** `SKILL.md` says to put that mark on cross-system or high-risk work, and
+task.** `PLAYBOOK.md` says to put that mark on cross-system or high-risk work, and
 leaves what counts to the planner. My reason for spending the stronger tier
 there is narrower than the mark itself: the work that earns it is the work whose
 mistakes the node's own gates cannot see. A rounding error passes every test
