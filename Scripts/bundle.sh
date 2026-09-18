@@ -28,6 +28,12 @@ cp "$ROOT/.build/plan-sdd-mcp" "$APP/Contents/Resources/plan-sdd-mcp"
 # and the app would run untranslated while `swift build` still looked fine.
 cp -R "$ROOT/Resources/"*.lproj "$APP/Contents/Resources/"
 
+# The application icon. It is a committed artifact, not built here: design/icon/
+# holds the generator that draws it and the iconutil command that packs it, and
+# both are run by hand when the artwork changes. A build must not depend on
+# compiling and running a drawing program.
+cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -38,6 +44,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>BossSDD</string>
   <key>CFBundleIdentifier</key><string>com.zhang.boss-sdd</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <!-- LSUIElement hides the Dock tile, so this icon is what Finder, Spotlight,
+       "Open with" and Login Items show. -->
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <!-- English is the base language; Chinese is a translation of it. A launch can
        pick either without touching any system setting:
          .../BossSDD.app/Contents/MacOS/BossSDD -AppleLanguages '(en)' -->
