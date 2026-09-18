@@ -149,7 +149,7 @@ Cursor 的事实搬到了 Codex 列——**程序上判得对，内容上判错�
 已完成。基线提交 `eb614c0`，`.gitignore` 排除 `.build/` 等；设计稿中的真实基础设施标识
 （内部主机名、数据库名、一条历史安全问题的描述、模拟器 UDID）已换成合成数据后才推送。
 
-### T1 MCP 端口占用诊断
+### T1 MCP 端口占用诊断 ✅ 740491d
 
 - `depends_on`: []
 - `write_scope`: `mcp/client.go`, `mcp/client_test.go`
@@ -160,7 +160,7 @@ Cursor 的事实搬到了 Codex 列——**程序上判得对，内容上判错�
   非 2xx，或 2xx 但 body 缺 `ok`/`version`），后者报出端口号、可能的占用者和下一步。
 - 验收：`cd mcp && go test ./...`；并在端口被占的真实状态下复跑，贴出新错误原文。
 
-### T2 Store 与旧数据导入的直接单测
+### T2 Store 与旧数据导入的直接单测 ✅ 1286efe
 
 - `depends_on`: []
 - `write_scope`: `Tests/BoardKitTests/StoreTests.swift`, `Tests/BoardKitTests/LegacyImportTests.swift`
@@ -170,7 +170,7 @@ Cursor 的事实搬到了 Codex 列——**程序上判得对，内容上判错�
   `LegacyImport.parseRun` 对缺字段/坏状态/非对象 task 的容忍；`importAll` 遇坏文件跳过不中断。
 - 验收：`swift test`。测试必须用临时目录，不得碰 `~/.claude/plan-sdd/board.sqlite3`。
 
-### T3 plan_set_tasks 原子化
+### T3 plan_set_tasks 原子化 ✅ cf3ea64
 
 - `depends_on`: []
 - `write_scope`: `Sources/BoardKit/Store.swift`, `Sources/BoardKit/API.swift`,
@@ -182,7 +182,7 @@ Cursor 的事实搬到了 Codex 列——**程序上判得对，内容上判错�
   返回形状不变。
 - 验收：`swift test`；`go test ./...`；新增接口测试证明「批中一条非法则整批不落库」。
 
-### T4 可移植技能正文（英文）
+### T4 可移植技能正文（英文） ✅ e9fea27
 
 - `depends_on`: []
 - `write_scope`: `skills/shared/`
@@ -193,7 +193,7 @@ Cursor 的事实搬到了 Codex 列——**程序上判得对，内容上判错�
 - 不得假设 `Workflow` 工具存在；不得出现中文；不得出现本机私有路径。
 - 验收：人工读一遍结构完整；`grep` 无中文字符、无 `/Users/`、无 `Workflow` 依赖表述。
 
-### T5 角色花名册与模型矩阵
+### T5 角色花名册与模型矩阵 ✅ 0003e71
 
 - `depends_on`: `["T4"]`
 - `write_scope`: `skills/shared/roles.md`
@@ -203,7 +203,7 @@ Cursor 的事实搬到了 Codex 列——**程序上判得对，内容上判错�
 - 给出三平台默认模型矩阵，并注明这是起点不是定论。
 - 验收：每个角色在 T4 正文里都有对应调用点，无孤儿角色。
 
-### T5a / T5b / T5c 三平台打包
+### T5a / T5b / T5c 三平台打包 ✅ aa4228b
 
 - `depends_on`: `["T5"]`
 - `write_scope`: 分别是 `skills/claude-code/`、`skills/codex/`、`skills/cursor/`
@@ -212,7 +212,7 @@ Cursor 的事实搬到了 Codex 列——**程序上判得对，内容上判错�
 - 各自产出该平台的 SKILL.md（正确的 frontmatter）、角色文件、MCP 注册说明、安装步骤。
 - 验收：按各平台文档核对字段名与路径；模型 ID 用该平台真实存在的写法。
 
-### T7 多 worktree 执行模式
+### T7 多 worktree 执行模式 ✅ a6e8ee2
 
 - `depends_on`: `["T5"]`
 - `write_scope`: `skills/shared/`
