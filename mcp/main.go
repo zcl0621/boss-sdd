@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 
@@ -82,6 +83,24 @@ type getRunInput struct {
 	IncludeEvents bool   `json:"include_events,omitempty" jsonschema:"是否附带最近 20 条活动记录"`
 }
 
+type memoryListInput struct {
+	Project string `json:"project" jsonschema:"项目路径或名称，与 plan_create_run 的 project 保持一致"`
+	Kind    string `json:"kind,omitempty" jsonschema:"按类型过滤：gate/run_recipe/convention/hard_rule/exclusive_resource/note，留空返回全部"`
+}
+
+type memoryKeyInput struct {
+	Project string `json:"project" jsonschema:"项目路径或名称"`
+	Key     string `json:"key" jsonschema:"记忆的 key；大小写不敏感，服务端只存小写"`
+}
+
+type memoryAddInput struct {
+	Project string `json:"project" jsonschema:"项目路径或名称"`
+	Key     string `json:"key" jsonschema:"记忆的 key，同一 project 内按 key upsert；只能是 ASCII 字母、数字、- _ .，最长 64 字符，会被存成小写"`
+	Value   string `json:"value" jsonschema:"记忆的内容"`
+	Kind    string `json:"kind" jsonschema:"类型：gate/run_recipe/convention/hard_rule/exclusive_resource/note"`
+	Source  string `json:"source" jsonschema:"出处：文件+行号，或读出这个值的命令，让这条记忆可以被低成本证伪；不能为空"`
+}
+
 // ---- outputs ----
 
 type statusOutput struct {
@@ -112,6 +131,52 @@ type fullRunOutput struct {
 	Tasks  []taskView  `json:"tasks"`
 	Graph  graphView   `json:"graph"`
 	Events []wireEvent `json:"recent_events,omitempty"`
+}
+
+// wireMemory mirrors the board's own memory JSON (Sources/BoardKit/Models.swift
+// Memory). Kept separate from memoryView below so the two can drift on purpose:
+// this one is what the wire actually says, the other is what the agent sees.
+type wireMemory struct {
+	Project   string `json:"project"`
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	Kind      string `json:"kind"`
+	Source    string `json:"source"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type wireMemoryList struct {
+	Memories []wireMemory `json:"memories"`
+}
+
+// wireMemoryDeleted mirrors DELETE /api/memories/<key>'s body, which is not a
+// Memory: just enough to confirm what was actually removed.
+type wireMemoryDeleted struct {
+	Deleted string `json:"deleted"`
+	Project string `json:"project"`
+}
+
+// memoryView is what a tool call actually hands the agent. source rides along
+// on every read path on purpose: a memory whose provenance the agent cannot
+// see is the exact failure project memory exists to prevent.
+type memoryView struct {
+	Project   string `json:"project"`
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	Kind      string `json:"kind"`
+	Source    string `json:"source"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type memoryListOutput struct {
+	Memories []memoryView `json:"memories"`
+}
+
+type memoryDeleteOutput struct {
+	Deleted string `json:"deleted"`
+	Project string `json:"project"`
 }
 
 // ---- registration ----
@@ -261,6 +326,86 @@ func registerTools(server *mcp.Server, api *board) {
 		}
 		return nil, out, nil
 	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:  "plan_memory_list",
+		Title: "列出项目记忆",
+		Description: "列出某个项目下记的记忆，可选按 kind 过滤。每条都带 source，" +
+			"勘察前先看这个，记忆里已有的事实不用重新翻代码确认；source 指向的东西如果已经变了，就当它过期，别照抄。" +
+			"空列表不能证明这个项目从没记过东西——project 只要有一个字符对不上（大小写、多一层路径），" +
+			"就会查出空结果而不是报错。理应有记忆却是空的时候，先核对 project 拼写是否和写入时完全一致，" +
+			"别直接当成新项目重新勘察。",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in memoryListInput) (*mcp.CallToolResult, memoryListOutput, error) {
+		if in.Kind != "" && strings.TrimSpace(in.Kind) == "" {
+			return nil, memoryListOutput{}, fmt.Errorf("kind 全是空白：想不按类型过滤就别传这个字段，传空白会被当成没传，容易看不出发生了什么")
+		}
+		var wire wireMemoryList
+		if err := api.call(ctx, "GET", "/api/memories?"+memoryListQuery(in.Project, in.Kind), nil, &wire); err != nil {
+			return nil, memoryListOutput{}, err
+		}
+		if err := verifyMemoryList(in.Project, in.Kind, wire.Memories); err != nil {
+			return nil, memoryListOutput{}, err
+		}
+		out := memoryListOutput{Memories: make([]memoryView, 0, len(wire.Memories))}
+		for _, m := range wire.Memories {
+			out.Memories = append(out.Memories, toMemoryView(m))
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:  "plan_memory_get",
+		Title: "读取单条记忆",
+		Description: "按 project+key 读一条记忆，返回值和 source。" +
+			"key 大小写不敏感——服务端只存小写，返回的 key 以服务端为准，可能跟传入的大小写不一样，别拿传入的那份去跟别处比对。",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in memoryKeyInput) (*mcp.CallToolResult, memoryView, error) {
+		var wire wireMemory
+		if err := api.call(ctx, "GET", memoryKeyPath(in.Project, in.Key), nil, &wire); err != nil {
+			return nil, memoryView{}, err
+		}
+		if err := verifyMemoryEcho(in.Project, in.Key, wire); err != nil {
+			return nil, memoryView{}, err
+		}
+		return nil, toMemoryView(wire), nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:  "plan_memory_add",
+		Title: "写入一条记忆",
+		Description: "新增或覆盖一条项目记忆，按 project+key upsert，同一 key 再写一次就是覆盖，不会重复。" +
+			"source 必填且不能是空白——写清楚这是从哪个文件的哪一行，或者哪条命令的输出里读到的，" +
+			"这是让记忆能被低成本证伪的关键，没有 source 的记忆不如不记。" +
+			"返回的是服务端实际存下的那条（key 会被转成小写），照返回值汇报，不要照抄自己传入的 key。",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in memoryAddInput) (*mcp.CallToolResult, memoryView, error) {
+		if strings.TrimSpace(in.Source) == "" {
+			return nil, memoryView{}, fmt.Errorf("source 不能为空：写清楚这条记忆是从哪个文件/命令读出来的，没有出处的记忆没法判断是否过期")
+		}
+		var wire wireMemory
+		if err := api.call(ctx, "POST", "/api/memories", memoryAddBody(in), &wire); err != nil {
+			return nil, memoryView{}, err
+		}
+		if err := verifyMemoryEcho(in.Project, in.Key, wire); err != nil {
+			return nil, memoryView{}, err
+		}
+		return nil, toMemoryView(wire), nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "plan_memory_delete",
+		Title:       "删除一条记忆",
+		Description: "按 project+key 删除一条记忆；key 不存在会报错，不会静默当成功处理。",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in memoryKeyInput) (*mcp.CallToolResult, memoryDeleteOutput, error) {
+		var wire wireMemoryDeleted
+		if err := api.call(ctx, "DELETE", memoryKeyPath(in.Project, in.Key), nil, &wire); err != nil {
+			return nil, memoryDeleteOutput{}, err
+		}
+		if err := verifyMemoryDeleted(in.Project, in.Key, wire); err != nil {
+			return nil, memoryDeleteOutput{}, err
+		}
+		return nil, memoryDeleteOutput{Deleted: wire.Deleted, Project: wire.Project}, nil
+	})
 }
 
 // taskBody keeps the board's own patch semantics: a field left out is untouched,
@@ -302,4 +447,215 @@ func batchBody(tasks []taskInput) map[string]any {
 		entries = append(entries, body)
 	}
 	return map[string]any{"tasks": entries}
+}
+
+// encodeQueryRFC3986 renders a query string the way the board's own parser
+// reads it, which url.Values.Encode() alone does not.
+//
+// Encode() follows the application/x-www-form-urlencoded convention and
+// represents a space as '+'. The board parses the query string with Swift's
+// URLComponents (Sources/BoardKit/API.swift's query()), which follows
+// RFC 3986: '+' is a literal character there, and only %XX escapes are
+// decoded. So a space sent as '+' arrives at the board as a literal '+', not
+// a space — and `project` is documented as "项目路径或名称" and is routinely
+// an absolute macOS path, where spaces are the common case, not a corner one.
+// Concretely: encoding "/Users/zhang/My Project" through plain Encode() sends
+// "...My+Project" on the wire, which URLComponents decodes to "My+Project"
+// (a literal plus), not "My Project" — so a POST (project in the JSON body,
+// unaffected by any of this) writes under the real path while every GET/
+// DELETE (project in the query string) asks about a path with a literal '+'
+// in it, finds no rows, and returns an empty result with no error at all.
+//
+// The fix: Encode() never emits a literal '+' for an actual '+' character in
+// the input — that gets escaped to "%2B" — so every '+' left in its output
+// represents an encoded space, and rewriting those to "%20" is safe and
+// exactly matches what URLComponents decodes back to a real space.
+func encodeQueryRFC3986(values url.Values) string {
+	return strings.ReplaceAll(values.Encode(), "+", "%20")
+}
+
+// memoryProjectQuery builds the query string GET/DELETE /api/memories/<key>
+// takes: just `project`, percent-encoded — project rides in the query string
+// rather than the path because it may well be an absolute filesystem path,
+// not a safe single path segment.
+func memoryProjectQuery(project string) string {
+	values := url.Values{}
+	values.Set("project", project)
+	return encodeQueryRFC3986(values)
+}
+
+// memoryListQuery builds GET /api/memories's query string: `project` always,
+// `kind` only when the caller actually asked to filter — an empty (or
+// whitespace-only) kind must stay absent, not turn into the literal string
+// "kind=" (which the board would 400 on: an empty kind is invalid, not "no
+// filter"). The value sent is trimmed, not raw: the board does not trim kind
+// (MemoryKind's exact enum match has no fold or trim of its own), so a
+// padded kind like " gate" would otherwise reach the board unchanged and 400
+// with "unknown memory kind ' gate'" — a value the caller never actually
+// typed as their intended filter.
+func memoryListQuery(project, kind string) string {
+	values := url.Values{}
+	values.Set("project", project)
+	if trimmedKind := strings.TrimSpace(kind); trimmedKind != "" {
+		values.Set("kind", trimmedKind)
+	}
+	return encodeQueryRFC3986(values)
+}
+
+// memoryKeyPath builds the path+query GET and DELETE /api/memories/<key>
+// share. Pulled out of both call sites so the percent-escaping of key (a
+// caller could type anything here; the MCP layer does not itself enforce
+// isValidMemoryKey's alphabet before forwarding) is one pure, tested function
+// rather than inline string concatenation duplicated — and silently
+// droppable — in two handlers.
+func memoryKeyPath(project, key string) string {
+	return "/api/memories/" + url.PathEscape(key) + "?" + memoryProjectQuery(project)
+}
+
+// memoryAddBody builds POST /api/memories's body. Unlike taskBody there is no
+// tri-state here: every field is required on this route, so every field is
+// always sent as given.
+func memoryAddBody(in memoryAddInput) map[string]any {
+	return map[string]any{
+		"project": in.Project,
+		"key":     in.Key,
+		"value":   in.Value,
+		"kind":    in.Kind,
+		"source":  in.Source,
+	}
+}
+
+func toMemoryView(m wireMemory) memoryView {
+	return memoryView{
+		Project:   m.Project,
+		Key:       m.Key,
+		Value:     m.Value,
+		Kind:      m.Kind,
+		Source:    m.Source,
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
+	}
+}
+
+// verifyMemoryEcho guards against trusting a successful json.Decode by
+// itself: a wrong-but-well-formed response decodes cleanly into wireMemory
+// with every field zeroed, and would otherwise be reported to the agent as a
+// real memory. It also catches a subtler case a bare non-empty check would
+// miss — the board answering with someone else's record (wrong project, or a
+// key that doesn't even match the one asked for).
+//
+// GET and POST both echo back the *stored* record, which the board already
+// normalized before it ever reached SQL — mirroring
+// Sources/BoardKit/Store.swift's normalizedProject (trims whitespace) and
+// normalizedKey (trims, then lower-cases). So the comparison here applies the
+// same normalization to the caller's input rather than comparing raw: a
+// project with incidental leading/trailing whitespace round-trips to the same
+// (trimmed) project, and a key differing only in case or whitespace
+// round-trips to the same (trimmed, lower-cased) key. Comparing raw would
+// misreport a whitespace-padded project as "a different project" when nothing
+// happened but a trim — a false accusation that points at the board instead
+// of at the caller's own input.
+func verifyMemoryEcho(project, key string, got wireMemory) error {
+	// Reachable on its own (not merely a weaker echo of the checks below) only
+	// when project/key trim to empty: verifyMemoryEcho("", "", wireMemory{})
+	// would pass both the project and key comparisons below trivially — "" ==
+	// "" and EqualFold("", "") — with no guard here at all. For a non-empty
+	// project/key that degenerate case is already caught below (a zeroed
+	// got.Project/got.Key cannot equal a non-empty want value), so this branch
+	// is belt-and-suspenders there; pinned by
+	// TestVerifyMemoryEchoRejectsZeroedRecordEvenWithEmptyProjectAndKey rather
+	// than dropped, since the empty-project/key case is real (the board
+	// itself rejects an empty project, so a caller could plausibly hit this
+	// before ever reaching the network).
+	if got.Key == "" || got.Project == "" {
+		return fmt.Errorf("看板返回的记忆缺少 key/project 字段，形状不对：%+v", got)
+	}
+	wantProject := strings.TrimSpace(project)
+	if got.Project != wantProject {
+		return fmt.Errorf("看板返回了别的项目的记忆：请求 project=%q，返回 project=%q", wantProject, got.Project)
+	}
+	wantKey := strings.TrimSpace(key)
+	if !strings.EqualFold(got.Key, wantKey) {
+		return fmt.Errorf("看板返回了别的 key 的记忆：请求 key=%q，返回 key=%q", wantKey, got.Key)
+	}
+	// project and key can be right while source is empty — a different bug
+	// (the board dropping a field, or a caller-side helper losing it before
+	// the request went out) that a project/key-only check would miss entirely.
+	// source is the one field this whole table exists to keep visible to the
+	// agent, so a response missing it must not be handed over as a real memory.
+	if strings.TrimSpace(got.Source) == "" {
+		return fmt.Errorf("看板返回的记忆缺少 source：project=%q key=%q，没有出处就不该当真记忆用", got.Project, got.Key)
+	}
+	return nil
+}
+
+// verifyMemoryDeleted is verifyMemoryEcho's counterpart for DELETE, whose
+// response is a {"deleted","project"} pair rather than a full memory.
+//
+// Unlike GET and POST, DELETE (Sources/BoardKit/API.swift ~line 277) echoes
+// back the *raw* path segment and query value it was called with, not the
+// board's normalized project/key that GET/POST echo — an inconsistency on the
+// Swift side, tracked separately, not fixed here. So this check has to accept
+// either spelling: the caller's raw input (today's actual behaviour) or the
+// normalized one (what GET/POST already return, and what DELETE would return
+// too if that inconsistency were ever fixed). Project only needs a trim
+// either way; key needs trim-and-fold either way, and folding a
+// already-normalized value is a no-op, so one fold-and-trim comparison
+// covers both cases for key. Project has no case-folding on the server side,
+// so it additionally needs the untrimmed-raw form accepted for the current
+// (unfixed) DELETE behaviour.
+func verifyMemoryDeleted(project, key string, got wireMemoryDeleted) error {
+	// Same reachability note as verifyMemoryEcho's identical-looking guard:
+	// dead weight for a non-empty project/key (the mismatch checks below
+	// already catch a zeroed response then), load-bearing only when project
+	// and key both trim to empty. Pinned rather than dropped for the same
+	// reason.
+	if got.Deleted == "" || got.Project == "" {
+		return fmt.Errorf("看板返回的删除结果缺少字段，形状不对：%+v", got)
+	}
+	trimmedProject := strings.TrimSpace(project)
+	if got.Project != project && got.Project != trimmedProject {
+		return fmt.Errorf("看板删除了别的项目下的记忆：请求 project=%q，返回 project=%q", project, got.Project)
+	}
+	if !strings.EqualFold(strings.TrimSpace(got.Deleted), strings.TrimSpace(key)) {
+		return fmt.Errorf("看板删除了别的 key：请求 key=%q，返回 deleted=%q", key, got.Deleted)
+	}
+	return nil
+}
+
+// verifyMemoryList checks every entry the board handed back actually belongs
+// to the query the caller made, rather than assuming a clean decode of the
+// list means the filtering happened correctly.
+//
+// project is compared trimmed for the same reason verifyMemoryEcho compares
+// it trimmed: store.memories(project:) normalizes project before querying,
+// so every returned row's project is the board's trimmed value, not the
+// caller's raw one. kind is compared trimmed too, matching memoryListQuery's
+// own trim — comparing raw here while the query builder sends trimmed would
+// silently stop matching the moment a caller passed a padded kind, the exact
+// shape of asymmetry that caused the project bug this function already fixes
+// once for project.
+//
+// What this function cannot do: prove a wrong-but-empty list wrong. It is a
+// per-entry filter, so zero entries vacuously satisfy every check here —
+// there is no oracle inside an empty list telling us whether "no rows for
+// this exact project" is correct or is a caller-side typo/case/whitespace
+// mismatch. That gap is real and is not something a per-entry check can
+// close from the response alone; plan_memory_list's tool description warns
+// the agent about it instead (a documentation mitigation, not a code one).
+func verifyMemoryList(project, kind string, memories []wireMemory) error {
+	wantProject := strings.TrimSpace(project)
+	wantKind := strings.TrimSpace(kind)
+	for _, m := range memories {
+		if m.Project != wantProject {
+			return fmt.Errorf("看板返回了别的项目的记忆：请求 project=%q，某条记录 project=%q（key=%q）", wantProject, m.Project, m.Key)
+		}
+		if wantKind != "" && m.Kind != wantKind {
+			return fmt.Errorf("看板返回了类型不符的记忆：请求 kind=%q，某条记录 kind=%q（key=%q）", wantKind, m.Kind, m.Key)
+		}
+		if strings.TrimSpace(m.Source) == "" {
+			return fmt.Errorf("看板返回的记忆缺少 source：project=%q key=%q，没有出处就不该当真记忆用", m.Project, m.Key)
+		}
+	}
+	return nil
 }
