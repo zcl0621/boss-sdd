@@ -2,6 +2,54 @@ import Foundation
 import Testing
 @testable import BoardKit
 
+/// Reads `key` out of a decoded JSON object as `T`.
+///
+/// This replaces the force-cast chains this file used to read decoded JSON
+/// with. A force cast on a missing or wrong-typed field aborts the whole test
+/// process, so one failing case took every later case's report down with it.
+/// `#require` fails the current case, names the field, and returns control,
+/// leaving the rest of the run intact.
+private func field<T>(
+    _ object: [String: Any],
+    _ key: String,
+    _ type: T.Type = T.self,
+    sourceLocation: SourceLocation = #_sourceLocation
+) throws -> T {
+    let value = try #require(
+        object[key],
+        Comment(rawValue: "missing field '\(key)'; keys present: \(object.keys.sorted())"),
+        sourceLocation: sourceLocation
+    )
+    return try #require(
+        value as? T,
+        Comment(rawValue: "field '\(key)' is \(Swift.type(of: value)), not \(T.self)"),
+        sourceLocation: sourceLocation
+    )
+}
+
+/// `body.error.message` — the shape every refusal in this file asserts against.
+private func errorMessage(
+    _ body: [String: Any],
+    sourceLocation: SourceLocation = #_sourceLocation
+) throws -> String {
+    let error = try field(body, "error", [String: Any].self, sourceLocation: sourceLocation)
+    return try field(error, "message", String.self, sourceLocation: sourceLocation)
+}
+
+/// The entry for `id` in a response's `tasks` array.
+private func taskEntry(
+    in body: [String: Any],
+    id: String,
+    sourceLocation: SourceLocation = #_sourceLocation
+) throws -> [String: Any] {
+    let tasks = try field(body, "tasks", [[String: Any]].self, sourceLocation: sourceLocation)
+    return try #require(
+        tasks.first { $0["id"] as? String == id },
+        Comment(rawValue: "no task '\(id)' in the response; ids: \(tasks.map { $0["id"] as? String })"),
+        sourceLocation: sourceLocation
+    )
+}
+
 /// Boots the real server on an ephemeral loopback port and drives it over HTTP.
 private final class TestServer {
     let store: Store
@@ -34,14 +82,19 @@ private final class TestServer {
         _ method: String, _ path: String, json: String? = nil,
         contentType: String? = "application/json", origin: String? = nil
     ) async throws -> (status: Int, body: [String: Any]) {
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(path)")!)
+        let url = try #require(
+            URL(string: "http://127.0.0.1:\(port)\(path)"),
+            Comment(rawValue: "could not build a URL for \(method) \(path)")
+        )
+        var request = URLRequest(url: url)
         request.httpMethod = method
         if let json { request.httpBody = Data(json.utf8) }
         if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
         if let origin { request.setValue(origin, forHTTPHeaderField: "Origin") }
         let (data, response) = try await URLSession.shared.data(for: request)
         let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-        return ((response as! HTTPURLResponse).statusCode, body)
+        let http = try #require(response as? HTTPURLResponse, "response was not an HTTP response")
+        return (http.statusCode, body)
     }
 
     /// The whole run as a decoded value, for "this write changed nothing" assertions.
@@ -81,7 +134,7 @@ private final class TestServer {
                 "POST", "/api/runs", json: #"{"title":"示例计划","project":"demo"}"#
             )
             #expect(createStatus == 201)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
 
             _ = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks/T1",
@@ -92,7 +145,7 @@ private final class TestServer {
                 json: #"{"title":"接入","depends_on":["T1"],"write_scope":["app/ui/"]}"#
             )
             #expect(status == 200)
-            let graph = body["graph"] as! [String: Any]
+            let graph = try field(body, "graph", [String: Any].self)
             #expect(graph["valid"] as? Bool == true)
             #expect(graph["ready_task_ids"] as? [String] == ["T1"])
         }
@@ -101,7 +154,7 @@ private final class TestServer {
     @Test func startingABlockedTaskIsRejected() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"门禁"}"#)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
             _ = try await server.send("PUT", "/api/runs/\(runID)/tasks/T1", json: #"{"title":"上游"}"#)
             _ = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks/T2",
@@ -111,15 +164,15 @@ private final class TestServer {
                 "PUT", "/api/runs/\(runID)/tasks/T2", json: #"{"status":"running"}"#
             )
             #expect(status == 409)
-            let error = body["error"] as! [String: Any]
-            #expect((error["message"] as! String).contains("T1"))
+            let message = try errorMessage(body)
+            #expect(message.contains("T1"))
         }
     }
 
     @Test func exclusiveResourceConflictIsRejected() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"资源"}"#)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
             _ = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks/T1",
                 json: #"{"title":"甲","exclusive_resource":["pytest"]}"#
@@ -136,14 +189,14 @@ private final class TestServer {
                 "PUT", "/api/runs/\(runID)/tasks/T2", json: #"{"status":"running"}"#
             )
             #expect(status == 409)
-            #expect(((body["error"] as! [String: Any])["message"] as! String).contains("pytest"))
+            #expect(try errorMessage(body).contains("pytest"))
         }
     }
 
     @Test func listFieldsKeepReplaceAndClear() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"三态"}"#)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
             _ = try await server.send("PUT", "/api/runs/\(runID)/tasks/T1", json: #"{"title":"甲"}"#)
             _ = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks/T2",
@@ -154,7 +207,7 @@ private final class TestServer {
             var (_, body) = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks/T2", json: #"{"detail":"只改说明"}"#
             )
-            var task = (body["tasks"] as! [[String: Any]]).first { $0["id"] as! String == "T2" }!
+            var task = try taskEntry(in: body, id: "T2")
             #expect(task["depends_on"] as? [String] == ["T1"])
             #expect(task["write_scope"] as? [String] == ["a/", "b/"])
 
@@ -163,7 +216,7 @@ private final class TestServer {
                 "PUT", "/api/runs/\(runID)/tasks/T2",
                 json: #"{"write_scope":["c/"],"depends_on":null}"#
             )
-            task = (body["tasks"] as! [[String: Any]]).first { $0["id"] as! String == "T2" }!
+            task = try taskEntry(in: body, id: "T2")
             #expect(task["write_scope"] as? [String] == ["c/"])
             #expect(task["depends_on"] as? [String] == [])
         }
@@ -175,7 +228,7 @@ private final class TestServer {
                 "POST", "/api/runs", json: #"{"title":"x"}"#, contentType: "text/plain"
             )
             #expect(status == 400)
-            #expect(((body["error"] as! [String: Any])["message"] as! String).contains("application/json"))
+            #expect(try errorMessage(body).contains("application/json"))
         }
     }
 
@@ -196,7 +249,7 @@ private final class TestServer {
     @Test func aRejectedBatchCommitsNothing() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"原子"}"#)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
             _ = try await server.send("PUT", "/api/runs/\(runID)/tasks/T1", json: #"{"title":"上游"}"#)
             _ = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks/T2",
@@ -218,7 +271,7 @@ private final class TestServer {
                     """#
             )
             #expect(status == 409)
-            #expect(((body["error"] as! [String: Any])["message"] as! String).contains("T1"))
+            #expect(try errorMessage(body).contains("T1"))
 
             // The whole run, compared value-for-value: no new task, no status change,
             // no updated_at bump, no event appended. Nothing about the run moved.
@@ -237,7 +290,7 @@ private final class TestServer {
     @Test func aBatchWithAnInternalResourceClashCommitsNothing() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"资源批"}"#)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
             let before = try await server.snapshot(runID)
 
             let (status, body) = try await server.send(
@@ -250,7 +303,7 @@ private final class TestServer {
                     """#
             )
             #expect(status == 409)
-            #expect(((body["error"] as! [String: Any])["message"] as! String).contains("pytest"))
+            #expect(try errorMessage(body).contains("pytest"))
 
             #expect(try await server.snapshot(runID) == before)
             #expect(try server.store.run(runID).tasks.isEmpty)
@@ -260,7 +313,7 @@ private final class TestServer {
     @Test func aBatchWritesTheWholeDAGInOneRequest() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"整图"}"#)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
 
             let (status, body) = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks",
@@ -273,10 +326,11 @@ private final class TestServer {
                     """#
             )
             #expect(status == 200)
-            let graph = body["graph"] as! [String: Any]
+            let graph = try field(body, "graph", [String: Any].self)
             #expect(graph["valid"] as? Bool == true)
             #expect(graph["ready_task_ids"] as? [String] == ["T1"])
-            #expect((body["tasks"] as! [[String: Any]]).map { $0["id"] as! String } == ["T1", "T2", "T3"])
+            let ids = try field(body, "tasks", [[String: Any]].self).map { $0["id"] as? String }
+            #expect(ids == ["T1", "T2", "T3"])
         }
     }
 
@@ -286,7 +340,7 @@ private final class TestServer {
     @Test func aBatchMayFinishADependencyAndStartItsDependent() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"顺序"}"#)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
             _ = try await server.send("PUT", "/api/runs/\(runID)/tasks/T1", json: #"{"title":"上游"}"#)
             _ = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks/T2",
@@ -321,7 +375,7 @@ private final class TestServer {
     @Test func theSameBatchInTheWrongOrderIsRefusedAndWritesNothing() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"逆序"}"#)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
             _ = try await server.send("PUT", "/api/runs/\(runID)/tasks/T1", json: #"{"title":"上游"}"#)
             _ = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks/T2",
@@ -340,7 +394,7 @@ private final class TestServer {
                     """#
             )
             #expect(status == 409)
-            #expect(((body["error"] as! [String: Any])["message"] as! String).contains("T1"))
+            #expect(try errorMessage(body).contains("T1"))
 
             #expect(try await server.snapshot(runID) == before)
             let reloaded = try server.store.run(runID)
@@ -353,7 +407,7 @@ private final class TestServer {
     @Test func batchListFieldsKeepReplaceAndClear() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"批量三态"}"#)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
             _ = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks",
                 json: #"""
@@ -376,7 +430,7 @@ private final class TestServer {
                     """#
             )
             #expect(status == 200)
-            let task = (body["tasks"] as! [[String: Any]]).first { $0["id"] as! String == "T2" }!
+            let task = try taskEntry(in: body, id: "T2")
             #expect(task["detail"] as? String == "只改说明")
             #expect(task["write_scope"] as? [String] == ["c/"])
             #expect(task["depends_on"] as? [String] == [])
@@ -395,14 +449,14 @@ private final class TestServer {
     @Test func batchWritesAreRefusedByTheSharedOriginAndContentTypeGuards() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"门禁批"}"#)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
             let payload = #"{"tasks":[{"id":"T1","title":"甲"}]}"#
 
             let (typeStatus, typeBody) = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks", json: payload, contentType: "text/plain"
             )
             #expect(typeStatus == 400)
-            #expect(((typeBody["error"] as! [String: Any])["message"] as! String).contains("application/json"))
+            #expect(try errorMessage(typeBody).contains("application/json"))
 
             let (originStatus, _) = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks", json: payload, origin: "https://example.com"
@@ -426,7 +480,7 @@ private final class TestServer {
     @Test func anEmptyBatchChangesNothing() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"空批"}"#)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
             _ = try await server.send("PUT", "/api/runs/\(runID)/tasks/T1", json: #"{"title":"甲"}"#)
             let before = try await server.snapshot(runID)
 
@@ -434,7 +488,7 @@ private final class TestServer {
                 "PUT", "/api/runs/\(runID)/tasks", json: #"{"tasks":[]}"#
             )
             #expect(status == 200)
-            #expect((body["tasks"] as! [[String: Any]]).count == 1)
+            #expect(try field(body, "tasks", [[String: Any]].self).count == 1)
             // Not even updated_at moved, so the response equals the prior snapshot.
             #expect(body as NSDictionary == before)
             #expect(try await server.snapshot(runID) == before)
@@ -451,13 +505,13 @@ private final class TestServer {
     @Test func aTrailingSlashFallsThroughToTheBatchRoute() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"斜杠"}"#)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
 
             let (empty, emptyBody) = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks/", json: #"{"detail":"无 id"}"#
             )
             #expect(empty == 400)
-            #expect(((emptyBody["error"] as! [String: Any])["message"] as! String).contains("tasks"))
+            #expect(try errorMessage(emptyBody).contains("tasks"))
             #expect(try server.store.run(runID).tasks.isEmpty)
 
             // A well-formed batch body on the same trailing-slash URL is accepted,
@@ -501,9 +555,9 @@ private final class TestServer {
                 "GET", "/api/memories?project=boss-sdd", contentType: nil
             )
             #expect(listStatus == 200)
-            let entries = listed["memories"] as! [[String: Any]]
-            #expect(entries.map { $0["key"] as! String } == ["gate.swift-test"])
-            #expect(entries.map { $0["source"] as! String } == ["README.md:82"])
+            let entries = try field(listed, "memories", [[String: Any]].self)
+            #expect(entries.map { $0["key"] as? String } == ["gate.swift-test"])
+            #expect(entries.map { $0["source"] as? String } == ["README.md:82"])
 
             // The same key again overwrites rather than duplicating.
             _ = try await server.send(
@@ -516,7 +570,7 @@ private final class TestServer {
             let (_, relisted) = try await server.send(
                 "GET", "/api/memories?project=boss-sdd", contentType: nil
             )
-            let after = relisted["memories"] as! [[String: Any]]
+            let after = try field(relisted, "memories", [[String: Any]].self)
             #expect(after.count == 1)
             #expect(after[0]["value"] as? String == "swift test --parallel")
 
@@ -548,8 +602,8 @@ private final class TestServer {
                 json: #"{"project":"\#(beta)","key":"gate","value":"go test ./...","kind":"gate","source":"b:1"}"#
             )
 
-            let encodedAlpha = alpha.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
-            let encodedBeta = beta.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
+            let encodedAlpha = try #require(alpha.addingPercentEncoding(withAllowedCharacters: .alphanumerics))
+            let encodedBeta = try #require(beta.addingPercentEncoding(withAllowedCharacters: .alphanumerics))
 
             let (_, alphaBody) = try await server.send(
                 "GET", "/api/memories/gate?project=\(encodedAlpha)", contentType: nil
@@ -565,7 +619,7 @@ private final class TestServer {
             let (_, alphaList) = try await server.send(
                 "GET", "/api/memories?project=\(encodedAlpha)", contentType: nil
             )
-            #expect((alphaList["memories"] as! [[String: Any]]).count == 1)
+            #expect(try field(alphaList, "memories", [[String: Any]].self).count == 1)
         }
     }
 
@@ -580,29 +634,30 @@ private final class TestServer {
 
             let (all, allBody) = try await server.send("GET", "/api/memories?project=p", contentType: nil)
             #expect(all == 200)
-            #expect((allBody["memories"] as! [[String: Any]]).count == 3)
+            #expect(try field(allBody, "memories", [[String: Any]].self).count == 3)
 
             let (_, gates) = try await server.send(
                 "GET", "/api/memories?project=p&kind=gate", contentType: nil
             )
-            #expect((gates["memories"] as! [[String: Any]]).map { $0["key"] as! String }
-                == ["gate.go", "gate.swift"])
+            let gateKeys = try field(gates, "memories", [[String: Any]].self).map { $0["key"] as? String }
+            #expect(gateKeys == ["gate.go", "gate.swift"])
 
             let (_, recipes) = try await server.send(
                 "GET", "/api/memories?project=p&kind=run_recipe", contentType: nil
             )
-            #expect((recipes["memories"] as! [[String: Any]]).map { $0["key"] as! String } == ["start"])
+            let recipeKeys = try field(recipes, "memories", [[String: Any]].self).map { $0["key"] as? String }
+            #expect(recipeKeys == ["start"])
 
             let (_, none) = try await server.send(
                 "GET", "/api/memories?project=p&kind=convention", contentType: nil
             )
-            #expect((none["memories"] as! [[String: Any]]).isEmpty)
+            #expect(try field(none, "memories", [[String: Any]].self).isEmpty)
 
             let (badKind, badBody) = try await server.send(
                 "GET", "/api/memories?project=p&kind=gates", contentType: nil
             )
             #expect(badKind == 400)
-            #expect(((badBody["error"] as! [String: Any])["message"] as! String).contains("run_recipe"))
+            #expect(try errorMessage(badBody).contains("run_recipe"))
         }
     }
 
@@ -619,7 +674,7 @@ private final class TestServer {
                 "POST", "/api/memories", json: payload, contentType: "text/plain"
             )
             #expect(typeStatus == 400)
-            #expect(((typeBody["error"] as! [String: Any])["message"] as! String).contains("application/json"))
+            #expect(try errorMessage(typeBody).contains("application/json"))
 
             let (originStatus, _) = try await server.send(
                 "POST", "/api/memories", json: payload, origin: "https://example.com"
@@ -658,21 +713,21 @@ private final class TestServer {
                 json: #"{"project":"p","key":"gate","value":"swift test","kind":"gate","source":"  "}"#
             )
             #expect(noSource == 400)
-            #expect(((noSourceBody["error"] as! [String: Any])["message"] as! String).contains("source"))
+            #expect(try errorMessage(noSourceBody).contains("source"))
 
             let (missingSource, missingBody) = try await server.send(
                 "POST", "/api/memories",
                 json: #"{"project":"p","key":"gate","value":"swift test","kind":"gate"}"#
             )
             #expect(missingSource == 400)
-            #expect(((missingBody["error"] as! [String: Any])["message"] as! String).contains("source"))
+            #expect(try errorMessage(missingBody).contains("source"))
 
             let (badKind, badKindBody) = try await server.send(
                 "POST", "/api/memories",
                 json: #"{"project":"p","key":"gate","value":"v","kind":"gates","source":"s:1"}"#
             )
             #expect(badKind == 400)
-            #expect(((badKindBody["error"] as! [String: Any])["message"] as! String).contains("exclusive_resource"))
+            #expect(try errorMessage(badKindBody).contains("exclusive_resource"))
 
             #expect(try server.store.memories(project: "p").isEmpty)
         }
@@ -698,7 +753,7 @@ private final class TestServer {
                 json: #"{"project":"p","key":"one-too-many","value":"v","kind":"note","source":"x:1"}"#
             )
             #expect(capped == 400)
-            let message = (cappedBody["error"] as! [String: Any])["message"] as! String
+            let message = try errorMessage(cappedBody)
             // Pinned as two separate clauses, not just "contains the digits
             // 100": at the cap boundary `count` and `memoryLimit` are the same
             // literal value, so a message with the count clause deleted (e.g.
@@ -742,7 +797,7 @@ private final class TestServer {
                 "GET", "/api/memories/gate%2Fx?project=p", contentType: nil
             )
             #expect(slash == 400)
-            #expect(((slashBody["error"] as! [String: Any])["message"] as! String).contains("key"))
+            #expect(try errorMessage(slashBody).contains("key"))
 
             // %2E%2E%2F is "../": same refusal, not a path that climbs anywhere.
             let (dots, _) = try await server.send(
@@ -781,8 +836,8 @@ private final class TestServer {
                 json: #"{"project":"p","key":"Gate.Swift-Test","value":"swift test","kind":"gate","source":"s:1"}"#
             )
             let (_, listed) = try await server.send("GET", "/api/memories?project=p", contentType: nil)
-            let entries = listed["memories"] as! [[String: Any]]
-            #expect(entries.map { $0["key"] as! String } == ["gate.swift-test"])
+            let entries = try field(listed, "memories", [[String: Any]].self)
+            #expect(entries.map { $0["key"] as? String } == ["gate.swift-test"])
 
             let (upper, upperBody) = try await server.send(
                 "GET", "/api/memories/GATE.SWIFT-TEST?project=p", contentType: nil
@@ -816,7 +871,7 @@ private final class TestServer {
             // List-shaped, not memory-shaped: `memories` present, `value` absent.
             #expect(body["memories"] != nil)
             #expect(body["value"] == nil)
-            #expect((body["memories"] as! [[String: Any]]).count == 1)
+            #expect(try field(body, "memories", [[String: Any]].self).count == 1)
 
             // Without a project it is at least a 400 rather than a wrong-shaped 200.
             let (noProject, _) = try await server.send("GET", "/api/memories/", contentType: nil)
@@ -836,7 +891,7 @@ private final class TestServer {
         try await withServer { server in
             let (list, listBody) = try await server.send("GET", "/api/memories", contentType: nil)
             #expect(list == 400)
-            #expect(((listBody["error"] as! [String: Any])["message"] as! String).contains("project"))
+            #expect(try errorMessage(listBody).contains("project"))
 
             let (get, _) = try await server.send("GET", "/api/memories/gate", contentType: nil)
             #expect(get == 400)
@@ -866,13 +921,13 @@ private final class TestServer {
                 "GET", "/api/memories?project=", contentType: nil
             )
             #expect(empty == 400)
-            let emptyMessage = (emptyBody["error"] as! [String: Any])["message"] as! String
+            let emptyMessage = try errorMessage(emptyBody)
             #expect(emptyMessage.contains("query parameter 'project'"))
             #expect(emptyMessage.contains("must not be empty"))
             #expect(!emptyMessage.contains("missing"))
             // And the two mistakes really do read differently, not just accidentally.
             let (_, absentBody) = try await server.send("GET", "/api/memories", contentType: nil)
-            let absentMessage = (absentBody["error"] as! [String: Any])["message"] as! String
+            let absentMessage = try errorMessage(absentBody)
             #expect(absentMessage != emptyMessage)
         }
     }
@@ -880,12 +935,12 @@ private final class TestServer {
     @Test func unknownStatusReportsTheAllowedSet() async throws {
         try await withServer { server in
             let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"状态"}"#)
-            let runID = created["id"] as! String
+            let runID = try field(created, "id", String.self)
             let (status, body) = try await server.send(
                 "PUT", "/api/runs/\(runID)/tasks/T1", json: #"{"title":"甲","status":"finished"}"#
             )
             #expect(status == 400)
-            #expect(((body["error"] as! [String: Any])["message"] as! String).contains("review"))
+            #expect(try errorMessage(body).contains("review"))
         }
     }
 }
