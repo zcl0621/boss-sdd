@@ -678,6 +678,51 @@ private final class TestServer {
         }
     }
 
+    /// The per-project cap (`Store.upsertMemory`) surfaces over HTTP as a plain
+    /// 400, the same as the other memory validation errors, and an upsert onto
+    /// an existing key keeps working right at the limit — the store-level
+    /// tests in `MemoryTests` cover the cap itself in depth; this just checks
+    /// the API wiring doesn't swallow or reshape it.
+    @Test func theMemoryCapSurfacesAsA400OverHTTPAndSparesExistingKeyUpdates() async throws {
+        try await withServer { server in
+            for i in 0..<memoryLimit {
+                let (status, _) = try await server.send(
+                    "POST", "/api/memories",
+                    json: #"{"project":"p","key":"k\#(i)","value":"v","kind":"note","source":"x:1"}"#
+                )
+                #expect(status == 200)
+            }
+
+            let (capped, cappedBody) = try await server.send(
+                "POST", "/api/memories",
+                json: #"{"project":"p","key":"one-too-many","value":"v","kind":"note","source":"x:1"}"#
+            )
+            #expect(capped == 400)
+            let message = (cappedBody["error"] as! [String: Any])["message"] as! String
+            // Pinned as two separate clauses, not just "contains the digits
+            // 100": at the cap boundary `count` and `memoryLimit` are the same
+            // literal value, so a message with the count clause deleted (e.g.
+            // "project p is full, at the limit of 100") would still contain
+            // "100" — this checks the count clause's own text is present.
+            // `MemoryTests.theCountClauseNamesActualRowsNotJustTheLimit` pins
+            // the count itself against a value that actually differs from the
+            // limit; this test only needs to confirm the API doesn't reshape
+            // the message the store already produced.
+            #expect(message.contains("already has \(memoryLimit) memories"))
+            #expect(message.contains("at the limit of \(memoryLimit)"))
+            #expect(message.lowercased().contains("delete"))
+
+            // Updating an existing key still works at the cap.
+            let (updated, _) = try await server.send(
+                "POST", "/api/memories",
+                json: #"{"project":"p","key":"k0","value":"corrected","kind":"gate","source":"y:2"}"#
+            )
+            #expect(updated == 200)
+            #expect(try server.store.memory(project: "p", key: "k0").value == "corrected")
+            #expect(try server.store.memories(project: "p").count == memoryLimit)
+        }
+    }
+
     /// The percent-decode → validator seam. `route` splits the path on "/" and
     /// only *then* percent-decodes each segment, so `%2F` survives the split and
     /// arrives at the store as a key containing a slash. That is the one place a

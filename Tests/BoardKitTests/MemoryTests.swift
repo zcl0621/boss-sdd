@@ -281,6 +281,171 @@ private func withTempDatabaseFile(_ body: (URL) throws -> Void) throws {
         }
     }
 
+    // MARK: - Per-project cap
+
+    /// Filling a project to `memoryLimit` distinct keys, then trying to add one
+    /// more, is refused — and the refusal leaves the store exactly as it was:
+    /// still `memoryLimit` rows, none of them the rejected key.
+    @Test func the101stDistinctKeyIsRefused() throws {
+        try withTempStore { store in
+            for i in 0..<memoryLimit {
+                _ = try store.upsertMemory(
+                    project: "p", key: "k\(i)", value: "v\(i)", kind: .note, source: "x:\(i)"
+                )
+            }
+            #expect(try store.memories(project: "p").count == memoryLimit)
+
+            #expect(throws: BoardError.self) {
+                _ = try store.upsertMemory(
+                    project: "p", key: "one-too-many", value: "v", kind: .note, source: "x:1"
+                )
+            }
+
+            // Refused, not partially applied: still exactly the original set.
+            let after = try store.memories(project: "p")
+            #expect(after.count == memoryLimit)
+            #expect(!after.contains { $0.key == "one-too-many" })
+        }
+    }
+
+    /// The refusal message is the caller's only way to know what to do next: it
+    /// must name the current count and point at deleting something, not just
+    /// say "limit reached".
+    ///
+    /// At exactly the cap, `count` and `memoryLimit` are the same literal value
+    /// (100), so `message.contains("\(memoryLimit)")` alone cannot tell "the
+    /// message states the count" apart from "the message states only the
+    /// constant" — deleting the count clause and leaving `at the limit of 100`
+    /// behind still contains "100". Asserting on the count clause's own text
+    /// closes that gap here; `theCountClauseNamesActualRowsNotJustTheLimit`
+    /// below closes it completely, with a count that differs from the limit.
+    @Test func theCapRefusalNamesTheCountAndTellsTheCallerToDelete() throws {
+        try withTempStore { store in
+            for i in 0..<memoryLimit {
+                _ = try store.upsertMemory(
+                    project: "p", key: "k\(i)", value: "v\(i)", kind: .note, source: "x:\(i)"
+                )
+            }
+            do {
+                _ = try store.upsertMemory(
+                    project: "p", key: "one-too-many", value: "v", kind: .note, source: "x:1"
+                )
+                Issue.record("expected the cap to refuse this write")
+            } catch let error as BoardError {
+                #expect(error.httpStatus == 400)
+                #expect(error.message.contains("already has \(memoryLimit) memories"))
+                #expect(error.message.contains("at the limit of \(memoryLimit)"))
+                #expect(error.message.lowercased().contains("delete"))
+            }
+        }
+    }
+
+    /// The one case that can actually distinguish "the message names the
+    /// current count" from "the message just echoes `memoryLimit`": a database
+    /// that already holds more rows than the limit before this write is even
+    /// attempted, the way a database that predates the cap (or was seeded by
+    /// some other path) could. Seeded by writing directly through a raw
+    /// `Database` connection, bypassing `Store.upsertMemory` — and therefore
+    /// its cap — entirely, since going through the cap could never produce
+    /// more than `memoryLimit` rows in the first place.
+    @Test func theCountClauseNamesActualRowsNotJustTheLimit() throws {
+        try withTempDatabaseFile { path in
+            let seededCount = memoryLimit + 5
+
+            // 1. A real `Store` lays down the schema, including `memories`,
+            // then is released so the file is free for the next connection.
+            do {
+                _ = try Store(path: path)
+            }
+
+            // 2. Seed past the limit directly, with no cap in the way.
+            do {
+                let seed = try Database(path: path.path)
+                let now = Date().timeIntervalSince1970
+                for i in 0..<seededCount {
+                    try seed.run(
+                        #"""
+                        INSERT INTO memories(project, "key", value, kind, source, created_at, updated_at)
+                        VALUES(?,?,?,?,?,?,?)
+                        """#,
+                        [
+                            .text("p"), .text("seed\(i)"), .text("v"), .text(MemoryKind.note.rawValue),
+                            .text("x:1"), .double(now), .double(now),
+                        ]
+                    )
+                }
+            }
+
+            // 3. Reopen through `Store` and try to add one more new key.
+            // `count` (105) and `memoryLimit` (100) are now genuinely
+            // different numbers.
+            let store = try Store(path: path)
+            #expect(try store.memories(project: "p").count == seededCount)
+            do {
+                _ = try store.upsertMemory(
+                    project: "p", key: "one-more", value: "v", kind: .note, source: "x:1"
+                )
+                Issue.record("expected the cap to refuse this write")
+            } catch let error as BoardError {
+                #expect(error.message.contains("already has \(seededCount) memories"))
+                #expect(error.message.contains("at the limit of \(memoryLimit)"))
+            }
+        }
+    }
+
+    /// The part most likely to be gotten wrong: an upsert onto a key the
+    /// project already has must keep working at the cap. An agent that hits
+    /// the limit must be able to fix the one entry that is actually wrong
+    /// (say, a stale gate command) without deleting something else first.
+    @Test func anUpsertOntoAnExistingKeyStillSucceedsAtTheCap() throws {
+        try withTempStore { store in
+            for i in 0..<memoryLimit {
+                _ = try store.upsertMemory(
+                    project: "p", key: "k\(i)", value: "v\(i)", kind: .note, source: "x:\(i)"
+                )
+            }
+            #expect(try store.memories(project: "p").count == memoryLimit)
+
+            // Correcting an existing entry, not adding a new one: must not throw.
+            let updated = try store.upsertMemory(
+                project: "p", key: "k0", value: "corrected", kind: .gate, source: "y:2"
+            )
+            #expect(updated.value == "corrected")
+            #expect(updated.kind == .gate)
+
+            let after = try store.memories(project: "p")
+            #expect(after.count == memoryLimit)
+            #expect(try store.memory(project: "p", key: "k0").value == "corrected")
+        }
+    }
+
+    /// The cap is per-project. One project sitting at its limit must not stop
+    /// a different project from writing its first entry.
+    @Test func theCapIsPerProject() throws {
+        try withTempStore { store in
+            for i in 0..<memoryLimit {
+                _ = try store.upsertMemory(
+                    project: "full", key: "k\(i)", value: "v\(i)", kind: .note, source: "x:\(i)"
+                )
+            }
+            #expect(try store.memories(project: "full").count == memoryLimit)
+
+            // A different project, well under the limit, is unaffected.
+            let written = try store.upsertMemory(
+                project: "other", key: "gate", value: "swift test", kind: .gate, source: "README:1"
+            )
+            #expect(written.value == "swift test")
+            #expect(try store.memories(project: "other").count == 1)
+
+            // The full project is still refused.
+            #expect(throws: BoardError.self) {
+                _ = try store.upsertMemory(
+                    project: "full", key: "one-too-many", value: "v", kind: .note, source: "x:1"
+                )
+            }
+        }
+    }
+
     // MARK: - Schema migration
 
     /// The exact schema a database in the field was created with, frozen here on
