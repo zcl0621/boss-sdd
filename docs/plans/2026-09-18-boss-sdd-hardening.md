@@ -1,97 +1,146 @@
-# boss-sdd 收口加固
+# boss-sdd：加固 + 可移植技能发布
 
 ## 背景
 
-看板 app、Go MCP server 和技能改写已在上一轮做完并实跑验证（9 个 Swift 测试 + 4 个 Go 测试通过，
-MCP stdio 全链路跑通，两条写入门禁实测拒绝）。本轮处理三件上一轮留下的实缺口，不扩大范围。
+上一轮做完了看板 app、Go MCP server 和本机技能改写，仓库已推到
+https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上一轮留的三个实缺口，
+并把 plan-sdd 做成一个能在 **Claude Code / Codex / Cursor** 三家跑的可移植技能随仓库发布。
 
-`~/.claude/plans/witty-napping-diffie.md` 是上一轮已批准的计划，本文件只接它的尾巴。
+上一轮已批准的计划在 `~/.claude/plans/witty-napping-diffie.md`。
 
 ## 目标
 
-- MCP 在端口被非看板进程占用时，给 agent 一条能照着做的错误，而不是透传 HTTP 码。
-- 补上已批准计划里承诺过但没写的 `StoreTests`，以及旧 JSON 导入的测试。
-- 决定 `plan_set_tasks` 的原子性并落实。
+- MCP 在端口被非看板进程占用时给出能照做的错误。
+- 补上承诺过的 Store / 旧数据导入测试。
+- `plan_set_tasks` 改成单事务。
+- 发布一份全英文、三平台的技能：DAG + spec + TDD + 多角色 subagent + goal 模式 +
+  code review + 门禁的聚合体。
+- README 说清楚三家怎么装，并提示使用者按自己的订阅调整各角色模型。
 
 ## 非目标
 
-- 不做应用图标、窗口状态持久化、开机自启验证——都列进「待用户拍板」。
-- 不动 `~/.claude/skills/plan-sdd/scripts/board.py`，按上一轮计划它还要留一周。
-- 不推送、不开 PR、不部署。
+- 不做应用图标、窗口状态持久化、开机自启验证。
+- 不动 `~/.claude/skills/plan-sdd/scripts/board.py`。
+- 不把本机私有数据发到公开仓库（设计稿的真实基础设施数据已换成合成数据）。
 
 ## 已定的设计决策
 
-- 看板 app 是唯一写入方，MCP 层不重复实现任何调度不变量。
-- 存储仍是 `~/.claude/plan-sdd/board.sqlite3`，旧 JSON 只读不删。
-- 仅支持 Apple 芯片 Mac。
+- 默认端口 18866 → **18888**：18866 上长期挂着已退役的 Python 看板，换端口比抢端口干净。
+- 技能三个平台共用同一份 SKILL.md 正文与 references，差异只落在：
+  frontmatter 扩展字段、subagent 派发机制、模型 ID、MCP 注册方式。
+- 可移植版不依赖 Claude Code 独有的 `Workflow` 工具；勘察与复核统一表达成角色化 subagent 扇出。
+  Claude Code 变体可以额外说明用 `Workflow` 并行更省事，但不作为前提。
+- 每个 subagent 就是一个角色，角色有自己的身份、输入契约、交付契约和模型档位。
+
+### 平台事实（已查证，非凭记忆）
+
+| | Claude Code | Codex | Cursor |
+|---|---|---|---|
+| 技能位置 | `~/.claude/skills/<name>/` | `.agents/skills/<name>/`、`$HOME/.agents/skills/` | `.cursor/skills/`、`.agents/skills/`，并兼容读 `.claude/skills/`、`.codex/skills/` |
+| 显式调用 | `/name` | `$name` | `/name` |
+| 角色定义 | `.claude/agents/<n>.md`，`Agent` 工具带 `model` | `config.toml` 的 `[agents.<n>]`（`config_file`、`description`、`default_subagent_model`） | `.cursor/agents/<n>.md`，frontmatter 有 `model` / `readonly` / `is_background` |
+| 模型写法 | `opus` / `sonnet` / `haiku` / `fable` | `gpt-5.6`，另有 `default_subagent_reasoning_effort` | `claude-opus-5[effort=high]`、`composer-2.5`、`gpt-5.6-sol`、`inherit` |
+| frontmatter 扩展 | `allowed-tools`、`argument-hint` | 仅 name/description | `paths`（glob 限定） |
+
+来源：developers.openai.com/codex/skills、/codex/config-reference、cursor.com/docs/skills、cursor.com/docs/subagents。
 
 ## Tasks
 
-### T0 基线提交与 .gitignore
+### T0 基线提交与公开仓库 ✅
 
-- `depends_on`: []
-- `write_scope`: `.gitignore`
-- `exclusive_resources`: `["git-index"]`
-- role: 主 agent 亲自做（需用户授权动 git）
-- 验收: `git log --oneline` 有一条基线提交；`git status --porcelain` 不再列出 `.build/`
-- 风险: 这是后面所有 `git diff` 自审和 `branch-review.js` 的 `baseRef` 起点，必须先落。
+已完成。基线提交 `eb614c0`，`.gitignore` 排除 `.build/` 等；设计稿中的真实基础设施标识
+（内部主机名、数据库名、一条历史安全问题的描述、模拟器 UDID）已换成合成数据后才推送。
 
 ### T1 MCP 端口占用诊断
 
-- `depends_on`: `["T0"]`
+- `depends_on`: []
 - `write_scope`: `mcp/client.go`, `mcp/client_test.go`
 - `exclusive_resources`: `["gate:go-test"]`
-- role: engineer
-- 现象（实测）：18866 被旧 `board.py` 占着时，`plan_board_status` 回 `看板返回 HTTP 404`。
-- 要求: 请求打到端口但对方不是看板时（`/api/health` 非 2xx，或 2xx 但 body 不含 `ok`/`version`），
-  错误要指明「端口 N 上是别的服务，不是看板」并给出可执行的下一步。连接被拒仍走现有的拉起重试。
-- 验收: `cd mcp && go test ./...`；并在 18866 仍被占用的真实状态下复跑 `plan_board_status`，
-  贴出 agent 看到的新错误原文。
+- role: implementer
+- 现象（实测）：端口上蹲着别的服务时，`plan_board_status` 回 `看板返回 HTTP 404`。
+- 要求：区分「连不上」（拉起 app 重试，现有行为）与「连上了但不是看板」（`/api/health`
+  非 2xx，或 2xx 但 body 缺 `ok`/`version`），后者报出端口号、可能的占用者和下一步。
+- 验收：`cd mcp && go test ./...`；并在端口被占的真实状态下复跑，贴出新错误原文。
 
 ### T2 Store 与旧数据导入的直接单测
 
-- `depends_on`: `["T0"]`
+- `depends_on`: []
 - `write_scope`: `Tests/BoardKitTests/StoreTests.swift`, `Tests/BoardKitTests/LegacyImportTests.swift`
 - `exclusive_resources`: `["gate:swift-test"]`
-- role: engineer
-- 要覆盖: 事件截断到 `eventHistoryLimit`（200）；两条写入门禁在 Store 层直测（现在只经 HTTP 测过）；
-  列表字段 keep/replace/clear 在 Store 层直测；`LegacyImport.parseRun` 对缺字段、坏状态、
-  非对象 task 的容忍；`importAll` 对坏文件跳过而不中断。
-- 验收: `swift test`
-- 风险: 测试要用临时目录建 Store，不得碰 `~/.claude/plan-sdd/board.sqlite3`。
+- role: implementer
+- 覆盖：事件截断到 200；两条写入门禁在 Store 层直测；列表 keep/replace/clear 直测；
+  `LegacyImport.parseRun` 对缺字段/坏状态/非对象 task 的容忍；`importAll` 遇坏文件跳过不中断。
+- 验收：`swift test`。测试必须用临时目录，不得碰 `~/.claude/plan-sdd/board.sqlite3`。
 
 ### T3 plan_set_tasks 原子化
 
-- `depends_on`: `["T0"]`
+- `depends_on`: []
 - `write_scope`: `Sources/BoardKit/Store.swift`, `Sources/BoardKit/API.swift`,
   `Tests/BoardKitTests/APITests.swift`, `mcp/main.go`
 - `exclusive_resources`: `["gate:swift-test", "gate:go-test"]`
-- role: engineer `[complexity: high]`
-- 现状: MCP 逐条 PUT，某条被拒时前面的已经落库，留下一张半截 DAG（表现为 unknown_dependency，
-  图判定 invalid）。可见、可恢复，但不该发生。
-- 要求: Swift 侧加一个批量写入端点，在单个事务里写完全部 task，任一条不合法则整批回滚；
-  MCP 的 `plan_set_tasks` 改调它，返回值形状不变（`written` / `failed` / `graph`）。
-- 验收: `swift test`；`cd mcp && go test ./...`；新增一条接口测试证明「批中一条非法时整批不落库」。
+- role: implementer `[complexity: high]`
+- 现状：逐条 PUT，中途被拒会留下半截 DAG。
+- 要求：Swift 侧加批量端点，单事务写完全部 task，任一条不合法整批回滚；MCP 改调它，
+  返回形状不变。
+- 验收：`swift test`；`go test ./...`；新增接口测试证明「批中一条非法则整批不落库」。
 
-注：T1 与 T2 无写入范围重叠、无共享资源，可同批并行。T3 与两者都共享门禁资源，
-因此虽无依赖边，也只能等它们释放——这由看板的资源投影自动拦，不用画成边。
+### T4 可移植技能正文（英文）
+
+- `depends_on`: []
+- `write_scope`: `skills/shared/`
+- `exclusive_resources`: `[]`
+- role: skill-author `[complexity: high]`
+- 内容：DAG 契约、spec 契约、TDD 循环、角色扇出、goal 模式、code review、门禁纪律、禁止事项。
+- 必须先用 `prompt-engineer` skill 走一遍（Job 2：从零写 prompt），再用 `humanizer` 去 AI 味。
+- 不得假设 `Workflow` 工具存在；不得出现中文；不得出现本机私有路径。
+- 验收：人工读一遍结构完整；`grep` 无中文字符、无 `/Users/`、无 `Workflow` 依赖表述。
+
+### T5 角色花名册与模型矩阵
+
+- `depends_on`: `["T4"]`
+- `write_scope`: `skills/shared/roles.md`
+- role: skill-author
+- 角色：recon-rules、recon-product、recon-code、implementer、ui-designer、qa、
+  reviewer、branch-reviewer、adversary。每个角色写清身份、输入契约、交付契约、停止条件。
+- 给出三平台默认模型矩阵，并注明这是起点不是定论。
+- 验收：每个角色在 T4 正文里都有对应调用点，无孤儿角色。
+
+### T5a / T5b / T5c 三平台打包
+
+- `depends_on`: `["T5"]`
+- `write_scope`: 分别是 `skills/claude-code/`、`skills/codex/`、`skills/cursor/`
+- `exclusive_resources`: `[]`（三者互不重叠，可并行）
+- role: skill-author
+- 各自产出该平台的 SKILL.md（正确的 frontmatter）、角色文件、MCP 注册说明、安装步骤。
+- 验收：按各平台文档核对字段名与路径；模型 ID 用该平台真实存在的写法。
+
+### T6 README（英文）
+
+- `depends_on`: `["T1","T2","T3","T5a","T5b","T5c"]`
+- `write_scope`: `README.md`
+- role: skill-author
+- 涵盖：这是什么、三家怎么装、MCP 工具表、两条写入门禁、端口、**提示使用者按自己的订阅
+  和预算调整各角色模型**、测试怎么跑。
+- 必须过 `humanizer`。
+- 验收：全英文；三段安装说明能照着做下来。
+
+注：T1/T2/T3/T4 无写入范围重叠。T1 与 T2 资源不冲突可并行；T3 与两者都抢门禁资源，
+自然排在后面，不用画依赖边。T4 纯文档，与代码任务完全并行。
 
 ## 风险与未决项
 
-- 本轮无法用看板追踪：18866 被占 + MCP 工具本会话未加载。状态落在本文件里，
-  端口收掉并重启 Claude Code 后再补录。
-- `branch-review.js` 的 `baseRef` 用 T0 那条基线提交。
+- 本轮仍无法用看板追踪：MCP 工具本会话未加载。状态落在本文件，重启后补录。
+- 三平台的技能格式在快速演进，写进 README 的路径与字段有时效性，需注明查证日期。
 
 ## 待用户拍板
 
-1. 旧 `board.py serve`（PID 88040）什么时候收掉——收掉前看板写入接口一直是停的。
-2. 应用图标：现在是系统默认图标。
-3. 开机自启：`SMAppService.mainApp.register()` 在 ad-hoc 签名下能否真注册，没验证过。
-4. 选中的运行不持久化，重启 app 回到列表第一个。
-5. `scripts/board.py` 的最终删除时机（上一轮计划定的是跑顺一周后）。
+1. 技能在公开仓库里叫什么名字（暂定沿用 `plan-sdd`）。
+2. 旧 `board.py serve`（PID 88040）什么时候收掉——换到 18888 后它已不碍事。
+3. 应用图标、开机自启验证、选中运行持久化。
+4. `scripts/board.py` 的最终删除时机。
 
 ## 门禁
 
-- `swift test`（在仓库根）
+- `swift test`
 - `cd mcp && go test ./...`
-- `./Scripts/bundle.sh` 能出包
+- `./Scripts/bundle.sh`
