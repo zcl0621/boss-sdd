@@ -41,7 +41,7 @@ struct TaskCard: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .frame(width: Metrics.cardWidth, height: Self.height, alignment: .topLeading)
-            .background(Color(nsColor: .controlBackgroundColor), in: shape)
+            .background(Palette.raised, in: shape)
             .overlay {
                 shape.strokeBorder(
                     isSelected ? Color.accentColor.opacity(0.7) : Color(nsColor: .separatorColor),

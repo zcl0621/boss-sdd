@@ -1,6 +1,44 @@
 import SwiftUI
 import BoardKit
 
+/// The two content-layer surfaces the design document pins to a literal value.
+///
+/// The rest of that document's palette is already the macOS semantic palette it was
+/// drawn from — its labels are `labelColor`/`secondaryLabelColor`/`tertiaryLabelColor`,
+/// its separator is `separatorColor`, its accent and status colours are
+/// `controlAccentColor`/`systemGreen`/`systemOrange`/`systemRed`/`systemGray`, and its
+/// `--control-bg` is `controlBackgroundColor` in both appearances. Those stay semantic
+/// here, so they keep adapting to increased contrast.
+///
+/// These two cannot. `--content-bg` has no semantic equivalent that renders it:
+/// `underPageBackgroundColor` was the obvious candidate and draws mid-grey on screen
+/// regardless of what its components report. `--raised` collides with `--control-bg`:
+/// they are the same white in light and diverge in dark, so one `NSColor` cannot be
+/// both. A named dynamic colour states each once and lets the appearance pick.
+enum Palette {
+    /// The graph/columns canvas — the content layer's ground.
+    static let content = dynamic(name: "content-bg", light: 0xF6_F6_F6, dark: 0x25_25_25)
+    /// A task card's face: lifted off the canvas, and in dark lighter than the
+    /// inspector rather than darker.
+    static let raised = dynamic(name: "raised", light: 0xFF_FF_FF, dark: 0x2D_2D_2D)
+
+    private static func dynamic(name: String, light: UInt32, dark: UInt32) -> Color {
+        Color(nsColor: NSColor(name: name) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return srgb(isDark ? dark : light)
+        })
+    }
+
+    private static func srgb(_ hex: UInt32) -> NSColor {
+        NSColor(
+            srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: 1
+        )
+    }
+}
+
 /// Concentric radii, outermost first. A control nested in a card nested in the window
 /// steps down so the curves stay visually parallel.
 enum Metrics {
@@ -66,14 +104,16 @@ enum VisualState: Equatable {
         }
     }
 
-    /// System colours only — they already carry light, dark and increased-contrast variants.
+    /// System colours only — they already carry light, dark and increased-contrast
+    /// variants. Waiting states take `systemGray` rather than the secondary label
+    /// colour: a label colour tracks the text around it, and this is a glyph fill.
     var tint: Color {
         switch self {
         case .done: return .green
         case .running, .ready: return .accentColor
         case .review, .resourceBlocked: return .orange
         case .blocked: return .red
-        case .pending, .upstreamBlocked: return .secondary
+        case .pending, .upstreamBlocked: return .gray
         }
     }
 }
@@ -109,7 +149,7 @@ extension RunStatus {
         case .running: return .accentColor
         case .review, .awaitingConfirmation: return .orange
         case .blocked: return .red
-        case .pending, .planning: return .secondary
+        case .pending, .planning: return .gray
         }
     }
 }

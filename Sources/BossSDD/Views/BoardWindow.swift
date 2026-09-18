@@ -34,6 +34,8 @@ struct BoardWindow: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
+                ScrollEdge()
+
                 if !graph.valid {
                     GraphProblemBanner(errors: graph.errors)
                 }
@@ -41,7 +43,7 @@ struct BoardWindow: View {
                     .padding(.leading, 18)
                     .padding(.bottom, 14)
             }
-            .background(Color(nsColor: .underPageBackgroundColor))
+            .background(Palette.content)
         } else {
             ContentUnavailableView {
                 Label(loc("board.noRunSelected"), systemImage: "square.grid.3x3")
@@ -94,6 +96,26 @@ struct BoardWindow: View {
             "board.subtitle",
             run.project, done, run.tasks.count, active, graph.readyTaskIDs.count
         )
+    }
+}
+
+/// Rows scrolling past the floating cluster fade into the canvas instead of being
+/// clipped mid-glyph behind it. Painted in the canvas colour, which is why it can only
+/// exist now that the canvas has a stated colour to fade to.
+private struct ScrollEdge: View {
+    var body: some View {
+        LinearGradient(
+            stops: [
+                .init(color: Palette.content, location: 0),
+                .init(color: Palette.content, location: 0.18),
+                .init(color: Palette.content.opacity(0), location: 1),
+            ],
+            startPoint: .bottom,
+            endPoint: .top
+        )
+        .frame(height: 64)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .allowsHitTesting(false)
     }
 }
 
