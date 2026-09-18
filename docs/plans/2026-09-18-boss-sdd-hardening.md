@@ -672,7 +672,7 @@ Spotlight、"打开方式"列表、系统设置里的登录项。
 `exclusive_resources`: `["gate:swift-build", "app-process"]`——要跑 bundle.sh。
 `depends_on`: T21（同样要跑 bundle.sh 并起 app）。
 
-### T27 摘掉 `--appearance`（新增，未开始）
+### T27 摘掉 `--appearance` ✅
 
 T25 加它是因为当时没有别的办法在不动用户机器的前提下验深色外观。用户定了不进
 公开仓库。要撤的是 `Sources/BossSDD/BossSDDApp.swift` 里的 `applyAppearanceOverride`
