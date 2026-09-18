@@ -363,6 +363,28 @@ search 的坏处不是贵，是**让「没找到」和「不存在」长得一�
 因为 agent 以为它还在）；**已存在的 key 必须仍能覆盖写**——否则满额时改不掉一条过期的
 门禁命令，而最该改的恰恰就是错的那条。
 
+### T16 并行节点共用 scratchpad，脚本会互相覆盖（新增，未开始）
+
+T5a 报告：它的 `linkcheck.py` 在 21:46 被另一个节点同名脚本覆盖。**它是靠替换
+版本恰好崩在缺参数上才发现的**——原话是「Had it merely behaved differently
+I would have pasted its numbers as mine.」
+
+我核了 scratchpad 根目录，确实是一个平铺目录，多个节点各写各的通用名：
+`linkcheck.py` / `lc.py` / `lc2.py`、`mutate.py` / `mutate2.py`、
+`edit1.py`…`edit7.py`、`SKILL.head.md` 与 `SKILL_HEAD.md`、
+`cc-run1.txt` / `cx-run1.txt` / `cu-run1.txt` 三组同构文件名。
+
+这是这轮最危险的一类故障：**一个错的验证数字，看起来和对的一模一样**。整个
+流程的其他防线（变异对照、独立复核、原始输出）全都建立在「贴出来的数字是这次
+真跑出来的」之上，而这条通道能在不留痕迹的情况下把它替换掉。
+
+本技能的设计就是大量并行 subagent，所以这条得写进正文：派发契约里要求每个
+节点把 scratch 文件写在自己的子目录下，脚本名带节点标识；发现该是自己的文件
+不是自己写的，要报告而不是使用。
+
+`write_scope`: `skills/shared/references/dispatch.md`（可能还有 `gates.md`）。
+`depends_on`: T10（同一批文件）。
+
 ### T12 APITests 的诊断力（新增，未开始）
 
 `Tests/BoardKitTests/APITests.swift` 全文用 `as!` 链取字段（84、95、114、139、157 等约 40 处）。断言一失败，紧跟的强解包就把测试进程打死：我做源码变异时拿到 `Fatal error: Unexpectedly found nil`（661 行）和 `exited with unexpected signal code 5`，后面的用例根本没跑。
