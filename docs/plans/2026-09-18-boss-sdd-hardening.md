@@ -51,12 +51,22 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 | 原生分支复核 | `/code-review`（当前分支）；`/code-review ultra <PR#>` 走云端多 agent | `/review` → Review uncommitted changes / 对 base 分支；`review_model` 单独配模型 | `/review-bugbot`（相对 base 的全部改动，含未提交）；`/review` 同义 |
 | 原生 PR 复核 | `/code-review ultra <PR#>` | GitHub 集成，`@codex review`，读 `AGENTS.md` 里的 Code Review rules | PR 评论 `bugbot run` / `cursor review` |
 | 复核规则文件 | — | `AGENTS.md` | `.cursor/BUGBOT.md`（根目录那份总是加载，再沿变更文件向上找） |
+| subagent 隔离 | `Agent` 工具有 `isolation: "worktree"`，无改动时自动清理 | 事实表未覆盖，不许编 | **默认共用父 agent 的检出**："Subagents share the parent agent's checkout by default. When several subagents edit files at once, they can overwrite each other's changes." 隔离靠自然语言显式要求（"each in its own environment"），**没有具名配置开关** |
+| subagent 并行 | 同一条消息里多个 `Agent` 调用 | 事实表未覆盖 | "Agent sends multiple Task tool calls in a single message, so subagents run simultaneously." |
+| subagent 续聊 | `SendMessage` 按 agent id | 事实表未覆盖 | 可以："Each subagent execution returns an agent ID. Pass this ID to resume the subagent with full context preserved." |
+| 内置 subagent | — | 事实表未覆盖 | Explore、Bash、Browser |
 
 来源：developers.openai.com/codex/skills、/codex/config-reference、developers.openai.com/codex/cli/features、
 developers.openai.com/codex/integrations/github、cursor.com/docs/skills、cursor.com/docs/subagents、cursor.com/docs/bugbot。
-查证日期 2026-09-18；Cursor 的模型写法与 frontmatter 于同日复核一次（cursor.com/docs/subagents），
+查证日期 2026-09-18；Cursor 的模型写法、frontmatter、隔离/并行/续聊于同日复核（cursor.com/docs/subagents），
 补回了首次记录时漏掉的 `composer-2`、`context` 括号参数和 `name`/`description` 两个字段——
 这张表是给 subagent 当唯一可信来源用的，漏记会被当成「凭空捏造」判掉。
+
+**第二次同类事故**：Cursor 的 worktree 和内置 subagent 两条，我直接写进派发 prompt
+喂给了 T5c，而没有先进表——等于自己绕过了自己定的唯一可信来源。T5c 照做了但把
+不一致报了回来。复核后发现其中一条还是**反的**：Cursor 的 subagent **默认共用
+父 agent 的检出**，并发编辑会互相覆盖；隔离要显式要求，且没有具名开关。我原话
+「isolated git worktrees per subagent are available」把 opt-in 说成了现成能力。
 
 **Bugbot 是 Cursor 的产品，不是 Codex 的**——这点先前记反了，已按官方文档更正。
 
