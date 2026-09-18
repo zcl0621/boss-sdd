@@ -262,11 +262,12 @@ loop inside a node, of which there are at most three):
 2. **Dispatch an implementer per task.** A fresh subagent each time. Build a
    self-contained dispatch prompt following
    [the dispatch contract](references/dispatch.md). It must carry the role
-   identity, the goal, the confirmed background and evidence, the `write_scope`
-   boundary, the project's hard rules, the protection of the user's existing
-   changes, the exact acceptance commands copied in verbatim, the TDD
-   requirement, the stop condition, the output contract, and the forbidden
-   actions.
+   identity line plus every block of the full context bundle, read off the list
+   in that file rather than off any count or copy kept elsewhere, with nothing
+   dropped because it was said earlier in this conversation. The subagent was
+   not in this conversation. That file is the only list; this step deliberately
+   does not restate it, because a restated list goes stale and the block it
+   stops short of is the one most recently added.
 
 3. **Review it independently.** Set the node to `review`. Every
    task gets a static review from a `reviewer` subagent that did not write the
