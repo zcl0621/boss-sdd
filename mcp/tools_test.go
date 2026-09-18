@@ -429,6 +429,35 @@ func TestVerifyMemoryEchoTrimsAndFoldsKeyLikeTheBoardDoes(t *testing.T) {
 	}
 }
 
+// The verifyMemoryEcho counterpart of
+// TestVerifyMemoryDeletedRejectsAnUnfoldedKeyEcho, and the hole
+// strings.EqualFold left open on this side. Store.normalizedKey lower-cases
+// before the row is ever written, so GET and POST echo back `gate`; a board
+// answering `Gate` has named a key that is not in the table. Folding both
+// sides made the check unable to tell "the board folded the key correctly"
+// apart from "the board did not fold it at all" — the one mistake worth
+// reporting.
+func TestVerifyMemoryEchoRejectsAnUnfoldedKeyEcho(t *testing.T) {
+	err := verifyMemoryEcho("proj", "Gate", wireMemory{Project: "proj", Key: "Gate", Source: "src"})
+	if err == nil {
+		t.Fatal("the board stores keys lower-cased; an unfolded echo names a row that does not exist and must be reported")
+	}
+	if !strings.Contains(err.Error(), "别的 key") {
+		t.Fatalf("expected the wrong-key message, got %v", err)
+	}
+}
+
+// The padded half, mirroring TestVerifyMemoryDeletedRejectsAPaddedKeyEcho.
+// The board never stores a padded key, so a padded echo is the board's own
+// bug rather than the caller's input leaking through. EqualFold already
+// rejected this one; it is pinned so the strict form keeps rejecting it.
+func TestVerifyMemoryEchoRejectsAPaddedKeyEcho(t *testing.T) {
+	err := verifyMemoryEcho("proj", "gate", wireMemory{Project: "proj", Key: " gate ", Source: "src"})
+	if err == nil {
+		t.Fatal("a whitespace-padded echoed key is not a key the board can have stored")
+	}
+}
+
 // store.memories(project:) normalizes project the same way memory(project:key:)
 // does, so every listed row's project is the board's trimmed value too.
 func TestVerifyMemoryListTrimsProjectLikeTheBoardDoes(t *testing.T) {

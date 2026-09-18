@@ -6,7 +6,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/.build/BossSDD.app"
-VERSION="0.1.0"
+# Read out of BoardKit rather than kept as a second literal here. The bundle's
+# CFBundleShortVersionString and the version /api/health reports have to be the
+# same number — the MCP server holds a floor against that number to catch a
+# stale installed app — and two hand-maintained copies agree only by luck.
+# Scripts/verify.sh reads the same declaration the same way.
+VERSION="$(awk -F'"' '/^public let boardKitVersion/{print $2}' "$ROOT/Sources/BoardKit/HTTPServer.swift")"
+[[ -n "$VERSION" ]] || { echo "bundle.sh: no boardKitVersion in Sources/BoardKit/HTTPServer.swift" >&2; exit 1; }
 
 cd "$ROOT"
 swift build -c release --product BossSDD
