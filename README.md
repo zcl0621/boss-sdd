@@ -11,7 +11,7 @@ Two things that ship together:
   Claude Code, Codex and Cursor, and it runs with or without the board.
 
 It is for someone who wants an agent to carry a several-step change through to a
-reviewed finish, and wants to watch the state of that while it happens.
+reviewed finish, and wants to watch the state of that work while it happens.
 
 Apple silicon Macs only. `Scripts/bundle.sh` cross-compiles the MCP binary for
 `darwin/arm64` and nothing else, and the app targets macOS 14 or later.
@@ -20,13 +20,13 @@ Apple silicon Macs only. `Scripts/bundle.sh` cross-compiles the MCP binary for
 
 This is the window `plan-sdd` reports into, seeded here with a synthetic run so
 the screenshots hold no real project names or paths. Tasks lay out by
-topological layer, so the graph view shows what could run in parallel next to
-what already has, what is blocked, and what is holding an exclusive resource:
+topological layer, so the graph view shows what could run in parallel, what
+already has, what is blocked, and what is holding an exclusive resource:
 
 ![Board window, graph view, light appearance](docs/images/board-graph-light.png)
 
-The same run in the columns view, which groups the same tasks by status
-instead of by dependency layer:
+The same run in the columns view, which groups the tasks by status instead of
+by dependency layer:
 
 ![Board window, columns view, light appearance](docs/images/board-columns-light.png)
 
@@ -121,12 +121,11 @@ validation call to make afterwards.
 
 The board also stores facts about a project that outlive a single run, so recon
 does not rediscover them every time: gate commands, how to build and run the
-thing, conventions, hard rules, exclusive resources. An entry has a `kind`, and
-the kinds are `gate`, `run_recipe`, `convention`, `hard_rule`,
-`exclusive_resource`, `note`.
+thing, conventions, hard rules, exclusive resources. An entry has a `kind`:
+`gate`, `run_recipe`, `convention`, `hard_rule`, `exclusive_resource`, `note`.
 
-`source` is required and cannot be blank. It names the file and line, or the
-command output, the value was read from. A stored gate command that has since
+`source` is required and cannot be blank. It names where the value was read from:
+the file and line, or the command output. A stored gate command that has since
 changed is worse than no memory at all, because the agent runs the wrong gate and
 reports green; `source` is what makes an entry cheap to falsify. `key` is trimmed
 and lower-cased on the way in, and every tool returns the stored form.
@@ -193,7 +192,7 @@ whole answer and it drops straight into CI:
 
 The live stage is the part the unit suites cannot reach. It creates a run,
 writes a DAG with a real dependency and checks the graph projection that comes
-back, then confirms that starting a task whose dependency is unfinished is
+back. Then it confirms that starting a task whose dependency is unfinished is
 refused with 409, that two tasks contending for one `exclusive_resource` are
 refused too, and that a memory entry can be written, read back and deleted with
 every answer naming the stored spelling of the key rather than the one that was
@@ -209,7 +208,7 @@ reads that board file's timestamp before and after and fails if it moved.
 Nothing survives the run: the server is stopped and the temporary directory
 removed whether the script passed, failed, or was interrupted.
 
-The gates also still run on their own:
+The gates still run on their own:
 
 ```bash
 swift test
@@ -232,7 +231,7 @@ nothing documenting which one answers.
 
 **You have to set the per-role models yourself.** The roster ships a default tier
 per role, and [`skills/shared/roles.md`](skills/shared/roles.md) argues each
-placement so you can move one deliberately. But which rung you can actually
+placement so you can move one deliberately. But which tier you can actually
 select depends on your own subscription and budget, and model names move. Where
 to change them:
 
