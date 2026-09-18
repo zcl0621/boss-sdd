@@ -480,6 +480,24 @@ README 现在把 app 说清楚了但一张图都没有，而这个项目一半�
 
 `write_scope`: `README.md`、`docs/images/`。
 `depends_on`: T20（同写 README.md）。
+`exclusive_resources`: `["real-board-db", "port:18888"]`——截图要起真 app，
+真 app 打开的是 `~/.claude/plan-sdd/board.sqlite3` 并监听 18888，
+而 T20 的验收里有一条是「跑完后真库的修改时间不变」。同批跑会让 T20 假红。
+
+**派发前实测到的阻塞**：`screencapture` 拿不到屏幕录制权限。
+
+    $ screencapture -x -R0,0,1,1 <scratch>/permcheck.png
+    could not create image from rect
+    exit=1
+    （文件未生成）
+
+所以走 shell 截图这条路直接不通，派下去只会白烧一轮。可行的替代是
+computer-use 那套的 `request_access` + `app_screenshot`，它走的是另一条授权
+链路，会向用户弹一次授权框——这得用户点头，不是我能自己绕过去的。
+
+**明确不接受的替代**：截 `design/board-mock.html` 那份原型冒充真机截图。
+那正是 T6 刚刚删掉的那类说法（「built from real run data」，没人打开过那个文件），
+在这儿重演一遍只会更糟，因为图比句子更像证据。
 
 ## 风险与未决项
 
