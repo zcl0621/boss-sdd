@@ -129,6 +129,54 @@ developers.openai.com/codex/integrations/github、cursor.com/docs/skills、curso
 - 各自产出该平台的 SKILL.md（正确的 frontmatter）、角色文件、MCP 注册说明、安装步骤。
 - 验收：按各平台文档核对字段名与路径；模型 ID 用该平台真实存在的写法。
 
+### T7 多 worktree 执行模式
+
+- `depends_on`: `["T5"]`
+- `write_scope`: `skills/shared/`
+- `exclusive_resources`: `[]`
+- role: skill-author `[complexity: high]`
+
+共享正文现在的前提是「所有节点共用一个工作树，并发安全只靠 `write_scope` /
+`exclusive_resources` 声明」。要加一种可选的执行模式：每个派发出去的节点拿一个
+自己的 git worktree、自己的分支，从 baseline 切出去。
+
+两条与直觉相反、必须写进去的：
+
+1. **worktree 不会削弱 `exclusive_resources`，反而让它更要紧。** 端口、设备、
+   共享测试库、模拟器都是机器级的，worktree 隔离的是文件不是这些。读者的直觉
+   是「隔离了就不用声明了」，正好反了。
+2. **「我这棵树里是绿的」不等于「合进去还是绿的」。** 这是本模式新增的主要
+   失败形态。节点必须合回集成分支、并在合并后重跑门禁才算 done，不能拿
+   worktree 内的绿色收口。
+
+其余要覆盖的：
+
+- `write_scope` 重叠在本模式下从「禁止同批派发」变成「合并期冲突」。默认仍然
+  不同批派发重叠范围——subagent 解合并冲突解不好——但要说清这个约束此时是
+  为了什么，和共享树模式下不是一回事。
+- 门禁在该节点的 worktree 里跑，代价是每棵树一次全量构建；把这个成本写明。
+  抢机器级资源的门禁仍然要按 `exclusive_resources` 串行。
+- 逐节点提交仍然限定在 `write_scope`（自己的 worktree 里照样可能越界写）。
+- 阶段 3 的分支复核对象是全部合并完成后的集成分支。
+- 清理：正常完成的 worktree 删掉；**被标 `blocked` 的节点，worktree 要保留**
+  供事后查看，别顺手删了。
+- 何时用哪种模式：worktree 模式的成本是建树、N 倍构建、合并工作量；共享树更
+  简单。给出选择依据，不要暗示 worktree 总是更好。
+- **必须可降级**：平台不支持 worktree 时，整份文档在共享树模式下照样走得通。
+
+平台支持（已查证）：Claude Code 的 `Agent` 工具有 `isolation: "worktree"`，
+无改动时自动清理；Cursor 文档写明支持每个 subagent 独立 worktree；
+**Codex 侧事实表没有覆盖，不许编**。
+
+- 验收：无中文、无本机路径、无 `Workflow` 依赖；两种模式各走一遍执行路径都
+  不需要临场发挥；共享树模式的行为与现状一致，不被新模式的措辞污染。
+
+### T5a/T5b/T5c 的 worktree 增量
+
+- `depends_on`: `["T7"]`
+- 三个包装层都要补本平台的 worktree 支持说明；Codex 那份如果事实表没有依据，
+  就明写「未覆盖」，不许补一段像模像样的配置。
+
 ### T6 README（英文）
 
 - `depends_on`: `["T1","T2","T3","T5a","T5b","T5c"]`
