@@ -50,8 +50,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>BossSDD</string>
   <key>CFBundleIdentifier</key><string>com.zhang.boss-sdd</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <!-- LSUIElement hides the Dock tile, so this icon is what Finder, Spotlight,
-       "Open with" and Login Items show. -->
+  <!-- The Dock tile, and what Finder, Spotlight, "Open with" and Login Items show. -->
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <!-- English is the base language; Chinese is a translation of it. A launch can
        pick either without touching any system setting:
@@ -62,8 +61,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
-  <!-- Menu bar app: no Dock icon, no menu bar of its own until a window opens. -->
-  <key>LSUIElement</key><true/>
+  <!-- Deliberately NOT LSUIElement, though this is a menu bar app and that key is
+       the obvious fit. It was set, and the menu bar item was then the only way to
+       reach the window. macOS hides that item whenever the menu bar runs out of
+       room — a crowded bar, or the notch on a built-in display — and a window that
+       had been closed could not be reopened at all: nothing else calls show().
+       A Dock tile and a Cmd+Tab entry cost one Dock slot and cannot be hidden. -->
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticTermination</key><false/>
   <key>NSSupportsSuddenTermination</key><false/>

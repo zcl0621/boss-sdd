@@ -42,7 +42,9 @@ struct MenuBarContent: View {
         "\(run.tasks.count { $0.status == .done })/\(run.tasks.count)"
     }
 
-    /// The app has no Dock icon, so opening the window has to raise the app too.
+    /// Picking from this menu does not make the app frontmost, so opening the
+    /// window has to raise it too — otherwise the board appears behind whatever
+    /// the user was in.
     private func show() {
         openWindow(id: "board")
         NSApplication.shared.activate(ignoringOtherApps: true)
