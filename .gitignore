@@ -12,8 +12,13 @@ DerivedData/
 # Go
 mcp/plan-sdd-mcp
 
-# 打包产物
+# Build products
 *.app/
 
 # macOS
 .DS_Store
+
+# The skill's nine role files, copied here by INSTALL.md step 3. The canonical
+# copy is skills/claude-code/agents/; an installed second copy in the repository
+# would go stale against it without anything saying so.
+.claude/
