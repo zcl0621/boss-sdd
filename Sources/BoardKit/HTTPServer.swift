@@ -13,7 +13,8 @@ import Network
 /// (project, key) pair rather than the caller's raw spelling.
 public let boardKitVersion = "0.2.0"
 
-/// 18866 长期被已退役的 Python 看板占着；换一个端口比抢端口干净。
+/// 18866 was long held by the now-retired Python board; moving to another port is
+/// cleaner than fighting it for that one.
 public let defaultBoardPort: UInt16 = 18888
 
 public struct HTTPRequest: Sendable {
@@ -175,7 +176,7 @@ public final class HTTPServer: @unchecked Sendable {
 
     private static func describe(_ error: Error, port: UInt16) -> String {
         if let error = error as? NWError, case .posix(let code) = error, code == .EADDRINUSE {
-            return "端口 \(port) 已被其他进程占用"
+            return "Port \(port) is already in use by another process"
         }
         return String(describing: error)
     }

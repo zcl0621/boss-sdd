@@ -442,7 +442,7 @@ func TestVerifyMemoryEchoRejectsAnUnfoldedKeyEcho(t *testing.T) {
 	if err == nil {
 		t.Fatal("the board stores keys lower-cased; an unfolded echo names a row that does not exist and must be reported")
 	}
-	if !strings.Contains(err.Error(), "别的 key") {
+	if !strings.Contains(err.Error(), "a different key") {
 		t.Fatalf("expected the wrong-key message, got %v", err)
 	}
 }
@@ -489,7 +489,7 @@ func TestVerifyMemoryDeletedRejectsAnUntrimmedProjectEcho(t *testing.T) {
 	if err == nil {
 		t.Fatal("a board echoing back the caller's untrimmed project has not named the row it deleted; that must be reported")
 	}
-	if !strings.Contains(err.Error(), "别的项目") {
+	if !strings.Contains(err.Error(), "a different project") {
 		t.Fatalf("expected the wrong-project message, got %v", err)
 	}
 }
@@ -503,7 +503,7 @@ func TestVerifyMemoryDeletedRejectsAnUnfoldedKeyEcho(t *testing.T) {
 	if err == nil {
 		t.Fatal("the board stores keys lower-cased; an unfolded echo names a row that does not exist and must be reported")
 	}
-	if !strings.Contains(err.Error(), "别的 key") {
+	if !strings.Contains(err.Error(), "a different key") {
 		t.Fatalf("expected the wrong-key message, got %v", err)
 	}
 }
@@ -850,7 +850,7 @@ func TestToolPlanMemoryAddRejectsBlankSource(t *testing.T) {
 	if !result.IsError {
 		t.Fatalf("expected an error result for a blank source, got success: %#v", result.StructuredContent)
 	}
-	if text := resultErrorText(result); !strings.Contains(text, "没法判断是否过期") {
+	if text := resultErrorText(result); !strings.Contains(text, "no way to tell whether it has gone stale") {
 		t.Fatalf("expected the handler's OWN blank-source message (distinct from the board's), got %q — "+
 			"if the board's generic message came back instead, the client-side pre-check has been silently dropped", text)
 	}
@@ -873,7 +873,7 @@ func TestToolPlanMemoryListRejectsWhitespaceOnlyKind(t *testing.T) {
 	if !result.IsError {
 		t.Fatalf("expected an error result for a whitespace-only kind, got success: %#v", result.StructuredContent)
 	}
-	if text := resultErrorText(result); !strings.Contains(text, "kind 全是空白") {
+	if text := resultErrorText(result); !strings.Contains(text, "kind is all whitespace") {
 		t.Fatalf("expected the whitespace-only-kind message, got %q", text)
 	}
 }

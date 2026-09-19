@@ -288,9 +288,9 @@ func TestResolveFallsBackToOriginalErrorWhenProbeFails(t *testing.T) {
 	server.Close() // simulate the squatter having vanished before the probe dials
 
 	b := &board{base: url, port: 18888, client: server.Client()}
-	original := &ambiguousError{err: fmt.Errorf("看板返回 HTTP 404")}
+	original := &ambiguousError{err: fmt.Errorf("the board returned HTTP 404")}
 	err := b.resolve(context.Background(), original)
-	if err == nil || err.Error() != "看板返回 HTTP 404" {
+	if err == nil || err.Error() != "the board returned HTTP 404" {
 		t.Fatalf("a failed probe must fall back to the original error unchanged, got %v", err)
 	}
 }
@@ -317,7 +317,7 @@ func TestCallFallsBackWhenSquatterVanishesBetweenRequestAndProbe(t *testing.T) {
 
 	var out wireHealth
 	err := b.call(context.Background(), "GET", "/api/health", nil, &out)
-	if err == nil || err.Error() != "看板返回 HTTP 404" {
+	if err == nil || err.Error() != "the board returned HTTP 404" {
 		t.Fatalf("expected the original 404 to survive a failed re-probe, got %v", err)
 	}
 }

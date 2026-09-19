@@ -26,8 +26,8 @@ func main() {
 	api := newBoard()
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:        "plan-sdd",
-		Title:       "Plan SDD 看板",
-		Description: "把 plan-sdd 的运行、任务 DAG 与调度状态读写到本机看板 app。",
+		Title:       "Plan SDD Board",
+		Description: "Reads and writes plan-sdd runs, the task DAG and scheduling state on the local board app.",
 		Version:     version,
 	}, nil)
 
@@ -43,62 +43,62 @@ func main() {
 type statusInput struct{}
 
 type createRunInput struct {
-	Title   string `json:"title" jsonschema:"计划名称，用户能认出来的一句话"`
-	Project string `json:"project,omitempty" jsonschema:"项目路径或名称，用于区分同名计划"`
+	Title   string `json:"title" jsonschema:"Plan name: one line the user will recognize."`
+	Project string `json:"project,omitempty" jsonschema:"Project path or name; tells apart plans that share a title."`
 }
 
 type updateRunInput struct {
-	Run     string  `json:"run" jsonschema:"运行 ID"`
-	Status  *string `json:"status,omitempty" jsonschema:"计划状态：pending/planning/awaiting_confirmation/running/review/blocked/done"`
-	Summary *string `json:"summary,omitempty" jsonschema:"当前进度说明，写可检查的结论"`
+	Run     string  `json:"run" jsonschema:"Run ID"`
+	Status  *string `json:"status,omitempty" jsonschema:"Plan status: pending/planning/awaiting_confirmation/running/review/blocked/done"`
+	Summary *string `json:"summary,omitempty" jsonschema:"Where the plan stands right now; write a conclusion someone can check."`
 }
 
 type taskInput struct {
-	ID                string    `json:"id" jsonschema:"任务 ID，同一运行内唯一且稳定，例如 T1"`
-	Title             *string   `json:"title,omitempty" jsonschema:"任务标题；新建任务必填"`
-	Status            *string   `json:"status,omitempty" jsonschema:"任务状态：pending/running/review/blocked/done"`
-	Detail            *string   `json:"detail,omitempty" jsonschema:"可检查的进展证据、验证结果、复核结论或阻塞原因；不放依赖和范围"`
-	Agent             *string   `json:"agent,omitempty" jsonschema:"实际负责人，例如派发时用的 subagent 名称"`
-	DependsOn         *[]string `json:"depends_on,omitempty" jsonschema:"依赖的任务 ID；传数组整体替换，传空数组清空，省略则保留原值"`
-	WriteScope        *[]string `json:"write_scope,omitempty" jsonschema:"会写入的路径前缀；新建任务必填。传数组整体替换，传空数组清空，省略则保留原值"`
-	ExclusiveResource *[]string `json:"exclusive_resource,omitempty" jsonschema:"独占资源标识，例如 gate:full-suite；传数组整体替换，传空数组清空，省略则保留原值"`
+	ID                string    `json:"id" jsonschema:"Task ID: unique and stable within the run, e.g. T1"`
+	Title             *string   `json:"title,omitempty" jsonschema:"Task title; required when creating a task."`
+	Status            *string   `json:"status,omitempty" jsonschema:"Task status: pending/running/review/blocked/done"`
+	Detail            *string   `json:"detail,omitempty" jsonschema:"Checkable evidence of progress, verification output, a review verdict, or the reason for a block; dependencies and scope do not go here."`
+	Agent             *string   `json:"agent,omitempty" jsonschema:"Who is actually on it, e.g. the subagent name it was dispatched to."`
+	DependsOn         *[]string `json:"depends_on,omitempty" jsonschema:"Task IDs this one depends on. An array replaces the stored list wholesale, an empty array clears it, omitting the field leaves it untouched."`
+	WriteScope        *[]string `json:"write_scope,omitempty" jsonschema:"Path prefixes this task will write to; required when creating a task. An array replaces the stored list wholesale, an empty array clears it, omitting the field leaves it untouched."`
+	ExclusiveResource *[]string `json:"exclusive_resource,omitempty" jsonschema:"Exclusive resource identifiers, e.g. gate:full-suite. An array replaces the stored list wholesale, an empty array clears it, omitting the field leaves it untouched."`
 }
 
 type setTaskInput struct {
-	Run string `json:"run" jsonschema:"运行 ID"`
+	Run string `json:"run" jsonschema:"Run ID"`
 	taskInput
 }
 
 type setTasksInput struct {
-	Run   string      `json:"run" jsonschema:"运行 ID"`
-	Tasks []taskInput `json:"tasks" jsonschema:"一次写入的任务列表，通常是计划成形后把整张 DAG 一次写完"`
+	Run   string      `json:"run" jsonschema:"Run ID"`
+	Tasks []taskInput `json:"tasks" jsonschema:"The tasks to write in one call; usually the whole DAG at once, after the plan has taken shape."`
 }
 
 type runInput struct {
-	Run string `json:"run" jsonschema:"运行 ID"`
+	Run string `json:"run" jsonschema:"Run ID"`
 }
 
 type getRunInput struct {
-	Run           string `json:"run" jsonschema:"运行 ID"`
-	IncludeEvents bool   `json:"include_events,omitempty" jsonschema:"是否附带最近 20 条活动记录"`
+	Run           string `json:"run" jsonschema:"Run ID"`
+	IncludeEvents bool   `json:"include_events,omitempty" jsonschema:"Whether to include the 20 most recent activity records."`
 }
 
 type memoryListInput struct {
-	Project string `json:"project" jsonschema:"项目路径或名称，与 plan_create_run 的 project 保持一致"`
-	Kind    string `json:"kind,omitempty" jsonschema:"按类型过滤：gate/run_recipe/convention/hard_rule/exclusive_resource/note，留空返回全部"`
+	Project string `json:"project" jsonschema:"Project path or name; keep it identical to plan_create_run's project."`
+	Kind    string `json:"kind,omitempty" jsonschema:"Filter by kind: gate/run_recipe/convention/hard_rule/exclusive_resource/note. Leave it out to get everything."`
 }
 
 type memoryKeyInput struct {
-	Project string `json:"project" jsonschema:"项目路径或名称"`
-	Key     string `json:"key" jsonschema:"记忆的 key；大小写不敏感，服务端只存小写"`
+	Project string `json:"project" jsonschema:"Project path or name"`
+	Key     string `json:"key" jsonschema:"The memory's key. Case-insensitive; the server stores only lower case."`
 }
 
 type memoryAddInput struct {
-	Project string `json:"project" jsonschema:"项目路径或名称"`
-	Key     string `json:"key" jsonschema:"记忆的 key，同一 project 内按 key upsert；只能是 ASCII 字母、数字、- _ .，最长 64 字符，会被存成小写"`
-	Value   string `json:"value" jsonschema:"记忆的内容"`
-	Kind    string `json:"kind" jsonschema:"类型：gate/run_recipe/convention/hard_rule/exclusive_resource/note"`
-	Source  string `json:"source" jsonschema:"出处：文件+行号，或读出这个值的命令，让这条记忆可以被低成本证伪；不能为空"`
+	Project string `json:"project" jsonschema:"Project path or name"`
+	Key     string `json:"key" jsonschema:"The memory's key; upserted by key within a project. ASCII letters, digits and - _ . only, at most 64 characters, stored lower-cased."`
+	Value   string `json:"value" jsonschema:"The memory's content."`
+	Kind    string `json:"kind" jsonschema:"Kind: gate/run_recipe/convention/hard_rule/exclusive_resource/note"`
+	Source  string `json:"source" jsonschema:"Provenance: file + line number, or the command this value was read out of, so the memory stays cheap to falsify. Must not be empty."`
 }
 
 // ---- outputs ----
@@ -184,10 +184,11 @@ type memoryDeleteOutput struct {
 func registerTools(server *mcp.Server, api *board) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  "plan_board_status",
-		Title: "看板状态",
-		Description: "看板 app 是否在跑，以及本机上已有哪些运行。" +
-			"恢复会话时先调这个认领已有运行，不要凭标题相似就接管别的运行。" +
-			"app 没启动时会自动拉起。",
+		Title: "Board status",
+		Description: "Whether the board app is running, and which runs already exist on this machine. " +
+			"Call this first when resuming a session, to claim the run you already have — " +
+			"do not take over a different run just because its title looks similar. " +
+			"The app is launched automatically if it is not already up.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ statusInput) (*mcp.CallToolResult, statusOutput, error) {
 		var health wireHealth
@@ -207,11 +208,11 @@ func registerTools(server *mcp.Server, api *board) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "plan_create_run",
-		Title:       "新建运行",
-		Description: "为本次计划建一条运行记录，返回 run_id。同一计划恢复时复用原 ID，不要重复创建。",
+		Title:       "New run",
+		Description: "Opens a run record for this plan and returns its run_id. Resuming the same plan reuses the original ID; do not create a second run for it.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createRunInput) (*mcp.CallToolResult, runOutput, error) {
 		if strings.TrimSpace(in.Title) == "" {
-			return nil, runOutput{}, fmt.Errorf("title 不能为空")
+			return nil, runOutput{}, fmt.Errorf("title must not be empty")
 		}
 		var run wireRun
 		body := map[string]any{"title": in.Title, "project": in.Project}
@@ -222,9 +223,10 @@ func registerTools(server *mcp.Server, api *board) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "plan_update_run",
-		Title:       "更新计划状态",
-		Description: "改计划整体状态或进度摘要。计划待确认用 awaiting_confirmation，缺输入或外部条件用 blocked 并写明原因。",
+		Name:  "plan_update_run",
+		Title: "Update plan status",
+		Description: "Changes the plan's overall status or its progress summary. " +
+			"Use awaiting_confirmation while the plan is waiting on the user, and blocked when an input or an external condition is missing — with the reason written down.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateRunInput) (*mcp.CallToolResult, runOutput, error) {
 		body := map[string]any{}
 		if in.Status != nil {
@@ -242,10 +244,10 @@ func registerTools(server *mcp.Server, api *board) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  "plan_set_task",
-		Title: "写入单个任务",
-		Description: "新建或更新一个任务，返回该任务和最新的图投影（含 ready_task_ids），" +
-			"所以写完不需要再单独校验一次。" +
-			"看板会拒绝两种非法写入：依赖未完成就转 running，以及与活动任务抢同一个独占资源。",
+		Title: "Write one task",
+		Description: "Creates or updates one task and returns it together with the current graph projection (ready_task_ids included), " +
+			"so there is no need to validate separately after writing. " +
+			"The board refuses two illegal writes: moving to running while a dependency is unfinished, and taking an exclusive resource an active task already holds.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in setTaskInput) (*mcp.CallToolResult, taskOutput, error) {
 		var run wireRun
 		path := "/api/runs/" + in.Run + "/tasks/" + in.ID
@@ -257,13 +259,13 @@ func registerTools(server *mcp.Server, api *board) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  "plan_set_tasks",
-		Title: "批量写入任务",
-		Description: "一次写入多个任务，计划成形后把整张 DAG 一次写完就用这个。" +
-			"整批在看板的一个事务里落盘：任何一条被拒，整批都不写，看板保持原样。" +
-			"按给定顺序校验，所以「先把 T1 标 done，再让依赖它的 T2 转 running」可以放同一批。" +
-			"返回写成功的、失败的原因和最终图投影。" +
-			"整批被拒时 written 为空（确实一条都没落盘），failed 会列出本批的每一条任务、都挂同一条原因——" +
-			"那是整批的拒绝理由，不代表每条任务各自都有问题；照原因改完再整批重发。",
+		Title: "Write tasks in a batch",
+		Description: "Writes several tasks at once; use it to lay down the whole DAG in one call after the plan has taken shape. " +
+			"The batch lands inside a single board transaction: if any one entry is refused, nothing is written and the board is left exactly as it was. " +
+			"Entries are validated in the order given, so \"mark T1 done, then move T2, which depends on it, to running\" can go in the same batch. " +
+			"Returns what was written, why anything failed, and the resulting graph projection. " +
+			"When the whole batch is refused, written is empty (nothing landed at all) and failed lists every task in the batch against the same one reason — " +
+			"that is the batch's rejection reason, not a separate problem with each task; fix what it names and resend the whole batch.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in setTasksInput) (*mcp.CallToolResult, batchOutput, error) {
 		out := batchOutput{Written: []string{}}
 		var run wireRun
@@ -293,10 +295,10 @@ func registerTools(server *mcp.Server, api *board) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  "plan_graph",
-		Title: "读图投影",
-		Description: "只读：依赖图是否合法、哪些节点现在可派发、活动节点占着什么、其余节点卡在什么上。" +
-			"调度每一轮只从 ready_task_ids 里选，并自己避开 write_scope 重叠。" +
-			"valid 不为 true 时不得开始实施。",
+		Title: "Read the graph projection",
+		Description: "Read-only: whether the dependency graph is valid, which nodes can be dispatched right now, what the active nodes are holding, and what the rest are stuck on. " +
+			"Each scheduling pass picks only from ready_task_ids, and avoids write_scope overlap itself. " +
+			"Do not start implementing while valid is not true.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runInput) (*mcp.CallToolResult, graphView, error) {
 		var run wireRun
@@ -308,8 +310,8 @@ func registerTools(server *mcp.Server, api *board) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "plan_get_run",
-		Title:       "读取运行",
-		Description: "取一条运行的全部任务、图投影，以及可选的最近活动记录。恢复上下文时用。",
+		Title:       "Read a run",
+		Description: "Fetches one run's tasks, its graph projection, and optionally its most recent activity records. Use it when restoring context.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getRunInput) (*mcp.CallToolResult, fullRunOutput, error) {
 		var run wireRun
@@ -329,19 +331,19 @@ func registerTools(server *mcp.Server, api *board) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  "plan_memory_list",
-		Title: "列出项目记忆",
-		Description: "列出某个项目下记的记忆，可选按 kind 过滤。每条都带 source。" +
-			"勘察前先看这个，但列出来的每一条都只是上一轮留下的说法，不是本轮的事实：" +
-			"都要连 source 一起交给本轮对应的勘察 lane 去核，lane 回来时要给出结论，" +
-			"并且把 source 指的那一行按今天仓库里的样子原样引回来。" +
-			"没有这条引文之前，不管是门禁命令、运行方式还是硬规则，都不许拿来用。" +
-			"空列表不能证明这个项目从没记过东西——project 只要有一个字符对不上（大小写、多一层路径），" +
-			"就会查出空结果而不是报错。理应有记忆却是空的时候，先核对 project 拼写是否和写入时完全一致，" +
-			"别直接当成新项目重新勘察。",
+		Title: "List project memory",
+		Description: "Lists the memory entries recorded under a project, optionally filtered by kind. Every entry carries its source. " +
+			"Read this before recon, but treat each line as a claim left behind by an earlier run, not as a fact about this one: " +
+			"hand every entry, source and all, to this run's matching recon lane to check; the lane must come back with a verdict " +
+			"and must quote the line the source points at exactly as the repository holds it today. " +
+			"Until that quotation exists, nothing here may be used — not a gate command, not a way of running the project, not a hard rule. " +
+			"An empty list is no proof the project never recorded anything: one character off in project (case, one extra path segment) " +
+			"returns an empty result rather than an error. When memory should be there and the list is empty, check the project spelling against what was written " +
+			"before treating this as a new project and starting recon over.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in memoryListInput) (*mcp.CallToolResult, memoryListOutput, error) {
 		if in.Kind != "" && strings.TrimSpace(in.Kind) == "" {
-			return nil, memoryListOutput{}, fmt.Errorf("kind 全是空白：想不按类型过滤就别传这个字段，传空白会被当成没传，容易看不出发生了什么")
+			return nil, memoryListOutput{}, fmt.Errorf("kind is all whitespace: leave the field out when you do not want a kind filter. Blank is treated as absent, which makes it hard to see what happened")
 		}
 		var wire wireMemoryList
 		if err := api.call(ctx, "GET", "/api/memories?"+memoryListQuery(in.Project, in.Kind), nil, &wire); err != nil {
@@ -359,10 +361,10 @@ func registerTools(server *mcp.Server, api *board) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  "plan_memory_get",
-		Title: "读取单条记忆",
-		Description: "按 project+key 读一条记忆，返回值和 source。" +
-			"读到的是上一轮留下的说法，不是本轮的事实：要用它，先按 source 把今天仓库里的那一行原样看一遍。" +
-			"key 大小写不敏感——服务端只存小写，返回的 key 以服务端为准，可能跟传入的大小写不一样，别拿传入的那份去跟别处比对。",
+		Title: "Read one memory entry",
+		Description: "Reads one memory entry by project+key and returns its value and its source. " +
+			"What comes back is a claim left behind by an earlier run, not a fact about this one: before using it, follow the source and read that line as the repository holds it today. " +
+			"key is case-insensitive — the server stores only lower case, so the returned key is the server's spelling and may differ in case from the one sent; compare against the returned key, never against the one you passed in.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in memoryKeyInput) (*mcp.CallToolResult, memoryView, error) {
 		var wire wireMemory
@@ -377,14 +379,17 @@ func registerTools(server *mcp.Server, api *board) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  "plan_memory_add",
-		Title: "写入一条记忆",
-		Description: "新增或覆盖一条项目记忆，按 project+key upsert，同一 key 再写一次就是覆盖，不会重复。" +
-			"source 必填且不能是空白——写清楚这是从哪个文件的哪一行，或者哪条命令的输出里读到的，" +
-			"这是让记忆能被低成本证伪的关键，没有 source 的记忆不如不记。" +
-			"返回的是服务端实际存下的那条（key 会被转成小写），照返回值汇报，不要照抄自己传入的 key。",
+		Title: "Write one memory entry",
+		Description: "Adds or overwrites one project memory entry, upserted by project+key: writing the same key again overwrites it rather than duplicating it. " +
+			"source is required and must not be blank — say which file and line, or which command's output, the value was read from. " +
+			"That is what keeps a memory cheap to falsify; a memory with no source is worse than no memory at all. " +
+			"A project holds at most 100 entries. The cap refuses only a write that would add a NEW key past it; an upsert onto a key that already exists is always allowed. " +
+			"Being refused at the cap means the memory tidy-up is overdue: run the tidy-up, then retry this write once. " +
+			"Do not delete or upsert over another entry to make room for the one in your hand — evicting for space is the one thing the cap was built to refuse. " +
+			"What comes back is the record the server actually stored (key lower-cased); report the returned values, not the key you passed in.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in memoryAddInput) (*mcp.CallToolResult, memoryView, error) {
 		if strings.TrimSpace(in.Source) == "" {
-			return nil, memoryView{}, fmt.Errorf("source 不能为空：写清楚这条记忆是从哪个文件/命令读出来的，没有出处的记忆没法判断是否过期")
+			return nil, memoryView{}, fmt.Errorf("source must not be empty: say which file or command this memory was read out of; with no provenance there is no way to tell whether it has gone stale")
 		}
 		var wire wireMemory
 		if err := api.call(ctx, "POST", "/api/memories", memoryAddBody(in), &wire); err != nil {
@@ -398,10 +403,10 @@ func registerTools(server *mcp.Server, api *board) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  "plan_memory_delete",
-		Title: "删除一条记忆",
-		Description: "按 project+key 删除一条记忆；key 不存在会报错，不会静默当成功处理。" +
-			"只删已经核过、确认不成立的那条。没核成——source 指的文件打不开、命令这轮跑不了——不算不成立，" +
-			"这种就留着别动：下一轮看来，删掉的和从没记过的是一个样子。",
+		Title: "Delete one memory entry",
+		Description: "Deletes one memory entry by project+key; a key that does not exist is an error, never silently treated as a success. " +
+			"Delete only an entry you checked and found no longer holds. Failing to check it — the file the source names will not open, the command will not run this round — is not the same as finding it false, " +
+			"so leave that one alone: to the next run, a deleted entry and one that was never recorded look exactly the same.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in memoryKeyInput) (*mcp.CallToolResult, memoryDeleteOutput, error) {
 		var wire wireMemoryDeleted
 		if err := api.call(ctx, "DELETE", memoryKeyPath(in.Project, in.Key), nil, &wire); err != nil {
@@ -463,7 +468,7 @@ func batchBody(tasks []taskInput) map[string]any {
 // URLComponents (Sources/BoardKit/API.swift's query()), which follows
 // RFC 3986: '+' is a literal character there, and only %XX escapes are
 // decoded. So a space sent as '+' arrives at the board as a literal '+', not
-// a space — and `project` is documented as "项目路径或名称" and is routinely
+// a space — and `project` is documented as "Project path or name" and is routinely
 // an absolute macOS path, where spaces are the common case, not a corner one.
 // Concretely: encoding "/Users/zhang/My Project" through plain Encode() sends
 // "...My+Project" on the wire, which URLComponents decodes to "My+Project"
@@ -581,15 +586,15 @@ func verifyMemoryEcho(project, key string, got wireMemory) error {
 	// itself rejects an empty project, so a caller could plausibly hit this
 	// before ever reaching the network).
 	if got.Key == "" || got.Project == "" {
-		return fmt.Errorf("看板返回的记忆缺少 key/project 字段，形状不对：%+v", got)
+		return fmt.Errorf("the board returned a memory with no key/project field; wrong shape: %+v", got)
 	}
 	wantProject := strings.TrimSpace(project)
 	if got.Project != wantProject {
-		return fmt.Errorf("看板返回了别的项目的记忆：请求 project=%q，返回 project=%q", wantProject, got.Project)
+		return fmt.Errorf("the board returned a memory from a different project: requested project=%q, got project=%q", wantProject, got.Project)
 	}
 	wantKey := strings.ToLower(strings.TrimSpace(key))
 	if got.Key != wantKey {
-		return fmt.Errorf("看板返回了别的 key 的记忆：请求 key=%q，返回 key=%q", wantKey, got.Key)
+		return fmt.Errorf("the board returned a memory under a different key: requested key=%q, got key=%q", wantKey, got.Key)
 	}
 	// project and key can be right while source is empty — a different bug
 	// (the board dropping a field, or a caller-side helper losing it before
@@ -597,7 +602,7 @@ func verifyMemoryEcho(project, key string, got wireMemory) error {
 	// source is the one field this whole table exists to keep visible to the
 	// agent, so a response missing it must not be handed over as a real memory.
 	if strings.TrimSpace(got.Source) == "" {
-		return fmt.Errorf("看板返回的记忆缺少 source：project=%q key=%q，没有出处就不该当真记忆用", got.Project, got.Key)
+		return fmt.Errorf("the board returned a memory with no source: project=%q key=%q; with no provenance it must not be used as a real memory", got.Project, got.Key)
 	}
 	return nil
 }
@@ -641,15 +646,15 @@ func verifyMemoryDeleted(project, key string, got wireMemoryDeleted) error {
 	// would otherwise be reported as a real delete. Pinned by
 	// TestVerifyMemoryDeletedRejectsZeroedRecordEvenWithEmptyProjectAndKey.
 	if got.Deleted == "" || got.Project == "" {
-		return fmt.Errorf("看板返回的删除结果缺少字段，形状不对：%+v", got)
+		return fmt.Errorf("the board's delete result is missing fields; wrong shape: %+v", got)
 	}
 	wantProject := strings.TrimSpace(project)
 	if got.Project != wantProject {
-		return fmt.Errorf("看板删除了别的项目下的记忆：请求 project=%q，返回 project=%q", wantProject, got.Project)
+		return fmt.Errorf("the board deleted a memory from a different project: requested project=%q, got project=%q", wantProject, got.Project)
 	}
 	wantKey := strings.ToLower(strings.TrimSpace(key))
 	if got.Deleted != wantKey {
-		return fmt.Errorf("看板删除了别的 key：请求 key=%q，返回 deleted=%q", wantKey, got.Deleted)
+		return fmt.Errorf("the board deleted a different key: requested key=%q, got deleted=%q", wantKey, got.Deleted)
 	}
 	return nil
 }
@@ -679,13 +684,13 @@ func verifyMemoryList(project, kind string, memories []wireMemory) error {
 	wantKind := strings.TrimSpace(kind)
 	for _, m := range memories {
 		if m.Project != wantProject {
-			return fmt.Errorf("看板返回了别的项目的记忆：请求 project=%q，某条记录 project=%q（key=%q）", wantProject, m.Project, m.Key)
+			return fmt.Errorf("the board returned a memory from a different project: requested project=%q, one record has project=%q (key=%q)", wantProject, m.Project, m.Key)
 		}
 		if wantKind != "" && m.Kind != wantKind {
-			return fmt.Errorf("看板返回了类型不符的记忆：请求 kind=%q，某条记录 kind=%q（key=%q）", wantKind, m.Kind, m.Key)
+			return fmt.Errorf("the board returned a memory of the wrong kind: requested kind=%q, one record has kind=%q (key=%q)", wantKind, m.Kind, m.Key)
 		}
 		if strings.TrimSpace(m.Source) == "" {
-			return fmt.Errorf("看板返回的记忆缺少 source：project=%q key=%q，没有出处就不该当真记忆用", m.Project, m.Key)
+			return fmt.Errorf("the board returned a memory with no source: project=%q key=%q; with no provenance it must not be used as a real memory", m.Project, m.Key)
 		}
 	}
 	return nil

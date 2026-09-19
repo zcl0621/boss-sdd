@@ -57,7 +57,7 @@ public enum LegacyImport {
         let created = (object["created_at"] as? String).flatMap(BoardJSON.date(from:)) ?? Date()
         return Run(
             id: id,
-            title: object["title"] as? String ?? "未命名运行",
+            title: object["title"] as? String ?? "Untitled run",
             project: object["project"] as? String ?? "",
             status: RunStatus(rawValue: object["status"] as? String ?? "") ?? .planning,
             summary: object["summary"] as? String ?? "",

@@ -176,7 +176,7 @@ func (b *board) call(ctx context.Context, method, path string, body, out any) er
 		return b.resolve(ctx, err)
 	}
 	if err := launchApp(); err != nil {
-		return fmt.Errorf("看板未运行，且无法启动 %s：%w", appPath, err)
+		return fmt.Errorf("the board is not running and %s could not be launched: %w", appPath, err)
 	}
 	deadline := time.Now().Add(12 * time.Second)
 	for {
@@ -186,7 +186,7 @@ func (b *board) call(ctx context.Context, method, path string, body, out any) er
 			return b.resolve(ctx, err)
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("看板已启动但 %s 仍无响应：%w", b.base, err)
+			return fmt.Errorf("the board was launched but %s is still not responding: %w", b.base, err)
 		}
 	}
 }
@@ -288,17 +288,17 @@ func (b *board) probeHealth(ctx context.Context) probeResult {
 // the board, or nil when it is.
 func (b *board) verdict(r probeResult) error {
 	next := fmt.Sprintf(
-		"排查占用进程：lsof -nP -iTCP:%d -sTCP:LISTEN；也可以设置环境变量 BOSS_SDD_PORT 换一个端口再试。",
+		"To find the process holding it: lsof -nP -iTCP:%d -sTCP:LISTEN. You can also set the BOSS_SDD_PORT environment variable to try a different port.",
 		b.port,
 	)
 	if r.status < 200 || r.status >= 300 {
-		return fmt.Errorf("端口 %d 上的进程不是看板：健康检查 GET /api/health 返回 HTTP %d。%s", b.port, r.status, next)
+		return fmt.Errorf("the process on port %d is not the board: the health check GET /api/health returned HTTP %d. %s", b.port, r.status, next)
 	}
 	if r.decodeErr != nil {
-		return fmt.Errorf("端口 %d 上的进程不是看板：健康检查响应不是合法 JSON（%v）。%s", b.port, r.decodeErr, next)
+		return fmt.Errorf("the process on port %d is not the board: the health check response is not valid JSON (%v). %s", b.port, r.decodeErr, next)
 	}
 	if r.probe.OK == nil || r.probe.Version == nil {
-		return fmt.Errorf("端口 %d 上的进程不是看板：健康检查响应缺少 ok/version 字段。%s", b.port, next)
+		return fmt.Errorf("the process on port %d is not the board: the health check response has no ok/version field. %s", b.port, next)
 	}
 	// A distinct failure from the ones above: the port really is the board,
 	// it is just an older build than this binary's checks were written
@@ -310,9 +310,9 @@ func (b *board) verdict(r probeResult) error {
 	// through; see parseBoardVersion.
 	if cmp, ok := compareBoardVersion(*r.probe.Version, minBoardVersion); ok && cmp < 0 {
 		return fmt.Errorf(
-			"端口 %d 上的看板版本过旧：health 报告 version=%q，本 MCP 需要 >= %s。"+
-				"这是 BossSDD.app 没跟着 MCP 一起重建导致的版本不一致；"+
-				"请重新构建并重新安装 app（./Scripts/bundle.sh --install），然后重试。",
+			"the board on port %d is too old: health reports version=%q, this MCP needs >= %s. "+
+				"That mismatch comes from BossSDD.app not being rebuilt alongside the MCP; "+
+				"rebuild and reinstall the app (./Scripts/bundle.sh --install), then retry.",
 			b.port, *r.probe.Version, minBoardVersion,
 		)
 	}
@@ -347,7 +347,7 @@ func (b *board) send(ctx context.Context, method, path string, body, out any) er
 		if decoder.Decode(&failure) == nil && failure.Error.Message != "" {
 			return fmt.Errorf("%s", failure.Error.Message)
 		}
-		return &ambiguousError{err: fmt.Errorf("看板返回 HTTP %d", response.StatusCode)}
+		return &ambiguousError{err: fmt.Errorf("the board returned HTTP %d", response.StatusCode)}
 	}
 	if out == nil {
 		return nil
