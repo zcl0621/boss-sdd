@@ -38,6 +38,24 @@ struct GraphView: View {
     let graph: GraphProjection
     @Binding var selectedTaskID: String?
 
+    /// The zoom that has been committed, and the factor a pinch is currently
+    /// contributing. Keeping them apart is what lets a pinch be abandoned:
+    /// `@GestureState` resets itself when the gesture ends or is interrupted, so a
+    /// cancelled pinch cannot strand the graph part-scaled.
+    @State private var zoom: CGFloat = 1
+    @GestureState private var pinch: CGFloat = 1
+
+    /// The floor is where a wide graph's shape still reads even though its card text
+    /// no longer does — that far out the board is a map, not a list. The ceiling is
+    /// where two or three cards fill the canvas and it stops being a graph at all.
+    private static let zoomLimits: ClosedRange<CGFloat> = 0.35...2.5
+
+    private var scale: CGFloat { clamped(zoom * pinch) }
+
+    private func clamped(_ value: CGFloat) -> CGFloat {
+        min(max(value, Self.zoomLimits.lowerBound), Self.zoomLimits.upperBound)
+    }
+
     var body: some View {
         let layout = GraphLayout(layers: layers)
         let kin = relatives(of: selectedTaskID)
@@ -96,10 +114,27 @@ struct GraphView: View {
                 }
             }
             .frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
+            // `scaleEffect` draws at the new size but still reports the old one, so the
+            // second frame is what tells the scroll view how much there is to scroll.
+            // Both anchor top-leading: the DAG is read left to right from its first
+            // layer, so that corner is the one worth holding still under a pinch.
+            .scaleEffect(scale, anchor: .topLeading)
+            .frame(
+                width: layout.size.width * scale,
+                height: layout.size.height * scale,
+                alignment: .topLeading
+            )
             .padding(.horizontal, 18)
             .padding(.top, 14)
             .padding(.bottom, 62)
         }
+        // On the scroll view rather than the content, so a pinch anywhere over the
+        // canvas counts — including the gaps between cards.
+        .gesture(
+            MagnifyGesture()
+                .updating($pinch) { value, state, _ in state = value.magnification }
+                .onEnded { zoom = clamped(zoom * $0.magnification) }
+        )
     }
 
     /// Tasks left out of the projection's layers (only possible on a cyclic graph)
