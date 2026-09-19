@@ -22,7 +22,10 @@ https://github.com/zcl0621/boss-sdd （public）。本轮两件事：收掉上�
 
 - 不做窗口状态持久化、开机自启验证。（应用图标原本也在这行里，2026-09-19 用户改了主意，
   移出非目标，见 T26；开机自启同日明确不做。）
-- 不动 `~/.claude/skills/plan-sdd/scripts/board.py`。
+- 不动 `~/.claude/skills/plan-sdd/scripts/board.py`。（2026-09-19 用户拍板收尾时解除：
+  已确认装好的技能正文、references、workflows 都不再引用它，`board.py`、`test_board.py`、
+  `assets/board.html` 三个孤儿文件按该目录已有的惯例挪进了 `.retired/`，空掉的
+  `scripts/` 和 `assets/` 一并删除；占着 18866 的 `board.py serve` 同时收掉。）
 - 不把本机私有数据发到公开仓库（设计稿的真实基础设施数据已换成合成数据）。
 
 ## 已定的设计决策
@@ -474,7 +477,7 @@ T13 把 DELETE 的回显改成入库值之后，`mcp/main.go` 里 `verifyMemoryD
 `exclusive_resources`: `["gate:swift-test", "gate:go-test"]`（它自己要跑这两条）。
 `depends_on`: []
 
-### T21 README 补 app 界面截图 ✅ 6a5d442
+### T21 README 补 app 界面截图 ✅ 6f58fc3
 
 README 现在把 app 说清楚了但一张图都没有，而这个项目一半的卖点就是那个常驻
 菜单栏的看板。要真机截图，不是 `design/board-mock.html` 那份原型。
@@ -552,7 +555,7 @@ T19 收口时报上来两条，都核实过是真的，但超出它的范围：
 `write_scope`: `mcp/main.go`、`mcp/client.go`、`mcp/tools_test.go`。
 `exclusive_resources`: `["gate:go-test"]`。
 
-### T23 Store 路径不可配置 + HTTPServer 的弱引用陷阱 ✅ a8fefcc
+### T23 Store 路径不可配置 + HTTPServer 的弱引用陷阱 ✅ 49ffa74
 
 T20 报上来的，都核实过：
 
@@ -577,7 +580,7 @@ T20 报上来的，都核实过：
 `Sources/BoardKit/API.swift`、`Sources/BossSDD/BoardModel.swift`、`Tests/BoardKitTests/`。
 `exclusive_resources`: `["gate:swift-test"]`。
 
-### T24 app 界面英文化 ✅ 47ad31c
+### T24 app 界面英文化 ✅ 969222e
 
 `Sources/BossSDD/` 下 79 条用户可见中文字符串。仓库是公开且全英文的
 （README、三份打包、`skills/shared/` 正文都是英文，后者还有 ASCII-only 门禁），
@@ -607,7 +610,7 @@ SwiftPM 的 `resources` 落在 `Bundle.module`。手工组装出来的 `.app` �
 
 `write_scope`: `Sources/BossSDD/`（若走第二条还包括 `Package.swift`、`Scripts/bundle.sh`）。
 `depends_on`: []
-### T25 UI 与设计稿逐项对齐 ✅ 42b5f6b
+### T25 UI 与设计稿逐项对齐 ✅ 552841c
 
 用户实际看了 app 之后提的：中间那块太灰,和 `design/board-mock.html` 不一样。
 要求浅色和深色都对一遍。
