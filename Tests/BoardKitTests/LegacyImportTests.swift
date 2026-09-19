@@ -32,7 +32,7 @@ private func withTempDirectory(_ body: (URL) throws -> Void) throws {
         let run = try LegacyImport.parseRun(data: Data(json.utf8))
 
         #expect(run.id == "legacy-minimal")
-        #expect(run.title == "未命名运行")
+        #expect(run.title == "Untitled run")
         #expect(run.project == "")
         #expect(run.status == .planning)
         #expect(run.summary == "")

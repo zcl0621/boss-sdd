@@ -256,7 +256,7 @@ public struct API: Sendable {
             return try encode(RunWithGraph(run: run))
 
         // Project memory. `project` rides in the query string, not the path: it is
-        // "项目路径或名称" and may well be an absolute path, so it is not a safe path
+        // "Project path or name" and may well be an absolute path, so it is not a safe path
         // segment. `key` is a constrained slug (`isValidMemoryKey`) and does sit in
         // the path, the way run and task IDs do.
         case ("GET", ["api", "memories"]):
