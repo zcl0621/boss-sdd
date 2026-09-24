@@ -54,20 +54,17 @@ do not treat "I have no way to wait" as grounds for calling the remaining nodes
 `blocked` while subagents are still running.
 
 **Whether a subagent can be resumed is not documented either.** The rework
-message in [shared/references/dispatch.md](shared/references/dispatch.md) has
-two forms and the choice turns on exactly that. Until you have confirmed resume
-works here, use Form B and send the full context bundle again: every tagged
-block listed at the top of that file, in the list it keeps, and not a subset of
-them. Do not reconstruct that list from memory or from a count written somewhere
-else. Form B to a resumable subagent wastes tokens on rounds 1 and 2. Form A to a
-fresh one leaves it with no working directory, no goal, no write scope, no rules
-and no acceptance commands.
+message in [shared/references/dispatch.md](shared/references/dispatch.md) has two
+forms and the choice turns partly on exactly that. Until you have confirmed
+resume works here, take the branch that file gives for a platform that cannot —
+the conservative one — every time. What each form contains, and what goes wrong
+if you send the short one to a subagent that does not remember the task, are its
+rules; the only thing this file adds is that on Codex you do not yet know which
+branch you are on.
 
-**Round 3 is Form B either way, so this open question does not reach it.** The
-body escalates a twice-failed node to a fresh subagent on the strongest tier,
-which makes Form B correct on round 3 whether or not resume turns out to work
-here. If you do later confirm resume, narrow your use of Form A to rounds 1 and 2
-and leave round 3 alone.
+Its round-3 rule is unaffected by that uncertainty, because it already requires a
+fresh subagent whatever the platform can do. So if you later confirm resume
+works, what changes is rounds 1 and 2 — not round 3.
 
 **Whether Codex can give a subagent its own git worktree is not documented.**
 [shared/references/worktree-mode.md](shared/references/worktree-mode.md) is

@@ -550,8 +550,12 @@ table lists those four names without ranking them, so treat the order as the
 author's, testable the same way as any other rung mapping.
 
 The Codex and Cursor columns do not reflect use. They were read out of those
-platforms' official documentation on 2026-09-18 and were never executed, because
-the author of this repository has neither installed. Check them against the
+platforms' official documentation on 2026-09-18 and have never been run as they
+stand here. For Codex the reason is the plain one: it is not installed. For
+Cursor the reason is narrower and worth knowing, because it is easy to assume the
+opposite — Cursor is in daily use, but against a separately evolved copy of this
+skill whose model table is a different one entirely, so the IDs in this column
+remain untested even though the platform is not. Check them against the
 pages they came from, `developers.openai.com/codex/config-reference` for the
 `[agents.<name>]` keys and the effort setting, and `cursor.com/docs/subagents`
 for the model IDs, the bracket parameters, and the frontmatter fields, and

@@ -77,36 +77,20 @@ read a dispatch form out of the skill-invocation syntax: how a *skill* is invoke
 is documented and is a different mechanism from how a *subagent* is dispatched,
 and the first settles nothing about the second.
 
-**Resuming a subagent works, so use Form A — on rounds 1 and 2.**
-[shared/references/dispatch.md](shared/references/dispatch.md) has two rework
-messages: Form A, a short one to the subagent that did the work, and Form B, the
-full context bundle to a fresh subagent. Cursor supports resuming: each subagent
-execution returns an agent ID, and passing that ID back resumes the subagent with
-its context preserved. That is the whole of what the source says. It says nothing
-about background execution specifically, so do not hold a node open waiting to
-resume an agent you launched in the background.
+**Resuming a subagent works.** Each subagent execution returns an agent ID, and
+passing that ID back resumes the subagent with its context preserved. That is the
+whole of what the source says. It says nothing about background execution
+specifically, so do not hold a node open waiting to resume an agent you launched
+in the background. Keep each node's agent ID with the node, alongside its diff
+baseline, for as long as the node is active.
 
-So keep each node's agent ID with the node, alongside its diff baseline, and send
-Form A when a node fails review on round 1 or round 2. Two things that do not
-change: it still counts as one round of the three, and the subagent is still told
-which round it is on.
-
-**One thing does change, on round 3: do not resume.** The body escalates a
-twice-failed node to a fresh subagent on the strongest tier, which on Cursor is
-`claude-opus-5[effort=high]` per [shared/roles.md](shared/roles.md), and a fresh
-subagent takes Form B. That is a rule about the work, not a Cursor limitation —
-resuming would work perfectly well here and is exactly what must not happen,
-because it returns the task to the context and the model that have already failed
-it twice. The stored agent ID is not the thing to reach for on that round.
-
-Form B stays the fallback for the case where you no longer have a usable agent
-ID. Then it is the full context bundle to a fresh subagent, counted as the same
-round rather than starting the count over. Take the bundle's blocks off the list
-in [shared/references/dispatch.md](shared/references/dispatch.md) each time; that
-list is the only place the bundle is defined, and no number for it is written
-here on purpose. What you must not do is send Form A's three short blocks to a
-fresh subagent: it would have no working directory, no goal, no write scope, no
-rules and no acceptance commands, and it will improvise all five.
+Which rework message that lets you send, and the round on which you must not
+resume even though you can, are
+[shared/references/dispatch.md](shared/references/dispatch.md)'s rules rather
+than this file's. Read them there. Two Cursor-side names that file needs and
+cannot know: **the strongest tier here is `claude-opus-5[effort=high]`**
+([shared/roles.md](shared/roles.md)), and reaching it needs the per-dispatch
+model override that is still unsettled below.
 
 ## The roles and their models
 
@@ -317,21 +301,18 @@ politely is not a guarantee and because file isolation never covered ports,
 devices or test locks anyway.
 
 **The real thing is available on Cursor, and it needs nothing from that
-feature.** The orchestrator runs `git worktree add` itself and hands each node
-its tree by filling that node's `<working_directory>` block with the path.
-`worktree-mode.md` closes by asking each platform wrapper which of two cases
-applies: Cursor is the second one, a subagent run against a directory you created
-by hand. So Cursor's shared-checkout default does not rule it out, and nothing
-here should be read as ruling it out. What it does mean is that the platform
-automates none of it. Creating each tree, cutting it from the integration
-branch's current tip, committing, merging, and then running the node's gates
-**again on the merged result**, which is the run that decides whether the node is
-`done`: all of those are yours, in the order `worktree-mode.md` gives them.
+feature.** `worktree-mode.md` closes by asking each wrapper which of two cases
+its platform is, and Cursor is the second: a subagent run against a directory you
+created by hand. The orchestrator runs `git worktree add` itself and hands each
+node its tree by filling that node's `<working_directory>` block with the path.
+So Cursor's shared-checkout default does not rule the body's worktrees out, and
+nothing here should be read as ruling them out. What it does mean is that the
+platform automates no part of the sequence; every step of it is yours to run.
 
-Read that file before you set anything up, and read it there. What it costs, what
-it protects, how a node closes, and what happens when a merge goes red are its
-rules, not this wrapper's, and a summary of them here would be one more copy to
-drift out of date.
+Which steps, in which order, and what to do when a merge goes red are that file's
+rules, not this wrapper's. Read them there. A summary here would be one more copy
+to drift out of date — which is the whole reason this section stops at the one
+question the body could not answer for you.
 
 **One Cursor-specific thing to settle in phase 0 rather than assume**, because
 the body has no fallback and the answer therefore decides whether a run can
