@@ -29,9 +29,19 @@ wins. This file adds platform facts; it does not relax any rule.
 
 ## The honesty notice that governs everything below
 
-Nobody on this project has Cursor installed. Every Cursor fact in this file was
-read out of Cursor's own documentation on 2026-09-18 and **never executed**. The
-sections marked "Not settled" are not settled. Check them against your own
+Every Cursor fact in this file was read out of Cursor's own documentation on
+2026-09-18. **This packaging itself has still never been installed and run.**
+What has since been run in Cursor is a separately evolved copy of the skill, not
+this one, so that experience does not transfer line by line to what is written
+here — it is worth more than the documentation where the two disagree, and worth
+nothing where it never touched the same question.
+
+So two provenances live in this file, and each statement belongs to exactly one.
+The default is the documentation of 2026-09-18. Where a statement instead comes
+from running the skill in Cursor, the section says so on the spot and names what
+was observed; absent that marker, read it as documentation nobody has executed.
+
+The sections marked "Not settled" are not settled. Check them against your own
 installation before you rely on them, and when your installation disagrees with
 this file, your installation is right.
 
@@ -178,6 +188,32 @@ not is in that file. If the tools are absent, say so once and keep the state in
 the plan document. Do not stop, and do not ask the user to install anything
 mid-run.
 
+## Goal mode has to bind to Cursor's own Goal
+
+**Source: use, not documentation.** `CreateGoal` and `UpdateGoal` are named here
+because a run in Cursor used them, not because the 2026-09-18 documentation
+describes them. If your installation spells them differently, the spelling is
+what changes; the rule below does not.
+
+The shared body's goal mode is a way of running: you stop asking at reversible
+decision points, park what you cannot answer, and report once at the end. Cursor
+tracks a goal of its own. These must be one record rather than two that drift.
+
+**A run in goal mode creates a Cursor Goal before its first dispatch and updates
+it every time a node reaches `done` or `blocked`.** `CreateGoal` at the start,
+`UpdateGoal` at each close. This is required, not encouraged, and the reason is
+what goal mode is for: it is the mode where nobody is watching, and the Goal is
+the only place a user who walks back in can read where the run got to without
+reading the entire transcript. A goal-mode run with no Goal behind it reproduces
+exactly the blindness the mode exists to remove.
+
+**If the Goal cannot be created or updated, you are not in goal mode.** A missing
+tool or a failed call is not something to note and run past. Say so, drop to
+confirm mode, and carry on asking at the decision points goal mode would have
+skipped. Confirm mode needs no Goal because the user is present at every one of
+them and is the record. What you must not do is keep the autonomy and lose the
+record, which is the one combination that leaves nobody able to say what happened.
+
 ## Cursor's native reviewer, and whether you can invoke it
 
 Phase 3 of [shared/PLAYBOOK.md](shared/PLAYBOOK.md) runs two branch reviews: the
@@ -218,13 +254,13 @@ themselves. That confirms the command exists in their Cursor version, which is
 not the same question as whether you can invoke it, but it does tell you whether
 step 2 is even available.
 
-## Execution modes: the shared checkout, and worktree mode
+## Worktrees, and why Cursor's own isolation is not one
 
-The shared body has two execution modes, set out under "Execution modes" in
-[shared/PLAYBOOK.md](shared/PLAYBOOK.md): shared-tree mode, the default, and
-worktree mode, specified in
-[shared/references/worktree-mode.md](shared/references/worktree-mode.md). Those
-are a different axis from Cursor's own subagent isolation feature. The two get
+The shared body puts every node in its own git worktree and offers no second
+mode; see "Where the nodes write" in
+[shared/PLAYBOOK.md](shared/PLAYBOOK.md) and
+[shared/references/worktree-mode.md](shared/references/worktree-mode.md). That is
+a different axis from Cursor's own subagent isolation feature. The two get
 confused because both sound like "every agent gets its own copy", and this
 section exists to keep them apart, because the answer for Cursor is different for
 each.
@@ -255,37 +291,37 @@ What it buys when you do get it is narrower than it sounds: a stray write from
 one node no longer lands in a sibling's working tree mid-edit, which keeps your
 scoped diff read and your staging clean. What it does not buy is a branch, a
 merge step, an integration branch, or a post-merge gate. **Isolation obtained
-this way is not worktree mode**, and it changes nothing about scheduling: batch
-by non-overlapping `write_scope` and honour `exclusive_resources` exactly as
-shared-tree mode says, because a checkout you asked for politely is not a
-guarantee and because file isolation never covered ports, devices or test locks
-anyway.
+this way is not the worktree the body requires**, and it changes nothing about
+scheduling: batch by non-overlapping `write_scope` and honour
+`exclusive_resources` exactly as the body says, because a checkout you asked for
+politely is not a guarantee and because file isolation never covered ports,
+devices or test locks anyway.
 
-**Worktree mode is available on Cursor, and it needs nothing from that feature.**
-In worktree mode the orchestrator runs `git worktree add` itself and hands each
-node its tree by filling that node's `<working_directory>` block with the path.
+**The real thing is available on Cursor, and it needs nothing from that
+feature.** The orchestrator runs `git worktree add` itself and hands each node
+its tree by filling that node's `<working_directory>` block with the path.
 `worktree-mode.md` closes by asking each platform wrapper which of two cases
 applies: Cursor is the second one, a subagent run against a directory you created
-by hand. So Cursor's shared-checkout default does not rule the mode out, and
-nothing here should be read as ruling it out. What it does mean is that the
-platform automates none of it. Creating each tree, cutting it from the
-integration branch's current tip, committing, merging, and then running the
-node's gates **again on the merged result**, which is the run that decides
-whether the node is `done`: all of those are yours, in the order
-`worktree-mode.md` gives them.
+by hand. So Cursor's shared-checkout default does not rule it out, and nothing
+here should be read as ruling it out. What it does mean is that the platform
+automates none of it. Creating each tree, cutting it from the integration
+branch's current tip, committing, merging, and then running the node's gates
+**again on the merged result**, which is the run that decides whether the node is
+`done`: all of those are yours, in the order `worktree-mode.md` gives them.
 
-Read that file before choosing the mode, and read it there. What the mode costs,
-what it protects, how a node closes, and what happens when a merge goes red are
-its rules, not this wrapper's, and a summary of them here would be one more copy
-to drift out of date.
+Read that file before you set anything up, and read it there. What it costs, what
+it protects, how a node closes, and what happens when a merge goes red are its
+rules, not this wrapper's, and a summary of them here would be one more copy to
+drift out of date.
 
-One Cursor-specific thing to settle on your first node rather than assume: that a
-subagent you dispatch actually reads and writes in a worktree path outside the
-project root. The verified table has no row on where a Cursor subagent may work,
-so this wrapper claims nothing either way. Check it with the same
-`git rev-parse --show-toplevel` question as above, on node one. If it cannot work
-there, run shared-tree mode; that is the default, and a run in it is not a
-degraded run.
+**One Cursor-specific thing to settle in phase 0 rather than assume**, because
+the body has no fallback and the answer therefore decides whether a run can
+start: that a subagent you dispatch actually reads and writes in a worktree path
+outside the project root. The verified table has no row on where a Cursor
+subagent may work, so this wrapper claims nothing either way. Check it with the
+same `git rev-parse --show-toplevel` question as above, on one throwaway
+dispatch, before there is a plan to abandon. If it comes back in the project root
+instead, say what you ran and what it returned, and stop there.
 
 ## Two installations in one project
 

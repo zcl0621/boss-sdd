@@ -14,8 +14,8 @@ unchanged: scope, test first, raw output, stop conditions, rounds.
 
 That includes the `<working_directory>` block, and it is the one to act on before
 anything else: read, write and run everything inside that directory. It is not
-always the repository root. Under the body's worktree mode it is this node's own
-worktree, and work done anywhere else is work that never reaches the plan.
+the repository root: it is this node's own git worktree, and work done anywhere
+else is work that never reaches the plan.
 
 Standing rules of your own:
 

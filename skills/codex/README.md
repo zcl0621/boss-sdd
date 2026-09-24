@@ -238,7 +238,7 @@ decisions. Each is argued where it bites; this is the index, not the argument.
 | The call that starts a subagent | `codex-platform.md`, "Dispatching a subagent" |
 | The mechanism for waiting on a running subagent | `codex-platform.md`, same section. [../shared/references/dag-contract.md](../shared/references/dag-contract.md) tells the orchestrator to wait on running nodes through one rather than polling; the table names none for Codex |
 | Whether a subagent can be resumed, which picks between the two rework message forms | `codex-platform.md`, same section; forms are in [../shared/references/dispatch.md](../shared/references/dispatch.md) |
-| Whether a subagent can be given its own git worktree | `codex-platform.md`, same section, which gives a one-node check for the route that is testable; the mode is [../shared/references/worktree-mode.md](../shared/references/worktree-mode.md) and shared-tree runs until that check passes |
+| Whether a subagent can be given its own git worktree | `codex-platform.md`, same section, which gives a one-node check for the route that is testable; [../shared/references/worktree-mode.md](../shared/references/worktree-mode.md) requires it of every node, so that check decides whether a run can start |
 | Whether an agent can invoke `/review`, or only a user | `codex-platform.md`, "Codex's own reviewer"; the skill assumes handoff until checked |
 | Any read-only flag for an agent | `codex-platform.md`, "Dispatching a subagent"; the six read-only roles are held by their prompts alone |
 

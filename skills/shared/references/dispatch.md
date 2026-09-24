@@ -63,11 +63,11 @@ You are the <role> for <this work item> in this plan. <one line of role identity
 The absolute path of the directory to work in. Read, write and run everything
 there. Do not touch files outside it.
 
-In shared-tree mode this is the repository root. In worktree mode it is this
-node's own worktree, which is a different directory from the repository root and
-from every other node's. Fill it in either way; never leave it out and never
-leave it to be inferred, because an agent that infers it will infer the
-repository root and in worktree mode that is the wrong tree.
+This is the node's own worktree, a different directory from the repository root
+and from every other node's. Never leave it out and never leave it to be
+inferred: an agent that infers it will infer the repository root, which is the
+user's own tree and does not contain this node's branch. That is the one mistake
+here that damages something outside the run.
 
 Scratch files -- scripts, intermediate output, anything that is not part of the
 deliverable -- go under this node's own subdirectory of the run's scratch
@@ -265,8 +265,7 @@ and do not revert work that the findings below do not ask you to change.
 </work_already_done>
 
 <current_diff>
-What is already there, so you do not have to reconstruct it. In shared-tree mode
-that is `git diff <baseline> -- <scope paths>`; in worktree mode it is
+What is already there, so you do not have to reconstruct it:
 `git -C <node worktree> diff <branch point>`, unrestricted.
 </current_diff>
 

@@ -59,14 +59,14 @@ reads and that the run prunes as it goes; that is
    maximum. After the third failed round give the node the `blocked` status,
    propagate that status to everything downstream of it, and keep running
    everything else.
-5. **`write_scope` and `exclusive_resources` are the only thing making parallel
-   dispatch safe.** There is no worktree isolation and no branch isolation. Every
-   node writes into the same working tree at the same time. If two nodes'
-   declared scopes overlap and you dispatch them together, they will corrupt each
-   other's work and you will not find out until the gates fail confusingly.
-   (An optional mode gives each node its own worktree. It removes the file half
-   of this rule and none of the resource half. See
-   [Execution modes](#execution-modes).)
+5. **`write_scope` and `exclusive_resources` are what make parallel dispatch
+   safe, and isolation relieves only the first of them.** Every node gets its own
+   worktree, so two overlapping scopes no longer corrupt each other — they
+   produce a merge conflict later, mid-run, which somebody then has to resolve.
+   `exclusive_resources` gets no such help at all: ports, devices, databases and
+   test locks are shared by every tree on the machine, so that declaration is
+   carrying the concurrency safety alone. See
+   [Where the nodes write](#where-the-nodes-write).
 6. **Goal mode removes "stop and wait". It does not license guessing.** An
    unanswered question gets parked in the "needs a decision from the user" list,
    and every task that depends on the answer takes the `blocked` status, with a
@@ -115,34 +115,34 @@ Even in goal mode, stop and hand back to the user when:
   everything else keep running.
 - Every safe path is blocked and no further real progress is possible.
 
-## Execution modes
+## Where the nodes write
 
-Where the nodes write. This is a separate axis from the operating modes above,
-which are about when you stop to ask.
+A separate axis from the operating modes above, which are about when you stop to
+ask.
 
-**Shared-tree mode (default).** Every node writes into the one working tree, at
-the same time. `write_scope` and `exclusive_resources` keep them off each other.
-This is what the rest of this document describes, and it needs nothing from the
-platform.
+**Every dispatched node gets its own git worktree, on its own branch, cut from
+the integration branch, and its work reaches the rest of the plan by merging.**
+There is no second mode and no fallback in which nodes share a tree. A platform
+that cannot give a subagent a worktree of its own cannot run this skill — which
+makes it a precondition to establish in phase 0, not a degradation to discover
+halfway through phase 2. The mechanics are all in
+[worktree-mode.md](references/worktree-mode.md).
 
-**Worktree mode (optional).** Each dispatched node gets its own git worktree on
-its own branch, cut from the integration branch, and its work reaches the rest of
-the plan by merging. It changes six steps of the phase 2 loop, all specified in
-[worktree-mode.md](references/worktree-mode.md), which also has the basis for
-choosing between the two and a precondition to check before picking it.
+Three things about this read backwards, so they are worth knowing before you
+start rather than after:
 
-Two things about it are worth knowing before you pick, because both read
-backwards:
-
-- Isolating files does not isolate ports, devices, databases, or test locks.
-  `exclusive_resources` carries more weight in worktree mode than in the default.
-- A node's gates passing in its own tree do not make it `done`. Its work has to
-  be committed, merged, and gated again on the merged result.
-
-If the platform cannot give a subagent its own worktree, or you are not sure it
-can, run shared-tree mode and carry on. Neither mode is ever a precondition, and
-a shared-tree run is not a degraded run. State in the delivery report which mode
-you ran in.
+- **Isolating files does not isolate ports, devices, databases, or test locks.**
+  `exclusive_resources` does all of that work by itself, and a tree of one's own
+  buys it no slack at all. Scheduling still turns on it exactly as hard.
+- **A node's gates passing in its own tree do not make it `done`.** The work has
+  to be committed, merged, and gated again on the merged result. Green over there
+  is a statement about a tree nobody is shipping.
+- **Merges are serial, and the merge lock stops the entire run while one is in
+  flight** — no dispatch, no rework round, no review for any other node. So
+  budget the tail as the sum of every node's post-merge gate run with everything
+  else stopped, not as something that overlaps the implementation you ran wide.
+  Ten nodes means ten full gate runs end to end, however parallel the building
+  was.
 
 ## Phase 0: align and survey
 
@@ -193,6 +193,16 @@ is parked, the same way.
 The unit of planning is a task that can be implemented and accepted on its own.
 Split as far as the requirement needs, with no cap on the number of tasks, but do
 not turn every file into its own task.
+
+**And every task has to be able to go green by itself.** Each node commits,
+merges and gates inside its own worktree, so a task that ends with the tree red
+cannot close: there is nothing worth merging and the post-merge gate has nothing
+to pass. That rules out a split people reach for by habit — one task to write the
+failing test, a second to make it pass. Those are one task. The implementer still
+works test-first inside it, writing the failing test before the code that answers
+it; what is not available is handing that half-finished state across a node
+boundary. The same goes for any task whose honest acceptance reads "deliberately
+broken until the next one lands": fold it into the next one.
 
 Every task declares:
 
@@ -251,10 +261,11 @@ each node runs a state machine: implement, independent review, fix and re-review
 gates, done. That loop is internal to the node and never becomes an edge in the
 DAG.
 
-The steps below are written for shared-tree mode. In worktree mode, steps 1, 2,
-3, 4, 5 and 8 change, step 8 in particular growing from one action into three;
-[worktree-mode.md](references/worktree-mode.md) gives each one in full. Read it
-instead of adapting these yourself.
+The steps below give the loop's shape. Six of them — 1, 2, 3, 4, 5 and 8 — also
+have a worktree-specific form, step 8 in particular growing from one action into
+three, and [worktree-mode.md](references/worktree-mode.md) gives each one in
+full. Read it alongside this list rather than deriving the difference yourself:
+this list on its own is not enough to run a node.
 
 Each scheduling pass ("pass" here, never "round"; a round is one turn of the fix
 loop inside a node, of which there are at most three):
@@ -576,8 +587,10 @@ going wrong at.
 5. Write the plan document ([plan-spec.md](references/plan-spec.md)) with the DAG
    in it ([dag-contract.md](references/dag-contract.md)), then mirror it to the
    board if you have one, and check the graph is valid either way.
-6. Pick the execution mode and record it in the plan's Status header. Shared-tree
-   unless you have a reason and the platform can do worktrees.
+6. Confirm the platform can give a subagent its own worktree, set the trees up
+   and record them in the plan's Status header
+   ([worktree-mode.md](references/worktree-mode.md)). There is no other mode, so
+   a platform that cannot do this is where the run stops.
 7. In confirm mode, stop and present. In goal mode, start the scheduling loop.
 
 ## Reference files
@@ -599,6 +612,7 @@ going wrong at.
 - [references/native-review-handoff.md](references/native-review-handoff.md): the
   platform branch reviewers and why they are a handoff.
 - [references/gates.md](references/gates.md): gate discipline.
-- [references/worktree-mode.md](references/worktree-mode.md): the optional
-  per-node worktree execution mode, and how to choose between the two.
+- [references/worktree-mode.md](references/worktree-mode.md): the per-node
+  worktree, the merge lock, the post-merge gate, and cleanup. Not optional and
+  not a variant — it owns six steps of the phase 2 loop.
 - [roles.md](roles.md): the role roster and model tiers.

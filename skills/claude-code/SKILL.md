@@ -121,14 +121,15 @@ That is per-subagent containment and it does not deliver the mode. To close a
 node you have to commit in its tree, merge its branch, and gate the result, which
 takes the tree's path, its branch name, and the commit it was cut from; the
 verified facts say what the parameter does and none of those three. So leave
-`isolation` unset in worktree mode and work in the tree you created and recorded.
+`isolation` unset, and work in the tree you created with `git worktree add` and
+recorded in the plan's Status header.
 
-Leave it unset in shared-tree mode too. Steps 4 and 5 of the node loop have you
-read the node's diff and run its gates in the tree you are sitting in, and a
-subagent working in a tree you cannot name is one whose work you can neither
-review nor gate. If your own environment hands you that path back, you know one
-of the three things a node's close-out needs, and its branch name and branch
-point are still missing.
+The reason is the same one either way round: steps 4 and 5 of the node loop have
+you read the node's diff and run its gates in a named tree, and a subagent
+working in a tree you cannot name is one whose work you can neither review nor
+gate. Even if your environment hands that path back afterwards, you have one of
+the three things a node's close-out needs, and the branch name and branch point
+are still missing.
 
 ## On `allowed-tools`
 

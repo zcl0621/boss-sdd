@@ -1,13 +1,16 @@
 # Worktree mode
 
-An optional execution mode in which every dispatched node gets its own git
-worktree on its own branch, instead of all nodes writing into one shared tree.
-The default is shared-tree mode, described everywhere else in this skill.
-Worktree mode changes six steps of the phase 2 loop and changes what
-`write_scope` is protecting you from. It leaves the DAG, the roles, the review
-protocol, the three-round limit, and who runs the gates alone.
+Every dispatched node gets its own git worktree on its own branch. This is how
+the skill runs — there is no shared-tree mode to fall back to and no degraded
+variant in which two nodes write into one tree. A platform that cannot give a
+subagent a worktree of its own cannot run this skill, and phase 0 is where you
+find that out.
 
-Read the next two sections before deciding to use it. The obvious reading of
+This file owns six steps of the phase 2 loop and owns what `write_scope` is
+protecting you from. It leaves the DAG, the roles, the review protocol, the
+three-round limit, and who runs the gates alone.
+
+Read the next two sections before you set anything up. The obvious reading of
 "each agent is now isolated" is wrong in two separate directions, and each one
 costs real time when it is learned from a failed run instead of from here.
 
@@ -18,15 +21,17 @@ A worktree isolates files, and nothing else.
 Ports, devices, simulators, shared test databases, license seats, a serial test
 lock, a deployment environment: every one of those is global to the machine, and
 two worktrees reach the same one. Two nodes that each bind port 5432, or each
-drive the one attached device, collide in worktree mode exactly as they collide
-in shared-tree mode.
+drive the one attached device, collide with their own trees exactly as they would
+have collided sharing one.
 
-So this mode leans on `exclusive_resources` harder than the default does. In
-shared-tree mode it is one of two safety mechanisms, and file overlap usually
-bites first and loudly. In worktree mode it is the only one left, and an
-under-declared resource shows up as a test that passes alone and fails in a
-batch, which reads as flakiness and gets retried instead of fixed. Declare
-resources at least as carefully as you would in shared-tree mode.
+So `exclusive_resources` is the only concurrency safety left standing, and it is
+standing alone. File overlap used to bite first and bite loudly; now it surfaces
+later and quieter, as a merge conflict. An under-declared resource surfaces later
+still — a test that passes on its own and fails in a batch, which reads as
+flakiness and gets retried rather than fixed. Declaring resources is the one
+piece of scheduling discipline isolation buys you no relief from at all, so
+declare them at least as carefully as you would have with everything in one tree,
+and preferably more.
 
 ## Green in your worktree is not green after the merge
 
@@ -45,20 +50,21 @@ been committed, merged into the integration branch, and gated again **after** th
 merge. The commit, the merge and the post-merge gate are part of the node, not
 part of close-out.
 
-## Choosing a mode
+## What this costs, and where the time goes
 
-Neither mode is better. They pay for different things.
+Isolation is not free, and the bill does not arrive where people expect. Knowing
+its shape up front changes how you size a plan, which is the only lever you have
+over it.
 
-**Shared-tree mode** costs you a shared blast radius. One node writing outside
-its scope can corrupt a sibling mid-write, and the resulting gate failure points
-at the wrong node. In exchange it is simple: one tree, one build, no merges, and
-a diff you can read directly.
+**Per node: a tree, a full dependency install, and a build.** A repository whose
+install is slow or whose toolchain is fragile pays that once per node instead of
+once per run. In such a repository that is an argument for fewer and wider tasks
+— not for sharing a tree, which is not on offer.
 
-**Worktree mode** costs you a tree and a full dependency install and build per
-node, merge work, and a second gate run per node after its merge. That second run
-is the cost most often underestimated, because **merges are serial and so those
-gate runs are serial too**. Ten nodes means ten full gate runs one after another,
-however wide the implementation ran.
+**Per node: a second full gate run, after the merge.** This is the cost most
+often underestimated, because **merges are serial and so those gate runs are
+serial too**. Ten nodes means ten full gate runs one after another, however wide
+the implementation ran.
 
 And the tail is worse than those gate runs alone, because the merge lock stops
 more than merging. "The merge lock" below forbids dispatching anything at all
@@ -68,23 +74,17 @@ other node that is mid-loop waits out every merge, not just its own. Budget the
 tail as the sum of every node's post-merge gate run, with the rest of the run
 stopped for the duration of each.
 
-In exchange a misbehaving implementer can only damage its own tree, and a failure
-is always attributable to the node that caused it.
+That sum is the number to look at when a plan feels too slow, and the only lever
+on it is the node count. Wide parallelism is where isolation pays best and where
+this tail costs most: if the gates take minutes, the tail can exceed everything
+the parallel implementation saved. A three-task plan pays three of them; a
+twenty-task plan pays twenty, end to end, whatever happened upstream.
 
-Roughly:
-
-- Few tasks, small blast radius, cheap build: shared-tree. For a three-task plan
-  the worktrees are overhead and the merges are busywork.
-- A build slow enough that a corrupted tree costs an hour to notice: worktree.
-- Nodes that touch each other's neighbourhoods even with disjoint scopes, such as
-  a shared generated file or a lockfile: worktree, because the merge surfaces the
-  conflict as a conflict instead of as corruption.
-- An expensive or fragile toolchain where a per-tree install is painful: shared
-  tree, and lean on `write_scope` discipline.
-- Many tasks running wide in parallel: it depends on the gate suite, and the
-  answer is not automatically worktree. Wide parallelism is where worktree mode's
-  isolation pays best and where its serial post-merge tail costs most. If the
-  gates take minutes, that tail can exceed everything you saved.
+In exchange: a misbehaving implementer can only damage its own tree, a failure is
+always attributable to the node that caused it, and two nodes that touch the same
+neighbourhood despite disjoint scopes — a shared generated file, a lockfile —
+surface it as a merge conflict you resolve rather than as corruption you first
+have to diagnose.
 
 ## Setup
 
@@ -116,9 +116,13 @@ it is not:
   `git diff <baseRef>..<headRef>` span the user's own commit and report it as part
   of the run's change. Re-recording is what makes both readings land on the same
   commit and leaves that diff describing only what the run did.
-- In goal mode, do not wait and do not commit their work for you. Run shared-tree
-  mode instead and say in the delivery report that worktree mode was unavailable
-  because the tree had uncommitted changes.
+- In goal mode, do not wait and do not commit their work for you. There is no
+  second mode to fall back into, so this is one of the few things goal mode stops
+  for: park the whole run before any dispatch, say in the delivery report that
+  the main working tree had uncommitted changes and name them, and leave the
+  decision where it belongs. Parking a run nobody can safely start is the correct
+  goal-mode outcome; guessing that the user would have wanted their work stashed
+  is not.
 
 Never commit or stash the user's changes yourself to clear the way. That is their
 work and their decision, and the rest of this skill spends real effort protecting
@@ -161,9 +165,9 @@ Once, at the start of phase 2:
    there is exactly one answer to what the base is. Every node's work lands here,
    and this is what phase 3 reviews.
 2. Create the integration worktree and check that branch out in it.
-3. Record three things in the plan document's Status header, on their own lines
-   under `Execution mode`: the integration branch's name, the absolute path of
-   the main working tree, and the absolute path of the integration worktree.
+3. Record three things in the plan document's Status header, each on its own
+   line: the integration branch's name, the absolute path of the main working
+   tree, and the absolute path of the integration worktree.
    [plan-spec.md](plan-spec.md) gives the exact fields. A later session that
    recovers only the branch name cannot tell where the merges were happening or
    which of the trees it must leave alone.
@@ -230,9 +234,9 @@ git -C <node worktree> diff <branch point>
 The path restriction existed because sibling nodes were writing into the same
 tree. Here they are not, so an unrestricted diff is both correct and better: it
 shows everything this implementer did. A change outside the node's `write_scope`
-is still a finding, and in this mode it is an unambiguous one. In shared-tree
-mode such a change might have been a sibling; here nobody else could have written
-it.
+is still a finding, and here it is an unambiguous one: nobody else could have
+written it. There is no sibling implementer to blame, because no sibling has a
+key to this tree.
 
 **Step 5, run the node's gates yourself.** Run them in the node's worktree. Same
 discipline as always: you run them, one command at a time, never through a pipe,
@@ -261,21 +265,20 @@ git -C <node worktree> add -- <scope paths>
 git -C <node worktree> commit -m "<message>"
 ```
 
-**You make this commit, not the implementer.** That is unchanged from shared-tree
-mode and from the implementer's brief, which forbids it to commit in either mode.
-Nothing in this mode moves that responsibility; it only changes which tree the
-command runs in.
+**You make this commit, not the implementer.** The implementer's brief forbids it
+to commit, and having a tree of its own does not change that. Isolation moves
+which tree the command runs in and nothing about whose job it is.
 
-**This commit is unconditional, and that part is not unchanged.** Shared-tree
-step 8 in [PLAYBOOK.md](../PLAYBOOK.md) makes the commit conditional, "where the
-project's conventions call for commits". That condition is safe there, because
-the work sits in the one working tree whether anyone commits it or not, so the
-commit is bookkeeping. Here the commit is transport: it is the only way work
-leaves the node's worktree. Leave it out and the node's branch stays at its
-branch point, 8b merges nothing, 8c gates unchanged content green, and the node
-reaches `done` having contributed no code. So commit every node in this mode,
-in a repository with no per-node commit convention exactly as much as in one that
-has it. The project's conventions decide the message, never whether.
+**This commit is unconditional, and that overrides the loop's wording.** Step 8
+in [PLAYBOOK.md](../PLAYBOOK.md) phrases the commit conditionally, "where the
+project's conventions call for commits" — a condition that would be safe if the
+work sat in one tree everybody could see, because then the commit is only
+bookkeeping. Here the commit is transport: it is the sole way work leaves the
+node's worktree. Leave it out and the node's branch stays at its branch point, 8b
+merges nothing, 8c gates unchanged content green, and the node reaches `done`
+having contributed no code at all. So commit every node, in a repository with no
+per-node commit convention exactly as much as in one that has it. The project's
+conventions decide the message, never whether.
 
 Still never `git add -A`, still never `git commit -a`. A worktree stops a
 subagent from damaging a sibling; it does nothing to stop it writing outside its
@@ -833,25 +836,26 @@ count. What it does mean is that no round is charged for the blocking itself,
 which is the point of charging nobody for a reconciliation.
 
 This refines the general rule in [dag-contract.md](dag-contract.md) that a
-cleared blocker returns a node to `pending`. That rule is right for a node blocked
-before or during implementation, which is every case in shared-tree mode. A node
-blocked after its implementation and review have passed returns to `review`.
+cleared blocker returns a node to `pending`. That rule is right for a node
+blocked before or during implementation. A node blocked after its implementation
+and review have already passed returns to `review` instead — the merge and the
+post-merge gate are what it still owes, and sending it back to `pending` would
+throw away work that two lanes already signed off.
 
-## What `write_scope` is protecting in this mode
+## What `write_scope` is protecting here
 
 The rule does not change: do not dispatch nodes with overlapping `write_scope` in
-the same pass. What it buys you does change, and the reader should know which one
-they are relying on.
+the same pass. What it buys you is worth naming precisely, because it is not what
+it would buy in a single shared tree and the difference invites the wrong
+conclusion.
 
-In shared-tree mode, overlap means concurrent corruption. Two implementers write
-the same file at the same time and one of them loses, silently, mid-edit.
+Without isolation, overlap means concurrent corruption: two implementers write
+the same file at the same time and one of them loses, silently, mid-edit. With a
+tree each, nothing is corrupted. Both versions exist intact on their own
+branches, and the second node to merge hits a conflict.
 
-In worktree mode, overlap means a merge conflict later. Nothing is corrupted;
-both versions exist intact on their own branches, and the second node to merge
-hits the conflict.
-
-That is a much better failure, which is why the constraint might look optional
-here. Keep it anyway. A conflict surfaces at merge time, which is after both
+That is a much better failure, which is exactly why the constraint starts to look
+optional. Keep it anyway. A conflict surfaces at merge time, which is after both
 nodes have been implemented, reviewed, and gated, so the cost of the collision
 has already been paid twice over before anyone sees it. And resolving one is not
 free either: it takes a sync into the node's worktree, a round spent by somebody,
@@ -931,15 +935,19 @@ branch review's diff range is the baseline ref to the integration branch tip. Th
 per-task audit in lane 6 reads the same range. Findings route as they always do,
 and a `byTask` finding against a `done` node reopens it by the procedure above.
 
-## Degradation
+## The precondition
 
-Worktree mode is optional and nothing in this skill depends on it. Use it when
-your platform can give a dispatched subagent a worktree of its own, or when it
-can run a subagent against a directory you created, which is the same thing by
-hand. Your per-platform wrapper says which of these applies to you, and whether
-the platform does the setup and cleanup for you.
+This needs the platform to give a dispatched subagent a worktree of its own, or
+to run a subagent against a directory you created, which is the same thing done
+by hand. Your per-platform wrapper says which of those applies to you, and
+whether the platform handles the setup and cleanup itself.
 
-If the platform cannot do it, or you are unsure whether it can, run shared-tree
-mode. That is the default, it is fully specified, and a run in it is not a
-degraded run. Do not stall to ask the user which mode to use, and do not treat
-the absence of worktree support as a blocker.
+**Establish it in phase 0, before there is a plan to abandon.** If the platform
+can do neither, the run does not start: say plainly what you checked and what it
+returned, and stop. There is nothing to fall back to, and that is deliberate
+rather than an omission. Every other part of this skill assumes a node owns its
+tree, so quietly putting two implementers in one would break the `write_scope`
+reasoning, the attribution of a failure to the node that caused it, and the
+merge-and-gate definition of `done`, all at once — while the run went on
+reporting itself as normal. Stopping at phase 0 costs a survey. Discovering it at
+the first merge costs the plan.
