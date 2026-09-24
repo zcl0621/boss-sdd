@@ -281,6 +281,16 @@ loop inside a node, of which there are at most three):
    does not restate it, because a restated list goes stale and the block it
    stops short of is the one most recently added.
 
+   **Then account for every subagent you dispatched.** A batch returns one
+   subagent at a time, not in the order you dispatched them, and on some
+   platforms what sits in front of you when the turn resumes is whichever
+   returned last. That is a reading position, not a result set. Keep the batch's
+   node list beside you and tick each node off against its own return. A node
+   whose return you never opened is not a node that quietly succeeded — it is a
+   node you have no information about, and closing it on that basis is the
+   fabrication this whole protocol exists to prevent. Nothing in the batch moves
+   on to step 3 until every member has either returned or is known to have died.
+
 3. **Review it independently.** Set the node to `review`. Every
    task gets a static review from a `reviewer` subagent that did not write the
    code, with no exceptions and regardless of role. Tasks carrying `ui-designer`
@@ -301,6 +311,15 @@ loop inside a node, of which there are at most three):
    output: `confirmed` findings count as they stand, `unsure` findings you judge
    one by one yourself. An `unsure` finding is not a pass by default.
 
+   **Read what the implementer did, not what it concluded.** Its return carries
+   raw command output because the dispatch contract asks for exactly that, and
+   the output is the evidence; the summary sitting above it is not. A run that
+   hit a failing command, abandoned an approach, or routed around something it
+   could not do, and then closed with a confident "done", is a failing node — and
+   the summary is precisely where that disappears. So go through the returned
+   output with the same care as the diff, and treat a non-zero exit anywhere in
+   it as a finding even when the diff itself looks clean.
+
 5. **Run the node's gates yourself.** One command at a time, no pipes, full
    output. See [gates.md](references/gates.md).
 
@@ -316,7 +335,19 @@ loop inside a node, of which there are at most three):
    [dispatch.md](references/dispatch.md), which has one form for a platform that
    can resume a subagent and a fuller one for a platform that cannot. Either way
    it counts as one round. You do not fix it yourself. Three rounds maximum per
-   task. Still failing after the third, give the node and its downstream the
+   task.
+
+   **Round 3 changes both the model and the subagent.** Rounds 1 and 2 stay on
+   the tier the node started on and, where the platform can resume a subagent, go
+   back to the one that did the work. Round 3 does neither: dispatch a fresh
+   subagent on the strongest tier available to you, and send it the full context
+   bundle rather than the short rework form. Resuming would hand the work back to
+   a context that has already failed at it twice, carried by the same model that
+   produced both failures; and the short form assumes a subagent that remembers
+   the task, which a fresh one does not. This is the one escalation that needs no
+   separate justification — two failed rounds are the justification.
+
+   Still failing after the third, give the node and its downstream the
    `blocked` status and follow your operating mode. When you re-review after a
    fix, give the reviewer the diff from the new starting point, not the original
    one.
@@ -489,6 +520,10 @@ going wrong at.
   the conclusion for a subagent that is still running.
 - Letting a subagent decide whether something passed. Their output is evidence.
   The diff and the gates are yours to read.
+- Reading only the subagent that returned last. Every node you dispatched gets
+  its return opened and ticked off; the rest are not passes, they are unknowns.
+- Taking an implementer's closing summary over the raw command output in the same
+  return. A failing command under a confident "done" is a failing node.
 - Treating "could not verify" in a review report as "no problem found".
 - Deleting or weakening a real test to make the suite green.
 - Hand-editing generated files, historical migrations, or vendored directories.

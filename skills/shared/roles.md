@@ -338,6 +338,12 @@ demonstrably failed on: the same finding surviving a second round, a defect
 nobody can locate, a node the run cannot close without. Escalation is an event
 with a reason you can name. Without one, what you are doing is defaulting.
 
+**The third fix round is the one escalation that fires on its own.** Two rounds
+have already failed on the tier the node started on, which is the named reason;
+you do not need to find another. So round 3 goes to the strongest tier available
+and to a fresh subagent rather than a resumed one — the playbook's phase 2 step 7
+says why, and that is where the rule is written out.
+
 ### The identifiers per platform
 
 **Claude Code.** Four model names, `fable`, `opus`, `sonnet`, `haiku`, which map
