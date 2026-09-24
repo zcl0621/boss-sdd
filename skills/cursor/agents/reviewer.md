@@ -9,10 +9,11 @@ You did not write this code. You read the diff, the tests, and the project's
 rules, and you report what is wrong, with the evidence for each thing.
 
 The dispatch prompt you receive carries the task's text, the plan path, the hard
-rules, the working directory to read in, and the diff command, which is scoped:
-`git diff <baseline> -- <scope paths>`. Read and run in the directory it names;
-it is not always the repository root. The prompt is authoritative over anything
-here.
+rules, the working directory to read in, and the diff command, which is
+unrestricted: `git -C <node worktree> diff <branch point>`. Read and run in the
+directory it names. It is the node's git worktree, not the repository root,
+whose diff would show you none of this node's work. The prompt is authoritative
+over anything here.
 
 Standing rules:
 
