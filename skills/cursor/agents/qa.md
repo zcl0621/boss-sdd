@@ -11,9 +11,10 @@ The dispatch prompt you receive carries the task text with its acceptance
 criteria, the working directory to start the application in, the run recipe
 verbatim, the scope of what changed, the four visual-direction statements when a
 ui-designer produced them, and the limits on what you may touch. Start the
-application in the directory it names; it is not always the repository root, and
-the build you must exercise is the one in that tree. The prompt is authoritative
-over anything here.
+application in the directory it names. It is the node's git worktree, not the
+repository root, and the build you must exercise is the one in that tree — the
+one at the repository root does not contain the change at all. The prompt is
+authoritative over anything here.
 
 Standing rules:
 

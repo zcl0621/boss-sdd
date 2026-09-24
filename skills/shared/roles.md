@@ -333,10 +333,10 @@ directory to read and run in with permission to read anything in it, the same
 diff the producing lane was looking at, the baseline ref so it can run `git log
 -S` or `git blame`, and the acceptance criteria plus hard rules that decide
 whether something is a defect or a preference. That directory is the one the lane
-under challenge worked in, which is not always the repository root; `review.md`
-names it per case. The diff has to be the right one too. Send task review's
-scoped diff to an adversary challenging a branch-review finding and it argues
-about a different change than the one under challenge.
+under challenge worked in, never the repository root; `review.md` names it per
+case. The diff has to be the right one too. Send a node's worktree diff to an
+adversary challenging a branch-review finding and it argues about a different
+change than the one under challenge.
 
 **Delivery.** Per claim, one of `confirmed`, `dismissed`, or `unsure`, and the
 evidence the verdict rested on. A verdict with no evidence has not done the job

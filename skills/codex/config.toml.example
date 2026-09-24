@@ -108,7 +108,7 @@ description = "Starts the actual running system, exercises the change, and recor
 
 [agents.reviewer]
 config_file = "<SKILL_DIR>/agents/reviewer.toml"
-description = "Reviews one node's scoped diff having not written it, and reports what is wrong with the evidence for each thing. Does not fix anything and does not read outside the diff it was given."
+description = "Reviews the diff of one node's worktree having not written it, and reports what is wrong with the evidence for each thing. Does not fix anything and does not read outside the diff it was given."
 
 [agents.spec-reviewer]
 config_file = "<SKILL_DIR>/agents/spec-reviewer.toml"
