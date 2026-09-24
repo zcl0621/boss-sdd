@@ -48,7 +48,7 @@ this file, your installation is right.
 ## Dispatching a subagent
 
 Roles are defined as Cursor subagents, one file per role, at
-`.cursor/agents/<name>.md`. Nine files, one per role in
+`.cursor/agents/<name>.md`. Ten files, one per role in
 [shared/roles.md](shared/roles.md).
 
 Cursor reads six subagent directories, three project-level and three user-level:
@@ -60,7 +60,7 @@ names conflict. When multiple locations contain subagents with the same name,
 in one project" below for what that does and does not settle.
 
 Cursor also ships three built-in subagents: Explore, Bash and Browser. They are
-not substitutes for these nine. A role in this skill is a set of four commitments
+not substitutes for these ten. A role in this skill is a set of four commitments
 plus a model tier, and a built-in agent carries none of them.
 
 **Parallel dispatch works.** The verified source says an agent "sends multiple
@@ -111,11 +111,13 @@ what to re-tune first.
 | `ui-designer` | reasoning | `composer-2.5` | `false` |
 | `qa` | reasoning | `composer-2.5` | `false` |
 | `reviewer` | strong | `claude-opus-5` | `true` |
+| `spec-reviewer` | strong | `claude-opus-5` | `true` |
 | `branch-reviewer` | strong | `claude-opus-5` | `true` |
 | `adversary` | reasoning | `composer-2.5` | `true` |
 
-`readonly: true` is set on six of the nine. The three recon lanes, `reviewer`,
-`branch-reviewer` and `adversary` all say "you change nothing" in their identity
+`readonly: true` is set on seven of the ten. The three recon lanes, `reviewer`,
+`spec-reviewer`, `branch-reviewer` and `adversary` all say "you change nothing"
+in their identity
 line, and the flag is there to make that a platform constraint rather than a
 request. Do not drop it to make a lane "more useful". A reviewer that can edit is
 no longer an independent review.
@@ -136,7 +138,7 @@ that it could not run something is telling you where that evidence has to come
 from; it is not a reason to drop the flag.
 
 **`is_background` is left at its default.** It is a boolean, default `false`, and
-the nine agent files do not set it. The field is settled, so leaving it alone is
+the ten agent files do not set it. The field is settled, so leaving it alone is
 something this packaging chose: the shared
 body's phase 2 loop reads a node's diff, runs its gates and reviews its work
 while the node is open, so an orchestrator has nothing to do with a node it has

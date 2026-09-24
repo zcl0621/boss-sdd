@@ -66,8 +66,9 @@ is useful; "not doing unrelated work" is not.
 
 **Design decisions already made.** Each decision, the alternative it beat, and
 why. An implementer who disagrees with one of these must stop and say so rather
-than quietly building the alternative, and a reviewer reads this list to catch an
-implementer who did not.
+than quietly building the alternative, and the `spec-reviewer` reads this
+list -- together with the goals and non-goals -- to catch an implementer who
+did not.
 
 **Tasks.** One entry per task, each listing `depends_on`, `write_scope`,
 `exclusive_resources`, the role, the acceptance criteria, and the risk or

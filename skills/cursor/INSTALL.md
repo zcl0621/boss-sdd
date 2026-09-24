@@ -9,7 +9,7 @@ skills/cursor/
   SKILL.md        the Cursor wrapper; becomes .cursor/skills/plan-sdd/SKILL.md
   INSTALL.md      this file; not installed
   shared -> ../shared   symlink to the platform-neutral body
-  agents/         nine subagent definitions; become .cursor/agents/*.md
+  agents/         ten subagent definitions; become .cursor/agents/*.md
   BUGBOT.md       optional review rules; becomes .cursor/BUGBOT.md at the repo root
 ```
 
@@ -97,8 +97,8 @@ mkdir -p "$TARGET/.cursor/agents"
 cp "$REPO/skills/cursor/agents/"*.md "$TARGET/.cursor/agents/"
 ```
 
-Nine files, one per role. They are not optional and they are not renameable: the
-shared body dispatches these nine names.
+Ten files, one per role. They are not optional and they are not renameable: the
+shared body dispatches these ten names.
 
 `~/.cursor/agents/` is documented too, so a user-level install of the roles is an
 option in the same way as a user-level install of the skill. Keep the two
@@ -106,7 +106,7 @@ together: roles in `~/.cursor/agents/` with the skill in `.cursor/skills/` works
 but it makes the pair harder to find and harder to remove.
 
 Same-name subagents have a documented precedence, unlike skills: project beats
-user, and `.cursor/` beats `.claude/` or `.codex/`. So these nine files, in this
+user, and `.cursor/` beats `.claude/` or `.codex/`. So these ten files, in this
 project's `.cursor/agents/`, win over anything of the same name left behind by
 another packaging. That resolves the conflict; it does not make the duplicate
 harmless, for the reasons in the wrapper's "Two installations in one project".
@@ -197,7 +197,7 @@ install.
 If `shared` came out as a dangling symlink, you used `cp -R` instead of `cp -RL`;
 delete it and redo step 1.
 
-Then in Cursor: type `/plan-sdd` and confirm the skill loads. Confirm the nine
+Then in Cursor: type `/plan-sdd` and confirm the skill loads. Confirm the ten
 roles appear wherever your version lists subagents. If you did step 3, confirm
 the eleven `plan_` tools are in the session's toolset.
 
@@ -267,11 +267,12 @@ cosmetic and are left to Cursor's defaults.
 in the wrapper, under "The roles and their models": the shared body's phase 2
 loop works on a node while it is open, so there is nothing for an orchestrator to
 do with a node it cannot watch. Omitting the field rather than writing
-`is_background: false` keeps the nine files to the fields this packaging actually
+`is_background: false` keeps the ten files to the fields this packaging actually
 decided.
 
-**`readonly` written explicitly on all nine.** `true` on the three recon lanes,
-`reviewer`, `branch-reviewer` and `adversary`, which is the platform enforcing
+**`readonly` written explicitly on all ten.** `true` on the three recon lanes,
+`reviewer`, `spec-reviewer`, `branch-reviewer` and `adversary`, which is the
+platform enforcing
 what those roles' prompts otherwise only ask for: no file edits and no
 state-changing shell commands, with reading left alone. `false` is spelled out on
 `implementer`, `ui-designer` and `qa`. That matches the documented default, so it

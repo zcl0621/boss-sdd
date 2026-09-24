@@ -43,7 +43,7 @@ And in dark appearance, back on the graph view:
 | `mcp` | The Go MCP server. stdio transport, forwards to the app's local HTTP. |
 | `skills` | The `plan-sdd` skill: a shared body plus one wrapper per platform. |
 | `skills/shared` | `PLAYBOOK.md`, `roles.md` and the reference files. Platform-neutral. |
-| `skills/claude-code`, `skills/codex`, `skills/cursor` | The three packagings. Each holds a `SKILL.md`, nine role definitions, and its own install document. |
+| `skills/claude-code`, `skills/codex`, `skills/cursor` | The three packagings. Each holds a `SKILL.md`, ten role definitions, and its own install document. |
 | `design` | An HTML mock of the board window. |
 | `docs/plans` | Plan documents. `2026-09-18-boss-sdd-hardening.md` holds the verified platform-facts table the skill packagings cite. |
 | `Tests/BoardKitTests` | Graph parity against the old Python board, store guards, API, memory, legacy import. |
@@ -266,7 +266,7 @@ your own installation before trusting them.
 
 ### Claude Code
 
-The skill goes in `~/.claude/skills/plan-sdd/`, the nine role files go in the
+The skill goes in `~/.claude/skills/plan-sdd/`, the ten role files go in the
 target project's `.claude/agents/`, and the board is an optional fourth step.
 Invocation is `/plan-sdd`. Steps, the reasons `cp -RL` and `rm -rf` are both
 load-bearing, and four post-install checks:
@@ -275,14 +275,14 @@ load-bearing, and four post-install checks:
 ### Codex
 
 The skill goes under `.agents/skills/plan-sdd/`, either in your home directory or
-in a project, and the nine roles are declared in `config.toml` with a TOML layer
+in a project, and the ten roles are declared in `config.toml` with a TOML layer
 each. Steps, the `<SKILL_DIR>` substitution, the three checks that catch a bad
 substitution before a run does, and the index of eight things the documentation
 did not cover: [`skills/codex/README.md`](skills/codex/README.md).
 
 ### Cursor
 
-The skill goes in `.cursor/skills/plan-sdd/` and the nine roles in
+The skill goes in `.cursor/skills/plan-sdd/` and the ten roles in
 `.cursor/agents/`, with `.cursor/BUGBOT.md` as an optional fourth step for the
 native reviewer. Steps, the guard that makes the `rm -rf` safe to paste, and a
 duplicate-install check to run before and after:

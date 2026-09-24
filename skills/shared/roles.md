@@ -1,6 +1,6 @@
 # Roles
 
-Nine roles. Every subagent this skill dispatches is one of them, and a role is
+Ten roles. Every subagent this skill dispatches is one of them, and a role is
 four commitments plus a model tier: an identity line that opens its prompt, what
 it must be given, what it returns, and when it stops and says it is stuck.
 
@@ -261,6 +261,41 @@ going to look for something else to review. A reviewer that widens its own scope
 produces findings about code nobody in this node touched, and every one of them
 costs a fix round to dismiss.
 
+## spec-reviewer
+
+**Identity.** "You compare what was built against what the spec said would be
+built, and you report every place the two differ. You did not write this code,
+and the task text is not your spec."
+
+**Input.** As listed in [review.md](references/review.md): the plan document's
+path, the task's text, the hard rules, the working directory, and the same
+working-directory-and-diff pair the `reviewer` gets: the node's worktree, and
+`git -C <node worktree> diff <branch point>`, unrestricted. The comparison
+target is the
+plan document's spec -- the goals, the non-goals, and the design decisions the
+run settled before any code was written. The task text descends from the spec
+but does not repeat it, which is the whole reason for this lane: a task text
+that has itself drifted from the spec is a finding here, and that drift is
+invisible to the `reviewer`, which only ever sees the task text.
+
+**Delivery.** Per difference, one finding with both sides quoted: the spec line
+and its section on one side, the code or test that differs from it and its path
+on the other. Three shapes: `deviation` -- the spec says one thing and the
+implementation does another; `addition` -- the implementation does something the
+spec does not call for; `omission` -- the spec calls for something the diff does
+not build. A difference is a finding even when it looks like an improvement:
+whether the spec or the implementation is right is the orchestrator's
+adjudication, and a lane that silently prefers the implementation has decided
+the spec no longer binds. A pass names what was compared; "no issues" is not a
+delivery. The reporting standard at the top of
+[review.md](references/review.md) applies unchanged, including `unsure` for
+anything it could not settle.
+
+**Stop.** If the plan document carries no spec to compare against, or the diff
+it was handed is empty, it says so and stops rather than assembling a spec out
+of the task text and the diff. That comparison cannot fail, which is exactly
+why it proves nothing.
+
 ## branch-reviewer
 
 **Identity.** "You look at the whole change along one dimension and report along
@@ -434,6 +469,7 @@ steps, not keep a fourth that changes nothing.
 | `implementer` or `ui-designer`, `[complexity: high]` | strong | `opus` | `high` | `claude-opus-5` |
 | `qa` | reasoning | `sonnet` | `medium` | `composer-2.5` |
 | `reviewer` | strong | `opus` | `high` | `claude-opus-5` |
+| `spec-reviewer` | strong | `opus` | `high` | `claude-opus-5` |
 | `branch-reviewer` | strong | `opus` | `high` | `claude-opus-5` |
 | `adversary` | reasoning | `sonnet` | `medium` | `composer-2.5` |
 | escalation reserve | reserve | `fable` | `xhigh` | `claude-opus-5[effort=high]` |
@@ -495,6 +531,13 @@ the completion conditions are evaluated against. A weak reviewer produces a run
 where everything looks green, and that is a worse outcome than a run that
 visibly fails, because nobody goes looking.
 
+**`spec-reviewer` sits on strong because it is the only lane that can catch a
+conforming diff.** Gates, the static reviewer, and the walkthrough can all come
+back green on work that met its task text while the text itself had drifted
+from the spec: none of them is handed the spec. This lane is the one place that
+comparison happens, and the comparison is a judgment -- whether two differently
+worded statements say the same thing is not a reading-tier question.
+
 **`adversary` sits on reasoning because it is refutation.** It is handed one
 claim, a location, the same diff the claim came from, and a baseline to run `git
 blame` against. The question is narrow and the search is bounded by somebody
@@ -511,17 +554,18 @@ rung down is a different result from one that failed with the reviewer it was
 supposed to have.
 
 **The judgment roles stop at reasoning.** They are `recon-product`, `qa`,
-`reviewer`, `branch-reviewer`, and `adversary`. None of them lands on the
-**reading** rung, and if reasoning is not available either, the node waits
-rather than running with a check that cannot perform the check. The reason is
-the same one that keeps `adversary` off the cheapest rung: a review too weak to
+`reviewer`, `spec-reviewer`, `branch-reviewer`, and `adversary`. None of them
+lands on the **reading** rung, and if reasoning is not available either, the
+node waits rather than running with a check that cannot perform the check. The
+reason is the same one that keeps `adversary` off the cheapest rung: a review
+too weak to
 find the problem returns the same shape of output as a review that found
 nothing, and nothing downstream can tell the two apart. `qa` belongs on this
 list because its walkthrough is the only look anything gets at the running
 system, and it is on the reasoning rung for the judgment it makes when what it
 saw does not match what was promised.
 
-Three of those five, `qa`, `adversary`, and `recon-product` once it has already
+Three of those six, `qa`, `adversary`, and `recon-product` once it has already
 stepped down, are on the floor as their routine tier, so they have no step
 available at all. Unavailable means the node waits.
 

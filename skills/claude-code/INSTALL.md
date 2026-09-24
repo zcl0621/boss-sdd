@@ -37,7 +37,7 @@ it was built against give exactly one skills path for Claude Code,
 `~/.claude/skills/<name>/`, and no project-level equivalent, while listing two
 paths for other platforms. The omission looks deliberate, so this document does
 not invent a project-level install. If your installation does support one, you
-are on your own for it, and note before you try: the nine role files in step 3
+are on your own for it, and note before you try: the ten role files in step 3
 refer to the body by its absolute installed path, so they would all need
 rewriting too.
 
@@ -72,10 +72,10 @@ What you should have afterwards:
 ~/.claude/skills/plan-sdd/
   SKILL.md                      the entry point: frontmatter, and the platform bindings
   INSTALL.md                    this file
-  agents/                       the nine role definitions, as installed in step 3
+  agents/                       the ten role definitions, as installed in step 3
   references/native-review.md   whether /code-review is invocable here
   shared/PLAYBOOK.md            the portable body: start here when running the skill
-  shared/roles.md               the nine roles and the model routing
+  shared/roles.md               the ten roles and the model routing
   shared/references/            the body's reference files, copied whole
 ```
 
@@ -89,19 +89,20 @@ an entry point, which its own opening paragraph says: nothing discovers it, and
 you reach it only from the wrapper that names the skill and its invocation.
 Invoke `/plan-sdd`; there is nothing else to confuse it with.
 
-## 3. Install the nine role files
+## 3. Install the ten role files
 
 The skill dispatches subagents by role name, and each role is a file in
-`.claude/agents/`. Copy all nine into the project you want to run the skill on:
+`.claude/agents/`. Copy all ten into the project you want to run the skill on:
 
 ```bash
 mkdir -p <project>/.claude/agents
 cp skills/claude-code/agents/*.md <project>/.claude/agents/
 ```
 
-That is nine files: `recon-rules`, `recon-product`, `recon-code`, `implementer`,
-`ui-designer`, `qa`, `reviewer`, `branch-reviewer`, `adversary`. The roster is
-fixed. Do not add a tenth and do not rename one; the body dispatches these names.
+That is ten files: `recon-rules`, `recon-product`, `recon-code`, `implementer`,
+`ui-designer`, `qa`, `reviewer`, `spec-reviewer`, `branch-reviewer`, `adversary`.
+The roster is fixed. Do not add an eleventh and do not rename one; the body
+dispatches these names.
 
 Repeat this step per project. The verified facts name `.claude/agents/<name>.md`
 and no user-level equivalent, so whether a home-directory copy also works is
@@ -200,7 +201,7 @@ re-install; the rest need a live session.
 
    A subagent that comes back having read the repository means the role file was
    found and `subagent_type` resolved. An error naming an unknown agent type
-   means it was not: check that the nine files landed in the project's
+   means it was not: check that the ten files landed in the project's
    `.claude/agents/`, and if they did, that your installation reads the `name`
    key rather than some other one.
 4. If you did step 4, confirm the `plan_*` tools appear in the session's toolset.

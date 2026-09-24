@@ -18,17 +18,17 @@
 # silently drops the role. These three lines answer it without Codex:
 #
 #   grep -nE '^[^#]*(SKILL_DIR|\$HOME|"~)' ~/.codex/config.toml   # must print nothing
-#   grep -c '^config_file' ~/.codex/config.toml                   # must print 9
+#   grep -c '^config_file' ~/.codex/config.toml                   # must print 10
 #   grep -oE '^config_file = "[^"]+"' ~/.codex/config.toml | cut -d'"' -f2 |
 #     while read p; do [ -f "$p" ] || echo "MISSING $p"; done
 #
 # All three anchor on real TOML lines, so the example paths in these comments do
-# not trip them. The second counts every config_file in the file, so it reads 9
-# only if these nine roles are the only agents declared; adjust the number if you
+# not trip them. The second counts every config_file in the file, so it reads 10
+# only if these ten roles are the only agents declared; adjust the number if you
 # have others. The third prints one MISSING line per layer that is not on disk,
-# and prints nothing when all nine resolve.
+# and prints nothing when all ten resolve.
 #
-# Nine roles, exactly the nine the skill dispatches. Do not rename them: the
+# Ten roles, exactly the ten the skill dispatches. Do not rename them: the
 # shared body and every dispatch prompt refer to them by these names.
 #
 # Per-role model and reasoning effort are NOT set here. [agents.<name>] accepts
@@ -42,7 +42,7 @@
 # agents.interrupt_message, agents.max_concurrent_threads_per_session,
 # agents.max_threads (the legacy alias of that one), and the two below. They set
 # a default for every role at once and cannot be narrowed to one role here. That
-# is a statement about those six keys, not about the namespace: the nine
+# is a statement about those six keys, not about the namespace: the ten
 # agents.<role>.config_file keys below are in the same namespace and are
 # per-role by construction.
 #
@@ -73,7 +73,7 @@ agents.default_subagent_reasoning_effort = "low"
 # review_model = "gpt-5.6"
 
 # ---------------------------------------------------------------------------
-# The nine roles.
+# The ten roles.
 #
 # What Codex does with description is not documented: the source lists the field
 # and gives it no meaning. These are written as though Codex reads them when it
@@ -109,6 +109,10 @@ description = "Starts the actual running system, exercises the change, and recor
 [agents.reviewer]
 config_file = "<SKILL_DIR>/agents/reviewer.toml"
 description = "Reviews one node's scoped diff having not written it, and reports what is wrong with the evidence for each thing. Does not fix anything and does not read outside the diff it was given."
+
+[agents.spec-reviewer]
+config_file = "<SKILL_DIR>/agents/spec-reviewer.toml"
+description = "Compares one node's diff against the plan document's spec rather than its task text, and reports every deviation, addition and omission with both sides quoted. Changes nothing and reconciles nothing."
 
 [agents.branch-reviewer]
 config_file = "<SKILL_DIR>/agents/branch-reviewer.toml"

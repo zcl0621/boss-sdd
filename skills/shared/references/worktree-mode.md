@@ -218,11 +218,12 @@ into the main tree, and every isolation property of this mode is gone: the pass
 is wasted, and the user's tree is left dirty in the way the precondition above
 exists to prevent.
 
-**Step 3, review it independently.** The reviewer, the QA walkthrough and the
-adversary all work in the node's worktree, against its branch point, and the
-reviewer's diff loses its path restriction. [review.md](review.md) gives the
-exact inputs. Briefing a reviewer with the main tree's diff shows it none of the
-node's work, and it will report that the task was never implemented.
+**Step 3, review it independently.** The reviewer, the spec-reviewer, the QA
+walkthrough and the adversary all work in the node's worktree, against its
+branch point, and the two review lanes' diff loses its path restriction.
+[review.md](review.md) gives the exact inputs. Briefing a reviewer with the main
+tree's diff shows it none of the node's work, and it will report that the task
+was never implemented.
 
 **Step 4, read the diff yourself.** Diff the node's worktree against the commit
 it was cut from, with no path restriction:
