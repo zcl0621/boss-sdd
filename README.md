@@ -48,6 +48,19 @@ And in dark appearance, back on the graph view:
 | `docs/plans` | Plan documents. `2026-09-18-boss-sdd-hardening.md` holds the verified platform-facts table the skill packagings cite. |
 | `Tests/BoardKitTests` | Graph parity against the old Python board, store guards, API, memory, legacy import. |
 
+**What belongs in a wrapper, and what does not.** A wrapper states platform
+facts: what "dispatch a subagent" means there, where role files live, which model
+identifiers exist, what the platform's own documentation settles and what it
+leaves open. It does not restate a rule from the body. Where a wrapper needs a
+body rule for a platform fact to make sense, it names the rule in one sentence
+and links to it instead of explaining it a second time.
+
+That line is worth holding, because the failure it prevents is a silent one. A
+wrapper that re-explains a body rule in its own words is correct on the day it is
+written, and becomes a second and contradicting statement the first time that
+rule moves — with nothing to tell a reader which of the two is current. Every
+cross-platform inconsistency this repository has had so far arrived that way.
+
 Data lives in `~/.claude/plan-sdd/board.sqlite3`. On first launch, if the store
 has no runs and `~/.claude/plan-sdd/runs/` exists, the app imports the JSON files
 the previous Python board wrote. It reads them and leaves them in place.
@@ -243,11 +256,13 @@ to change them:
 
 **Only the Claude Code packaging has been run.** The Codex and Cursor packagings
 were written from those platforms' published documentation, read on 2026-09-18
-and recorded in `docs/plans/2026-09-18-boss-sdd-hardening.md`. Nobody on this
-project has either tool installed, so nothing in those two packagings has ever
-been executed against a real installation. Both install documents mark the gaps
-where their source was silent. Check them against your own installation before
-trusting them.
+and recorded in `docs/plans/2026-09-18-boss-sdd-hardening.md`, and neither has
+been installed and executed as it ships here. A separately evolved copy of the
+skill has since been run in Cursor, which is where a few of the Cursor
+packaging's statements now come from; that packaging marks each one at the point
+it appears, and everything unmarked is still documentation nobody has run. Both
+install documents mark the gaps where their source was silent. Check them against
+your own installation before trusting them.
 
 ### Claude Code
 

@@ -77,26 +77,19 @@ To run a batch in parallel, put every `Agent` call for that batch in one message
 That is what phase 2 means by dispatching the whole batch at once, and it is what
 the three recon lanes in phase 0 require.
 
-### Rework uses form A, except on round 3
+### Rework: resuming works here
 
-Claude Code can resume a subagent with its context intact, by sending it a
-message addressed to the agent id its dispatch returned. So when a node fails
-review on round 1 or round 2, send **form A** of the rework message from
-[shared/references/dispatch.md](shared/references/dispatch.md): the three new
-blocks only, to the subagent that did the work. Keep each node's agent id
-alongside its baseline for as long as the node is active.
+Claude Code can resume a subagent with its context intact — a `SendMessage`
+addressed to the agent id its dispatch returned. So keep each node's agent id
+alongside its diff baseline for as long as the node is active.
 
-**Round 3 does not resume, and that is a rule about the work rather than about
-Claude Code.** The body escalates a twice-failed node to a fresh subagent on the
-strongest tier — `fable` here, per the Claude Code column of
-[shared/roles.md](shared/roles.md) — so round 3 is a new `Agent` call with
-**form B**, the full bundle as `dispatch.md` lists it and not a subset. The agent
-id you have been keeping is not the thing to reach for; the whole point is to
-stop handing the work back to a context that has already failed at it twice.
-
-Form B is also the fallback if a resume simply fails on round 1 or 2. Same
-message, same completeness requirement, and it still counts as that round rather
-than restarting the count.
+That is the whole of the platform's answer. Which rework message to send, and on
+which round you must not resume at all, belong to
+[shared/references/dispatch.md](shared/references/dispatch.md); read them there
+rather than here, because a copy in this file is a copy that goes stale the next
+time that rule moves. The one further thing this wrapper owes it: where that file
+escalates to "the strongest tier", the name on Claude Code is `fable`, per the
+Claude Code column of [shared/roles.md](shared/roles.md).
 
 ### Read-only roles are read-only by instruction here
 
@@ -107,37 +100,28 @@ because the role file and the dispatch prompt say so. Keep the sentence in both,
 and treat a read-only lane that edited a file as a finding about the run, not as
 a harmless accident.
 
-### Worktree mode and `isolation: "worktree"` are two different things
+### `isolation: "worktree"` is not the worktree the body means
 
-[shared/references/worktree-mode.md](shared/references/worktree-mode.md)
-specifies the body's optional worktree mode: a branch and a tree per node cut
-from the integration branch's tip, work reaching the plan by merge, and the
-node's gates re-run on the merged result before it is `done`. What it costs, what
-it protects, the precondition about the user's uncommitted changes, the merge
-lock and the recovery path are all its rules. Read them there before choosing the
-mode; this wrapper answers only the question that file leaves to a platform.
-
-**That question is which of two cases you are, and Claude Code is the second
-one:** trees you create yourself with `git worktree add` and hand to each node by
-filling its `<working_directory>` block with the path. The platform automates
-nothing here. Cutting each tree from the current tip, committing, merging, and
-re-gating on the merged result are yours to run, in the order that file gives.
+[shared/references/worktree-mode.md](shared/references/worktree-mode.md) closes
+by asking each wrapper which of two cases its platform is. **Claude Code is the
+second:** trees you create yourself with `git worktree add` and hand to each node
+by filling its `<working_directory>` block with the path. The platform automates
+none of it. Everything else — what the trees cost, the precondition about the
+user's uncommitted changes, the merge lock, the recovery path — is that file's,
+and leaving it there is the point.
 
 The `Agent` tool does take `isolation: "worktree"`, which gives one dispatched
 subagent a worktree of its own and cleans it up when it comes back unchanged.
-That is per-subagent containment and it does not deliver the mode. To close a
-node you have to commit in its tree, merge its branch, and gate the result, which
+That is per-subagent containment, and it is not the same thing. Closing a node
 takes the tree's path, its branch name, and the commit it was cut from; the
-verified facts say what the parameter does and none of those three. So leave
-`isolation` unset, and work in the tree you created with `git worktree add` and
-recorded in the plan's Status header.
+verified facts say what the parameter does and say none of those three. A
+subagent working in a tree you cannot name is one whose work you can neither
+review nor gate — and even where your environment hands the path back afterwards,
+that is one of the three, with the branch name and the branch point still
+missing.
 
-The reason is the same one either way round: steps 4 and 5 of the node loop have
-you read the node's diff and run its gates in a named tree, and a subagent
-working in a tree you cannot name is one whose work you can neither review nor
-gate. Even if your environment hands that path back afterwards, you have one of
-the three things a node's close-out needs, and the branch name and branch point
-are still missing.
+So leave `isolation` unset, and work in the tree you created and recorded in the
+plan's Status header.
 
 ## On `allowed-tools`
 
