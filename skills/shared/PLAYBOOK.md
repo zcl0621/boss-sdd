@@ -304,7 +304,10 @@ loop inside a node, of which there are at most three):
 
 3. **Review it independently.** Set the node to `review`. Every
    task gets a static review from a `reviewer` subagent that did not write the
-   code, with no exceptions and regardless of role. Tasks carrying `ui-designer`
+   code, with no exceptions and regardless of role. The same task gets a spec
+   review from a `spec-reviewer` subagent, which reads the diff against the plan
+   document's spec rather than the task text and reports every deviation,
+   addition, and omission. Tasks carrying `ui-designer`
    or `qa` additionally get a runtime walkthrough. Then an `adversary` pass tries
    to knock each finding down. See [the review protocol](references/review.md)
    for what each lane checks and how findings are classified.
@@ -337,7 +340,10 @@ loop inside a node, of which there are at most three):
 6. **Decide.** The node fails if any of these is true: a gate exited non-zero;
    the review produced any `confirmed` finding, or an `unsure` finding you judged
    to be real; your own diff read found a changed design decision, an unplanned
-   refactor, or a test that does not cover the behaviour change; the walkthrough
+   refactor, or a test that does not cover the behaviour change; the spec review
+   reported a difference that stands and that you have not adopted as a
+   deliberate plan change -- adopting one means updating the plan document and
+   the board, not nodding at the deviation; the walkthrough
    recorded something that does not match what the task promised. When you cannot
    decide whether something counts as a failure, it counts.
 
@@ -409,11 +415,11 @@ thereby stale.
 
 ### Roles
 
-The nine roles, their identities, input contracts, delivery contracts, stop
+The ten roles, their identities, input contracts, delivery contracts, stop
 conditions, and model tiers are in [roles.md](roles.md). This document calls for:
 `recon-rules`, `recon-product`, `recon-code` in phase 0; `implementer`,
-`ui-designer`, `qa` in phase 2; `reviewer` and `adversary` in the node review
-loop; `branch-reviewer` and `adversary` again in phase 3.
+`ui-designer`, `qa` in phase 2; `reviewer`, `spec-reviewer`, and `adversary` in
+the node review loop; `branch-reviewer` and `adversary` again in phase 3.
 
 Pick the model by the risk and difficulty of the work, not by cost. When the
 user names a model, that wins. Never downgrade a judgment role to a

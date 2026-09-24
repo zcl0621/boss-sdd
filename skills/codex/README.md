@@ -19,8 +19,8 @@ directory against your own installation before trusting it.
 | --- | --- |
 | `SKILL.md` | The skill entry point. Frontmatter is `name` and `description`, which is all Codex supports. Points at the body; holds no procedure. |
 | `codex-platform.md` | The per-platform answers: subagent dispatch, the effort ladder, role config layers, the canary, the board, Codex's own reviewer, `AGENTS.md`. |
-| `agents/*.toml` | Nine role config layers, one per role, each setting that role's model and reasoning effort. Named by `config_file` in the declarations. |
-| `config.toml.example` | The nine `[agents.<name>]` declarations, plus the global block the canary lives in. |
+| `agents/*.toml` | Ten role config layers, one per role, each setting that role's model and reasoning effort. Named by `config_file` in the declarations. |
+| `config.toml.example` | The ten `[agents.<name>]` declarations, plus the global block the canary lives in. |
 | `AGENTS-review-rules.md` | An optional snippet for a project's `AGENTS.md`, since Codex takes its Code Review rules from there. |
 | `shared` | A symlink to `../shared`, the portable body. Step 2 dereferences it, so the installed tree holds a real copy. |
 
@@ -99,7 +99,7 @@ Check what landed:
 find "$SKILL_DIR" -type f | sort
 ```
 
-Expect these, not a total: `SKILL.md`, `codex-platform.md`, nine files under
+Expect these, not a total: `SKILL.md`, `codex-platform.md`, ten files under
 `agents/`, and under `shared/` a `PLAYBOOK.md`, a `roles.md`, and whatever
 `references/` currently holds. This step deliberately states no count for
 `references/` or for the tree as a whole: a count stood here before, and it
@@ -110,7 +110,7 @@ number written somewhere else. If one of the named files is missing, or a file
 turns up that these commands did not put there, the install is wrong; the
 listing above is what proves it.
 
-### 3. Declare the nine roles
+### 3. Declare the ten roles
 
 Merge `skills/codex/config.toml.example` into the user-level
 `~/.codex/config.toml`, or into the project-level `.codex/config.toml`, which
@@ -128,7 +128,7 @@ Verify it before you start Codex, rather than finding out from a run:
 
 ```bash
 grep -nE '^[^#]*(SKILL_DIR|\$HOME|"~)' ~/.codex/config.toml   # must print nothing
-grep -c '^config_file' ~/.codex/config.toml                   # must print 9
+grep -c '^config_file' ~/.codex/config.toml                   # must print 10
 grep -oE '^config_file = "[^"]+"' ~/.codex/config.toml | cut -d'"' -f2 |
   while read p; do [ -f "$p" ] || echo "MISSING $p"; done
 ```
@@ -137,9 +137,9 @@ All three anchor on real TOML lines rather than anywhere in the file, so the
 commented example paths in `config.toml.example` do not trip them if you paste
 the comments in too. Line 1 catches an unsubstituted placeholder or an
 unexpanded variable. Line 2 counts every `config_file` in the file, so it reads
-9 only if these nine roles are the only agents you have declared; adjust if you
+10 only if these ten roles are the only agents you have declared; adjust if you
 have others. Line 3 prints one `MISSING` line per layer that is not on disk, and
-prints nothing when all nine resolve. This matters because the repository cannot
+prints nothing when all ten resolve. This matters because the repository cannot
 tell you what Codex does with a `config_file` pointing nowhere -- error, or
 silently drop the role -- so the check has to happen on your side of the run.
 
@@ -147,7 +147,7 @@ Model and reasoning effort are not in the declarations. `[agents.<name>]`
 accepts `config_file` and `description` and nothing else, and the two settings
 that carry the tier -- `agents.default_subagent_model` and
 `agents.default_subagent_reasoning_effort` -- are among the six keys in the
-`agents` namespace that are global. (Not the whole namespace: the nine
+`agents` namespace that are global. (Not the whole namespace: the ten
 `agents.<role>.config_file` keys are in it and are per-role.) So per-role
 tiering lives in the TOML layers under `agents/`. Those ship filled in, with
 each role's rung matching [../shared/roles.md](../shared/roles.md), so there is

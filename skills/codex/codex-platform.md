@@ -21,7 +21,7 @@ in a project, or `$HOME/.agents/skills/plan-sdd/` for a personal install.
 
 Roles are declared in `config.toml` under `[agents.<name>]`, which accepts
 exactly two keys: `config_file`, a path to a TOML config layer for that role,
-and `description`. The nine declarations were merged into your `config.toml`
+and `description`. The ten declarations were merged into your `config.toml`
 when this skill was installed. The template they came from,
 `config.toml.example`, lives in the repository next to the sources of this file
 and is not copied into the installed directory.
@@ -29,7 +29,7 @@ and is not copied into the installed directory.
 **What Codex does with `description` is not documented.** The source lists the
 field and gives it no meaning. Whether Codex reads those strings when it picks
 an agent type, whether it only shows them to a person, or both, is open. The
-nine shipped descriptions are written as though they were selection guidance,
+ten shipped descriptions are written as though they were selection guidance,
 each saying what its role is for and who it is not. If Codex never model-selects
 from them they are inert, which is why it was safe to write them that way, but
 do not read their existence as evidence that it does.
@@ -93,9 +93,10 @@ conclude from this file that per-subagent worktrees work — this file does not
 know, which is exactly why the check is one node's worth of work and not a
 paragraph of reasoning.
 
-**No read-only flag for an agent is documented.** Six of the nine roles change
+**No read-only flag for an agent is documented.** Seven of the ten roles change
 nothing by contract: `recon-rules`, `recon-product`, `recon-code`, `reviewer`,
-`branch-reviewer`, `adversary`. Cursor enforces that with a frontmatter field.
+`spec-reviewer`, `branch-reviewer`, `adversary`. Cursor enforces that with a
+frontmatter field.
 The verified facts give Codex no equivalent, so on this platform nothing holds a
 lane to read-only below the prompt.
 
@@ -130,8 +131,8 @@ because effort is what the verified facts support, and it says what to do if the
 premise turns out to be wrong. If your installation offers more than one model,
 invert it: make the model the coarse axis, since a model change moves capability
 further than an effort change, and use effort to separate rungs inside one
-model. The nine layers as shipped take the effort reading, so inverting means
-editing all nine.
+model. The ten layers as shipped take the effort reading, so inverting means
+editing all ten.
 
 Six keys in the `agents` namespace are global: `agents.enabled`,
 `agents.interrupt_message`, `agents.max_concurrent_threads_per_session`,
@@ -185,7 +186,7 @@ run quietly continues on the escalated rung.
 **Two things about a role layer are assumptions rather than facts: the key names
 and the scoping.** The source says `config_file` is a path to a TOML config
 layer for that role and stops there. It does not enumerate what such a layer
-accepts, so the nine layers use the spellings the two settings carry in the
+accepts, so the ten layers use the spellings the two settings carry in the
 global namespace. And it does not say that a global key written inside a role
 layer is re-scoped to that role, which is the half of the design everything else
 rests on. A layer whose key names are right but which is still read globally
@@ -203,8 +204,8 @@ global block in `config.toml.example` is uncommented and sets:
 agents.default_subagent_reasoning_effort = "low"
 ```
 
-No role layer sets `low`. The nine use `minimal` twice, `medium` four times and
-`high` three times. So on the first real run, with no knowledge of Codex needed
+No role layer sets `low`. The ten use `minimal` twice, `medium` four times and
+`high` four times. So on the first real run, with no knowledge of Codex needed
 beyond reading back the effort a role actually ran at:
 
 - **any role reporting `low`** fell through to the global default, so its layer

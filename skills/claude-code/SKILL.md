@@ -47,7 +47,7 @@ against, except the four marked, which say what they rest on instead.
 | --- | --- |
 | "dispatch a subagent" | one `Agent` tool call: `subagent_type` is the role name, `model` is the tier |
 | "issue several such calls in one message" | several `Agent` calls in a single assistant message; they run concurrently |
-| "where role definitions live" | `.claude/agents/<role>.md`, the nine files in [agents/](agents/) |
+| "where role definitions live" | `.claude/agents/<role>.md`, the ten files in [agents/](agents/) |
 | "the model identifiers that are valid for you" | `fable`, `opus`, `sonnet`, `haiku`, routed per role by the Claude Code column of [shared/roles.md](shared/roles.md) |
 | "whether your platform can resume the subagent" ([dispatch.md](shared/references/dispatch.md)) | it can: `SendMessage`, addressed by the agent id the dispatch returned. **Form A on rounds 1 and 2, Form B on round 3** — that last one is the body's rule, not a platform limit |
 | "which of the two worktree cases you are" ([worktree-mode.md](shared/references/worktree-mode.md)) | the second: trees you create with `git worktree add` and name in each node's `<working_directory>` *(the table licenses `isolation: "worktree"` on the `Agent` call and nothing more; the case follows from what it leaves unsaid, below)* |
@@ -60,7 +60,7 @@ against, except the four marked, which say what they rest on instead.
 One `Agent` call per subagent. Three fields carry the contract:
 
 - `subagent_type`: the role name, exactly as the file in `.claude/agents/` names
-  it. Never invent a role; the roster is fixed at nine in
+  it. Never invent a role; the roster is fixed at ten in
   [shared/roles.md](shared/roles.md).
 - `model`: the tier for that role, from the Claude Code column of the routing
   table in [shared/roles.md](shared/roles.md). Pass it on every call. The role
@@ -93,9 +93,10 @@ Claude Code column of [shared/roles.md](shared/roles.md).
 
 ### Read-only roles are read-only by instruction here
 
-The three recon lanes, `reviewer`, `branch-reviewer`, and `adversary` must not
-write to the tree. The verified facts give Claude Code no per-role read-only
-flag, so on this platform nothing enforces that below the prompt: it holds
+The three recon lanes, `reviewer`, `spec-reviewer`, `branch-reviewer`, and
+`adversary` must not write to the tree. The verified facts give Claude Code no
+per-role read-only flag, so on this platform nothing enforces that below the
+prompt: it holds
 because the role file and the dispatch prompt say so. Keep the sentence in both,
 and treat a read-only lane that edited a file as a finding about the run, not as
 a harmless accident.
@@ -152,7 +153,7 @@ that check for Claude Code. Read it when you reach phase 3, not before.
 
 - [INSTALL.md](INSTALL.md): install the skill, the role files, and the board's
   MCP server.
-- [agents/](agents/): the nine role definitions, which also install into a
+- [agents/](agents/): the ten role definitions, which also install into a
   project's `.claude/agents/`.
 - [references/native-review.md](references/native-review.md): the Claude Code
   answer on native review invocability.

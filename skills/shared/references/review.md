@@ -40,6 +40,24 @@ The static reviewer checks:
 - Whether the tests cover the behaviour or merely the implementation details.
 - Unnecessary complexity, duplicated logic, and hand-edited generated files.
 
+**Spec review, `spec-reviewer`, mandatory for every task, dispatched in the
+same message.** The `reviewer` reads the diff against the task text; this lane
+reads it against the spec -- the goals, non-goals, and settled design decisions
+in the plan document, which the task text descends from but does not repeat.
+Give it, each in its own tagged block: the plan document's path, the task's
+text, the hard rules, the working directory, and the diff command, the last two
+being the same pair the static reviewer gets above -- **this node's worktree**
+and `git -C <node worktree> diff <branch point>`, unrestricted. Both lanes get
+the same diff for the same reason the adversary does: a lane looking at a
+different change is arguing about a different change.
+
+It reports differences in three shapes -- `deviation`, `addition`, `omission` --
+each with the spec line quoted on one side and the code or test quoted on the
+other, and its findings go through the adversarial pass below like any other
+lane's. What it is not for: code quality. A diff that is well-written, green,
+and exactly meets its task text still fails this lane if it is not what the
+spec said would be built.
+
 **Runtime walkthrough, `qa`, when the task carries `ui-designer` or `qa`.** The
 marker on the task is what decides this, and every task carrying either one gets
 the walkthrough. The kinds of change that earn a task one of those markers in
@@ -87,7 +105,8 @@ suite are each useful and none of them is a walkthrough.
 
 ### The adversarial pass
 
-Send every finding from both lanes to an `adversary` subagent, which tries to
+Send every finding from all of the node's review lanes to an `adversary`
+subagent, which tries to
 knock each one down: is it actually reachable, is it actually wrong, is it
 already handled somewhere the reviewer did not look, was it already there before
 this change.
@@ -116,7 +135,8 @@ It returns, per claim, one of the three verdicts below and the evidence it reste
 on. An adversary that returns a verdict with no evidence has not done the job;
 send that claim back or judge it yourself.
 
-The word "finding" fits lanes 1 through 5 and both task-review lanes: something is
+The word "finding" fits lanes 1 through 5 and all of the task-review lanes:
+something is
 wrong, here is where. Lane 6 of branch review sends something different, a `done`
 verdict, which is a claim that something is right. Challenge it the same way with
 the question inverted: does the cited code and test actually satisfy the stated

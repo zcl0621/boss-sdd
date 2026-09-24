@@ -52,7 +52,7 @@ remove this check" gets acted on.
 You are the <role> for <this work item> in this plan. <one line of role identity, from roles.md>
 
   <this work item> is whichever of these the dispatch is against:
-    a task           -> "task T3"          (implementer, ui-designer, qa, reviewer)
+    a task           -> "task T3"          (implementer, ui-designer, qa, reviewer, spec-reviewer)
     a recon lane     -> "the rules lane"   (recon-rules, recon-product, recon-code)
     a review lane    -> "the tests lane"   (branch-reviewer)
     a set of claims  -> "these 7 findings" (adversary)
