@@ -82,10 +82,13 @@ as the worktree means the route is open on your installation and
 instead means it is not, and you found that out on one node rather than on all
 of them.
 
-Until you have run that check, run shared-tree mode. It is the default the rest
-of the body describes, it is not a degraded run, and `worktree-mode.md` itself
-tells you not to stall asking the user which mode to use. What you may not do is
-conclude from this file that per-subagent worktrees work.
+**Run that check in phase 0, because the answer decides whether the run starts at
+all.** The body has no shared-tree fallback: a node owns its worktree or there is
+no node. If the check comes back with the subagent in the repository root, say so
+and stop rather than planning a run you cannot execute. What you may not do is
+conclude from this file that per-subagent worktrees work — this file does not
+know, which is exactly why the check is one node's worth of work and not a
+paragraph of reasoning.
 
 **No read-only flag for an agent is documented.** Six of the nine roles change
 nothing by contract: `recon-rules`, `recon-product`, `recon-code`, `reviewer`,

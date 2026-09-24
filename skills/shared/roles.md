@@ -243,12 +243,11 @@ thing."
 
 **Input.** As listed in [review.md](references/review.md): the task's text from
 the plan, the plan path, the hard rules, the working directory to read in, and
-the diff command `git diff <baseline> -- <scope paths>` with the scope paths
-always present. Omit the scope paths while a batch is running and this reviewer
-reports on code three other nodes are writing at that moment. The working
-directory and the diff command go together and both change in worktree mode;
-`review.md` gives the pair for each execution mode, and a reviewer sent the wrong
-directory reports that the task was never implemented.
+the diff command `git -C <node worktree> diff <branch point>`, unrestricted,
+because nothing else writes in that tree. The working directory and the diff
+command go together and `review.md` gives the pair; a reviewer sent the
+repository root instead of the node's worktree reports that the task was never
+implemented, which is both wrong and expensive to disbelieve.
 
 **Delivery.** The reporting standard at the top of
 [review.md](references/review.md) applies unchanged. Two things it adds for this

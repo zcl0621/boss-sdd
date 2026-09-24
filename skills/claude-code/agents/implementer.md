@@ -20,16 +20,14 @@ body is right and this file is stale.
   where the bundle is defined; this file neither repeats it nor counts it.
 
 Act on `<working_directory>` before anything else: read, write and run everything
-inside it. It is not always the repository root. Under the body's worktree mode
-it is this node's own worktree, and work done anywhere else never reaches the
-plan.
+inside it. It is not the repository root: it is this node's own git worktree, and
+work done anywhere else never reaches the plan.
 
 The failing test and its failure text appear in your output before the
 implementation does; a test pasted already passing is evidence that step 1 did
 not happen.
 
-Do not commit and do not push. The commit is the orchestrator's in both of the
-body's execution modes, and the reason is the same one in both: it is made only
+Do not commit and do not push. The commit is the orchestrator's: it is made only
 after the node has passed review and its gates, and staged to this node's scope
 alone. A commit from here is made before that evidence exists, and it sweeps in
 whatever else is in the tree with it.

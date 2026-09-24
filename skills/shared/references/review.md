@@ -17,17 +17,13 @@ Dispatch these lanes in one message so they run in parallel.
 
 **Static review, `reviewer`, mandatory for every task regardless of its role.**
 Give it, each in its own tagged block: the task's text from the plan, the plan
-path, the hard rules, the working directory, and the diff command. The working
-directory and the diff command go together and depend on the execution mode:
-
-- Shared-tree mode: the repository root, and
-  `git diff <baseline> -- <scope paths>`. The path restriction is required here.
-  Leave it off and the reviewer sees whatever the other nodes in the batch are
-  writing at the same moment, and reports on code that is not this task's.
-- Worktree mode: this node's worktree, and
-  `git -C <node worktree> diff <branch point>`, unrestricted. Nothing else is
-  writing in that tree, so the whole diff is this task's, and an unrestricted one
-  also reveals writes outside the declared scope.
+path, the hard rules, the working directory, and the diff command. Those last two
+go together: **this node's worktree**, and
+`git -C <node worktree> diff <branch point>`, unrestricted. Nothing else is
+writing in that tree, so the whole diff is this task's, and leaving it
+unrestricted is what also reveals writes outside the declared scope. Do not
+substitute the repository root — it holds the user's pre-run state, not the
+change under review.
 
 Getting this wrong in worktree mode does not degrade the review, it empties it:
 a reviewer pointed at the repository root sees none of the node's work and
@@ -55,10 +51,9 @@ you still gets the lane.
 Give it, each in its own tagged block:
 
 - the task's text from the plan, including its acceptance criteria
-- the working directory to start the application in: the repository root in
-  shared-tree mode, this node's worktree in worktree mode. In worktree mode the
-  application it must exercise is the one in that tree, not the one at the
-  repository root, which does not contain the change.
+- the working directory to start the application in: **this node's worktree**.
+  The application it must exercise is the one in that tree, not the one at the
+  repository root, which does not contain the change at all.
 - **the run recipe from recon lane C, verbatim**: the start command, the port or
   URL, the seed or fixture step, the test accounts or credentials, and the
   services that must already be running. This lane cannot start the application
@@ -164,16 +159,16 @@ runs out while nobody is looking at the fix.
 
 Once every task's status is `done` or `blocked`, set the plan to `review` and
 check the whole change. `baseRef` is whatever the plan document's Status header
-records as `Base ref`, which is the commit from phase 0 unless worktree mode's
-uncommitted-changes precondition replaced it; read the header rather than
-remembering phase 0. `headRef` is `HEAD`, or the tip of the integration branch if
-you ran in worktree mode, where the branch is what every completed node merged
-into and the individual worktrees hold nothing phase 3 needs. Give every lane,
-each in its own tagged block: the plan document's path, the hard rules, the diff
-range `git diff <baseRef>..<headRef>`, its lane's question, and the working
-directory to read and run in, which is the repository root in shared-tree mode
-and the integration worktree in worktree mode. Unlike task review, this diff is
-not path restricted: the whole point is to see the change as one thing.
+records as `Base ref`, which is the commit from phase 0 unless the
+uncommitted-changes precondition in
+[worktree-mode.md](worktree-mode.md) replaced it; read the header rather than
+remembering phase 0. `headRef` is the tip of the integration branch — that branch
+is what every completed node merged into, and the individual node worktrees hold
+nothing phase 3 needs. Give every lane, each in its own tagged block: the plan
+document's path, the hard rules, the diff range `git diff <baseRef>..<headRef>`,
+its lane's question, and the working directory to read and run in, which is **the
+integration worktree**. Unlike task review, this diff is not path restricted: the
+whole point is to see the change as one thing.
 
 The working directory is not made redundant by the diff range. Refs are
 repo-global, so the range itself resolves from any worktree, but lanes 1 through 5

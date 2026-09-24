@@ -12,21 +12,24 @@ one; where it does not, dispatch a fresh subagent with the full context bundle
 defined in [dispatch.md](dispatch.md) and count it as the same round rather than
 starting the count over.
 
-There is no worktree isolation and no branch isolation. Every node writes into
-the same tree at the same time. Safety comes entirely from the `write_scope` and
-`exclusive_resources` declarations below and from you scheduling around them.
-
-That is the default. The optional worktree mode in
-[worktree-mode.md](worktree-mode.md) gives each node its own tree and its own
-branch. It leaves the content of this file standing and changes how two of its
-rules read, each flagged where it is stated: the definition of `done` below gains
-a merge and a second gate run, and a node blocked after its review passed returns
+Every node gets its own git worktree on its own branch, and there is no other
+mode; the mechanics are in [worktree-mode.md](worktree-mode.md). That leaves the
+content of this file standing and changes how two of its rules read, each flagged
+where it is stated: the definition of `done` below includes a merge and a second
+gate run on the merged result, and a node blocked after its review passed returns
 to `review` rather than to `pending`. It also adds a merge lock, which is
 deliberately not an `exclusive_resources` entry and is not subject to the batch
-rules; that file says why. Everything else here holds unchanged, including the
-declarations themselves, the ready rule, the batch rules, and the state names.
-What `write_scope` overlap costs you changes from concurrent corruption to a
-merge conflict, and the rule against overlapping a batch stays either way.
+rules; that file says why.
+
+**Isolation does not relax the declarations below.** "Each node has its own tree"
+reads like permission to schedule loosely, and for half of these rules the
+opposite is true. `exclusive_resources` is untouched by isolation, because a
+serial test lock, a database, a device or a port is shared by every tree on the
+machine — that declaration now carries the concurrency safety on its own, with
+nothing behind it. `write_scope` overlap changes only what it costs you, from two
+implementers corrupting each other mid-write to a merge conflict you resolve by
+hand in the middle of a run, and the rule against overlap inside a batch stands
+either way.
 
 ## What each task declares
 
@@ -51,6 +54,20 @@ some other task.
 
 The plan's `exclusive_resources` maps to the board task field named
 `exclusive_resource`.
+
+**A task that cannot go green by itself is not a task.** `done` includes a merge
+and a gate run on the merged result, so a node that ends with its tree red has
+nothing to merge and nothing that can pass. The split this rules out is the
+tempting one: a task that writes the failing test, and a separate task that makes
+it pass. Those are a single task, inside which the implementer still works
+test-first. Splitting them puts a node into a state it can never leave, and the
+dependency edge between them does not rescue it — `depends_on` orders work, it
+does not let a predecessor close red.
+
+The general form: if a task's honest acceptance criterion is "the suite is
+failing, and the next task fixes that", merge it into the next task. Deciding
+this at planning time costs a minute. Discovering it at the node's merge step
+costs the node.
 
 ## Node states
 

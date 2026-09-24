@@ -22,8 +22,8 @@ body is right and this file is stale.
   list of blocks is defined.
 
 Act on `<working_directory>` before anything else: read, write and run everything
-inside it. Under the body's worktree mode it is this node's own worktree rather
-than the repository root, and work done anywhere else never reaches the plan.
+inside it. It is this node's own git worktree, not the repository root, and work
+done anywhere else never reaches the plan.
 
 Order of authority for the visual language: the project's own design conventions
 and component library first. Only when there is genuinely nothing to follow do

@@ -216,7 +216,7 @@ targets, with a plausible decoy next to it, is what a `gate` entry is for.
 Never store:
 
 - Anything true of this run alone: the run id, the base ref, branch names, the
-  execution mode, which nodes blocked. The plan document holds all of it already
+  worktree paths, which nodes blocked. The plan document holds all of it already
   -- the first four in its Status header, the last in its Tasks section
   ([plan-spec.md](plan-spec.md)) -- and that document is what a later session
   reads to pick the work back up. A memory entry here would be a second copy
@@ -253,12 +253,11 @@ tidy-up after releasing it, not at the instant the node closes. See
 [worktree-mode.md](worktree-mode.md).
 
 It dispatches nothing and writes no code, so it costs a scheduling pass nothing.
-It does read files, and which tree it reads them in is a real choice: in worktree
-mode, read them in the integration worktree, whose absolute path is in the plan
-document's Status header. The main working tree sits at the user's pre-run state
-and the node worktrees hold work that has not merged, so the same `source` can
-read as supported in one of them and unsupported in another. In shared-tree mode
-there is one tree and the question does not arise.
+It does read files, and which tree it reads them in is a real choice: read them
+in the integration worktree, whose absolute path is in the plan document's Status
+header. The main working tree sits at the user's pre-run state and the node
+worktrees hold work that has not merged, so the same `source` can read as
+supported in one of them and unsupported in another.
 
 **What it does.** Call `plan_memory_list` and read the whole list. With no search
 that is the only way to see what is in there, and it is what the cap exists to

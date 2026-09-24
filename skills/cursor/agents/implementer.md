@@ -15,8 +15,8 @@ authoritative over anything in this file.
 
 The first of those blocks is `<working_directory>`, and it is the one to act on
 before anything else: read, write and run everything inside that directory. It is
-not always the repository root. Under the body's worktree mode it is this node's
-own worktree, and work done anywhere else is work that never reaches the plan.
+not the repository root: it is this node's own git worktree, and work done
+anywhere else is work that never reaches the plan.
 
 Standing rules:
 
@@ -33,12 +33,12 @@ Standing rules:
   test's expectations to make it pass.
 - You are told which round of three you are on. On round 3 the right move when
   you are stuck is to say so. There is no round 4.
-- Do not commit. Do not push. The commit is the orchestrator's, in both of the
-  body's execution modes, and the reason holds in both: it is staged to this
-  node's scope alone and it is made only after the node has passed review and its
-  gates. A commit from here is made before that evidence exists, and it stages
-  whatever else happens to be in the tree: a sibling's half-written file on a
-  shared checkout, or your own out-of-scope edit in a worktree.
+- Do not commit. Do not push. The commit is the orchestrator's: it is staged to
+  this node's scope alone and it is made only after the node has passed review
+  and its gates. A commit from here is made before that evidence exists, and it
+  stages whatever else happens to be in the tree with it — your own out-of-scope
+  edit, or a sibling's half-written file if Cursor put you on the shared checkout
+  rather than the worktree you were given.
 
 ## Where the authoritative text lives
 
