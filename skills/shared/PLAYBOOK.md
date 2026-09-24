@@ -312,18 +312,18 @@ loop inside a node, of which there are at most three):
    to knock each finding down. See [the review protocol](references/review.md)
    for what each lane checks and how findings are classified.
 
-4. **Read the diff yourself.** Go file by file, from the node's baseline,
-   restricted to the node's `write_scope`: `git diff <baseline> -- <scope paths>`.
-   The path restriction is not optional when a batch is running, because the
-   other nodes in that batch are writing into the same tree and an unrestricted
-   diff mixes their work into this node's review. You are looking for design
+4. **Read the diff yourself.** Go file by file, diffing the node's worktree
+   against the commit it was cut from, with no path restriction:
+   `git -C <node worktree> diff <branch point>`. Nothing else writes in that
+   tree, so the whole diff is this node's, and leaving it unrestricted is what
+   shows you everything this implementer did. You are looking for design
    decisions that were quietly changed, refactors nobody asked for, tests that
    assert implementation details instead of behaviour, and anything touching the
-   user's pre-existing changes. A change that appears outside the node's scope is
-   itself a finding: either another node wrote it, which means the batch was
-   unsafe, or this implementer went out of bounds. Then adjudicate the review
-   output: `confirmed` findings count as they stand, `unsure` findings you judge
-   one by one yourself. An `unsure` finding is not a pass by default.
+   user's pre-existing changes. A change outside the node's `write_scope` is
+   still a finding, and here an unambiguous one: no sibling implementer holds a
+   key to this tree, so this one wrote it. Then adjudicate the review output:
+   `confirmed` findings count as they stand, `unsure` findings you judge one by
+   one yourself. An `unsure` finding is not a pass by default.
 
    **Read what the implementer did, not what it concluded.** Its return carries
    raw command output because the dispatch contract asks for exactly that, and
@@ -375,16 +375,19 @@ loop inside a node, of which there are at most three):
    node's scope and nothing else:
 
    ```
-   git add -- <scope paths>
-   git commit -m "<message>"
+   git -C <node worktree> add -- <scope paths>
+   git -C <node worktree> commit -m "<message>"
    ```
 
-   Never `git commit -a` and never `git add -A`. The other nodes in the batch are
-   mid-write in the same tree, so a sweeping stage commits their unfinished work
-   under this node's message. That also poisons the `git log -S` and `git blame`
-   attribution that phase 3 uses to decide whether a finding predates this
-   branch. If `git status` shows changes inside this node's scope that the node
-   did not make, stop and treat it as the batch-safety finding it is. Never push.
+   Never `git commit -a` and never `git add -A`. A worktree stops a subagent
+   from damaging a sibling; it does nothing to stop this one writing outside its
+   own declared scope inside its own tree, and a sweeping stage would carry that
+   into the commit and from there into the integration branch. It also poisons
+   the `git log -S` and `git blame` attribution that phase 3 uses to decide
+   whether a finding predates this branch. If `git status` in that tree shows
+   changes the node did not report making, stop: nothing else holds a key to it,
+   so either the implementer went somewhere it did not tell you about or the
+   isolation is not what you think it is. Never push.
 
    Downstream nodes enter the ready set on their own once all their dependencies
    are `done`.

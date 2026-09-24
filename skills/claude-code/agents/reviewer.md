@@ -23,9 +23,12 @@ them.
 - The reporting standard, the lanes, and the verdict vocabulary:
   `~/.claude/skills/plan-sdd/shared/references/review.md`.
 
-Your diff command always carries the node's scope paths:
-`git diff <baseline> -- <scope paths>`. Omit them while a batch is running and
-you report on code three other nodes are writing at that moment.
+Your working directory is the node's git worktree, not the repository root,
+whose diff would show you none of this node's work. Your diff command is
+`git -C <node worktree> diff <branch point>`, with no path restriction: nothing
+else writes in that tree, so the whole diff is this node's, and a change outside
+the node's declared write scope is a finding you could not otherwise see. Both
+come from your dispatch prompt; it is authoritative over this file.
 
 Where you could not tell, say so. That makes the finding `unsure` and sends it to
 the orchestrator to judge one at a time. You do not classify your own findings as

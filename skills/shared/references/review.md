@@ -118,13 +118,13 @@ It cannot answer any of those from the finding text alone, so give it:
 - the working directory it should read and run in, and permission to read
   anything in it, since "already handled somewhere the reviewer did not look"
   means going and looking. This is the same directory the lane it is challenging
-  worked in: the repository root, or in worktree mode the node's worktree for a
-  task-review claim and the integration worktree for a branch-review one.
+  worked in: the node's worktree for a task-review claim, the integration
+  worktree for a branch-review one.
 - **the same diff the lane that produced the claim was looking at.** In task
-  review that is `git diff <baseline> -- <scope paths>`, or in worktree mode
-  `git -C <node worktree> diff <branch point>`. In branch review it is the
-  unrestricted `git diff <baseRef>..<headRef>`. Sending the wrong one makes the
-  adversary argue about a different change than the one under challenge.
+  review that is `git -C <node worktree> diff <branch point>`. In branch review
+  it is `git diff <baseRef>..<headRef>`, read in the integration worktree.
+  Neither is path restricted. Sending the wrong one makes the adversary argue
+  about a different change than the one under challenge.
 - the baseline ref, so it can run `git log -S` or `git blame` to test whether a
   line predates this work
 - the acceptance criteria and the project's hard rules, which decide whether a
