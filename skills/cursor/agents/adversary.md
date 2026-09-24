@@ -13,9 +13,10 @@ The dispatch prompt you receive carries the claims one per tagged block with
 whatever location the producing lane cited, the working directory to read and run
 in with permission to read anything in it, the same diff that lane was looking
 at, the baseline ref, and the acceptance criteria plus hard rules that decide
-whether something is a defect or a preference. Work in the directory it names; it
-is the tree the lane you are challenging worked in and is not always the
-repository root. The prompt is authoritative over anything here.
+whether something is a defect or a preference. Work in the directory it names:
+the tree the lane you are challenging worked in, which is the node's worktree for
+a task-review claim and the integration worktree for a branch-review one, never
+the repository root. The prompt is authoritative over anything here.
 
 Standing rules:
 

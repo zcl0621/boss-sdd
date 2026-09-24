@@ -272,9 +272,12 @@ each.
 
 **Cursor's default is a shared checkout, hazard included.** The verified source:
 "Subagents share the parent agent's checkout by default. When several subagents
-edit files at once, they can overwrite each other's changes." That is precisely
-the premise non-negotiable 5 of the shared body is written on, where `write_scope`
-and `exclusive_resources` are the only thing making parallel dispatch safe.
+edit files at once, they can overwrite each other's changes." That is the hazard
+the shared body's worktree requirement removes: nodes that write in trees of
+their own cannot overwrite each other whatever Cursor's default is. What no tree
+removes is the other half of non-negotiable 5 — ports, devices, databases and
+test locks are shared by every tree on the machine, so `exclusive_resources`
+carries the concurrency safety alone.
 
 **Cursor's own isolation is something you ask for in the dispatch.** Cursor can
 run subagents each in their own environment, and the documented way to get that
@@ -292,11 +295,11 @@ sitting in; or, after it returns, run `git status` in your own tree and see
 whether the node's changes are sitting there. Until one of those says otherwise,
 you are on the shared checkout.
 
-What it buys when you do get it is narrower than it sounds: a stray write from
-one node no longer lands in a sibling's working tree mid-edit, which keeps your
-scoped diff read and your staging clean. What it does not buy is a branch, a
-merge step, an integration branch, or a post-merge gate. **Isolation obtained
-this way is not the worktree the body requires**, and it changes nothing about
+What it buys when you do get it is narrower than it sounds, and the body's own
+worktrees already bought it: a stray write from one node cannot land in a
+sibling's tree mid-edit. What it does not buy is a branch, a merge step, an
+integration branch, or a post-merge gate. **Isolation obtained this way is not
+the worktree the body requires**, and it changes nothing about
 scheduling: batch by non-overlapping `write_scope` and honour
 `exclusive_resources` exactly as the body says, because a checkout you asked for
 politely is not a guarantee and because file isolation never covered ports,

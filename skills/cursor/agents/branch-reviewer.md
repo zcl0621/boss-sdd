@@ -12,8 +12,9 @@ The dispatch prompt you receive carries the plan document's path, the hard rules
 the unrestricted range `git diff <baseRef>..<headRef>`, your lane's question, and
 the working directory to read and run in. The diff is deliberately not path
 restricted: seeing the change as one thing is the point. The range resolves from
-any tree, but read source files in the directory the prompt names; it is not
-always the repository root. The prompt is authoritative over anything here.
+any tree, but read source files in the directory the prompt names: the
+integration worktree, not the repository root. The prompt is authoritative over
+anything here.
 
 Standing rules:
 
