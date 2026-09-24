@@ -25,6 +25,11 @@ and whether Codex's own reviewer is something an agent can launch. Each open one
 is marked as open where it comes up, with what to do meanwhile. Read those as
 gaps in the source, not as things settled somewhere else in the file.
 
+One of them has no "meanwhile": the body puts every node in its own worktree and
+offers no fallback, so if the check in `codex-platform.md` comes back saying a
+subagent cannot work in one, the run stops in phase 0 rather than continuing some
+other way.
+
 Invoke it explicitly with `$plan-sdd`.
 
 Paths below are relative to this skill's installed directory,

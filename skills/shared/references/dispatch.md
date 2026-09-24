@@ -212,6 +212,16 @@ Either form counts as one round, and both tell the subagent which round it is on
 That matters: round 3 is the last, and a subagent that knows it should say it is
 stuck rather than reach for something increasingly speculative.
 
+**Round 3 is Form B whatever your platform can do.** The choice above turns on
+capability; this one overrides it and turns on nothing. A node reaching its third
+round has failed twice with that context and that model behind it, so
+[PLAYBOOK.md](../PLAYBOOK.md) phase 2 step 7 sends a fresh subagent on the
+strongest tier — and a fresh subagent knows nothing, which is Form B by
+definition. On a platform that can resume, round 3 is the one round where you do
+not. Resuming there is not a cheaper route to the same outcome; it hands the work
+back to the exact context and the exact model that have already failed at it
+twice, which is the thing the rule exists to prevent.
+
 ### Form A, when you can resume the original subagent
 
 Its original prompt is still in its context, so add only what is new:
