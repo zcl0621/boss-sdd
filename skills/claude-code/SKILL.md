@@ -49,7 +49,7 @@ against, except the four marked, which say what they rest on instead.
 | "issue several such calls in one message" | several `Agent` calls in a single assistant message; they run concurrently |
 | "where role definitions live" | `.claude/agents/<role>.md`, the nine files in [agents/](agents/) |
 | "the model identifiers that are valid for you" | `fable`, `opus`, `sonnet`, `haiku`, routed per role by the Claude Code column of [shared/roles.md](shared/roles.md) |
-| "whether your platform can resume the subagent" ([dispatch.md](shared/references/dispatch.md)) | it can: `SendMessage`, addressed by the agent id the dispatch returned. **Use form A.** |
+| "whether your platform can resume the subagent" ([dispatch.md](shared/references/dispatch.md)) | it can: `SendMessage`, addressed by the agent id the dispatch returned. **Form A on rounds 1 and 2, Form B on round 3** — that last one is the body's rule, not a platform limit |
 | "which of the two worktree cases you are" ([worktree-mode.md](shared/references/worktree-mode.md)) | the second: trees you create with `git worktree add` and name in each node's `<working_directory>` *(the table licenses `isolation: "worktree"` on the `Agent` call and nothing more; the case follows from what it leaves unsaid, below)* |
 | "the `plan-sdd` MCP tools" ([board.md](shared/references/board.md)) | the eleven `plan_*` tools of the board server, registered per [INSTALL.md](INSTALL.md) *(from `mcp/main.go` and `README.md` in the repository; the table has no MCP row for any platform)* |
 | "check whether your platform exposes an invocable review skill" | [references/native-review.md](references/native-review.md) *(not from the table; it says what it rests on)* |
@@ -77,18 +77,26 @@ To run a batch in parallel, put every `Agent` call for that batch in one message
 That is what phase 2 means by dispatching the whole batch at once, and it is what
 the three recon lanes in phase 0 require.
 
-### Rework uses form A
+### Rework uses form A, except on round 3
 
 Claude Code can resume a subagent with its context intact, by sending it a
 message addressed to the agent id its dispatch returned. So when a node fails
-review, send **form A** of the rework message from
+review on round 1 or round 2, send **form A** of the rework message from
 [shared/references/dispatch.md](shared/references/dispatch.md): the three new
 blocks only, to the subagent that did the work. Keep each node's agent id
 alongside its baseline for as long as the node is active.
 
-Form B is the fallback for a platform that cannot resume, and it stays in the
-body for that reason. Reach for it here only if a resume actually fails, and then
-send the whole bundle as `dispatch.md` lists it, not a subset.
+**Round 3 does not resume, and that is a rule about the work rather than about
+Claude Code.** The body escalates a twice-failed node to a fresh subagent on the
+strongest tier — `fable` here, per the Claude Code column of
+[shared/roles.md](shared/roles.md) — so round 3 is a new `Agent` call with
+**form B**, the full bundle as `dispatch.md` lists it and not a subset. The agent
+id you have been keeping is not the thing to reach for; the whole point is to
+stop handing the work back to a context that has already failed at it twice.
+
+Form B is also the fallback if a resume simply fails on round 1 or 2. Same
+message, same completeness requirement, and it still counts as that round rather
+than restarting the count.
 
 ### Read-only roles are read-only by instruction here
 

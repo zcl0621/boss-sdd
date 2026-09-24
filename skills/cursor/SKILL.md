@@ -77,7 +77,7 @@ read a dispatch form out of the skill-invocation syntax: how a *skill* is invoke
 is documented and is a different mechanism from how a *subagent* is dispatched,
 and the first settles nothing about the second.
 
-**Resuming a subagent works, so use Form A.**
+**Resuming a subagent works, so use Form A — on rounds 1 and 2.**
 [shared/references/dispatch.md](shared/references/dispatch.md) has two rework
 messages: Form A, a short one to the subagent that did the work, and Form B, the
 full context bundle to a fresh subagent. Cursor supports resuming: each subagent
@@ -87,8 +87,17 @@ about background execution specifically, so do not hold a node open waiting to
 resume an agent you launched in the background.
 
 So keep each node's agent ID with the node, alongside its diff baseline, and send
-Form A when a node fails review. Two things that do not change: it still counts
-as one round of the three, and the subagent is still told which round it is on.
+Form A when a node fails review on round 1 or round 2. Two things that do not
+change: it still counts as one round of the three, and the subagent is still told
+which round it is on.
+
+**One thing does change, on round 3: do not resume.** The body escalates a
+twice-failed node to a fresh subagent on the strongest tier, which on Cursor is
+`claude-opus-5[effort=high]` per [shared/roles.md](shared/roles.md), and a fresh
+subagent takes Form B. That is a rule about the work, not a Cursor limitation —
+resuming would work perfectly well here and is exactly what must not happen,
+because it returns the task to the context and the model that have already failed
+it twice. The stored agent ID is not the thing to reach for on that round.
 
 Form B stays the fallback for the case where you no longer have a usable agent
 ID. Then it is the full context bundle to a fresh subagent, counted as the same
@@ -162,14 +171,24 @@ session happens to be on and defeats the routing.
 
 **Not settled: per-dispatch model override.** A `.cursor/agents/<name>.md` file
 carries one `model`. The verified source does not say whether the model can be
-overridden when a subagent is launched. Two rows of the roster need that:
+overridden when a subagent is launched. Three things in the roster need that:
 `implementer` and `ui-designer` move from `composer-2.5` to `claude-opus-5` on a
-`[complexity: high]` task, and the escalation reserve is
-`claude-opus-5[effort=high]`. If your version supports an override, use it. If it
-does not, the roster's defaults stand, and you must record in the node's status
-detail that the node ran one rung below what its complexity called for. Editing
-the agent file mid-run to fake the escalation changes the role for every node
-still running against it; do not.
+`[complexity: high]` task; the escalation reserve is `claude-opus-5[effort=high]`;
+and **every round-3 rework runs on the strongest tier**, which is that same
+reserve. The third is the one to plan around, because it does not depend on how
+the task was classified at planning time — any node that fails twice reaches it.
+
+If your version supports an override, use it. If it does not, the roster's
+defaults stand and you record the shortfall in the node's status detail: for a
+complexity escalation, that the node ran one rung below what its complexity
+called for; for a round 3, that the escalation did not happen at all and the
+round ran on the tier that had already failed twice. That second note matters
+more than it looks — without it the node reports as an ordinary three-round
+`blocked`, and the reader has no way to see that the escalation the rule promised
+was never actually applied.
+
+Editing the agent file mid-run to fake either escalation changes the role for
+every node still running against it; do not.
 
 Everything else about tiers, stepping down, and the judgment-role floor is in
 [shared/roles.md](shared/roles.md).
