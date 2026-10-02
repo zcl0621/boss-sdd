@@ -21,6 +21,7 @@
 /* 工具栏视图切换 */
 "board.view.graph" = "依赖图";
 "board.view.columns" = "分栏";
+"board.view.memory" = "记忆";
 
 /* 写入接口状态 */
 "server.stopped" = "服务未启动";
@@ -101,3 +102,41 @@
 "card.dispatchable" = "可立即派发";
 "card.unassigned" = "未指派";
 "card.accessibility" = "%1$@，%2$@，%3$@";
+
+/* 记忆视图：显示所选运行对应仓库的项目记忆。「共 N 类」这类带量词的计数在 Localizable.stringsdict 里。 */
+"memory.kind.gate" = "门禁";
+"memory.kind.runRecipe" = "启动配方";
+"memory.kind.convention" = "约定";
+"memory.kind.hardRule" = "硬规则";
+"memory.kind.exclusiveResource" = "独占资源";
+"memory.kind.note" = "备注";
+/* **…** 表示强调（Markdown）。被标出的片段与相邻标点之间要隔开：标点紧贴 ** 时解析会失败。 */
+"memory.note" = "**这份记忆属于项目，不属于这次运行**。同一个仓库的每一次运行、以及它的每一个 worktree，读写的都是这一份。每条都必须带**出处**——这是让人一次文件读取就能证伪它的把手，也是它和「凭印象记下来的事」唯一的区别。";
+"memory.empty" = "这个项目还没有记忆。第一次运行的 recon 会把门禁、启动配方和硬规则写进来。";
+"memory.noProject.detail" = "记忆按仓库存放。创建运行时带上项目路径，这里才会显示它的记忆。";
+"memory.tally.source" = "每条都带出处";
+"memory.tally.grouped" = "按类型分组，无搜索";
+"memory.cap" = "%1$lld / %2$lld";
+"memory.cap.pill" = "%1$lld / %2$lld 条";
+"memory.updated" = "更新于 %@";
+/* %1$@ 仓库，%2$lld 条数，%3$lld 上限，%4$@ 类数（"memory.kinds"）。第二种用于运行自己的
+   项目路径被解析成另一个仓库的情形。 */
+"memory.subtitle" = "%1$@ · 项目记忆 %2$lld/%3$lld · %4$@";
+"memory.subtitle.resolved" = "%1$@（由运行的路径解析而来）· 项目记忆 %2$lld/%3$lld · %4$@";
+
+/* 记忆详情栏 */
+"memory.overview.title" = "项目记忆";
+"memory.field.distribution" = "分布";
+"memory.field.limit" = "上限";
+"memory.field.noSearch" = "没有搜索";
+"memory.field.hint" = "详情";
+"memory.field.value" = "内容";
+"memory.field.source" = "出处";
+"memory.field.key" = "key";
+"memory.field.scope" = "作用域";
+/* %lld 是每个项目的条数上限。 */
+"memory.limit.body" = "满 %lld 条时，新 key 会被直接拒绝，不会淘汰旧条目。为腾地方悄悄丢掉一条硬规则，比从没存过更糟。对已有 key 的改写在满额时仍然成功，所以错的条目永远能被纠正。";
+"memory.noSearch.body" = "这是故意的。有搜索，「查不到」就会被当成「没人记过这条」，而事实可能只是放在你没想到的 key 下面。列表一次给全，上限保证它始终读得完。";
+"memory.hint.body" = "选中一条，这里显示它的完整内容与出处。";
+"memory.key.note" = "key 存库前会去空格并转小写，这里显示的是存下来的那一份。";
+"memory.scope.resolved" = "这次运行登记的是 %@。记忆按仓库存放，不按 worktree，同一仓库的所有 worktree 共用这一份。";
