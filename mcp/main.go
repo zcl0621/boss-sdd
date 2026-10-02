@@ -611,6 +611,40 @@ func toMemoryView(m wireMemory) memoryView {
 	}
 }
 
+// canonicalProject is this binary's transcription of the one rule the board
+// uses to turn a project string into a storage key —
+// Sources/BoardKit/Store.swift's canonicalPath, reached through
+// normalizedProject on every memory route: trim whitespace, drop trailing
+// slashes (a lone "/" stays), and repeat until a pass changes nothing. Every
+// memory response echoes the board's stored spelling, so the three verifiers
+// pass the caller's input through this before comparing; a copy that lags the
+// board turns every slash-suffixed project into a false "different project"
+// report for an operation that succeeded, which is what round 2 left behind.
+//
+// The two copies are held together by one table of vectors, kept entry for
+// entry in Tests/BoardKitTests/MemoryTests.swift and in tools_test.go
+// (canonicalProjectVectors). Change the rule, that table and this function
+// together. The board stays the authority: the raw project goes out on the
+// wire untouched (memoryProjectQuery), and this decides only whether the echo
+// is the one the board would give. The board refuses a project that
+// canonicalises to ""; this returns "" and leaves the refusal to the board.
+//
+// len(next) > 1 counts bytes where the Swift copy counts characters. The
+// guard only decides whether a string ending in "/" is exactly "/", and both
+// answer that the same way.
+func canonicalProject(project string) string {
+	for {
+		next := strings.TrimSpace(project)
+		for len(next) > 1 && strings.HasSuffix(next, "/") {
+			next = next[:len(next)-1]
+		}
+		if next == project {
+			return next
+		}
+		project = next
+	}
+}
+
 // verifyMemoryEcho guards against trusting a successful json.Decode by
 // itself: a wrong-but-well-formed response decodes cleanly into wireMemory
 // with every field zeroed, and would otherwise be reported to the agent as a
@@ -620,15 +654,16 @@ func toMemoryView(m wireMemory) memoryView {
 //
 // GET and POST both echo back the *stored* record, which the board already
 // normalized before it ever reached SQL — mirroring
-// Sources/BoardKit/Store.swift's normalizedProject (trims whitespace) and
-// normalizedKey (trims, then lower-cases). So the comparison here applies the
-// same normalization to the caller's input rather than comparing raw: a
-// project with incidental leading/trailing whitespace round-trips to the same
-// (trimmed) project, and a key differing only in case or whitespace
-// round-trips to the same (trimmed, lower-cased) key. Comparing raw would
-// misreport a whitespace-padded project as "a different project" when nothing
-// happened but a trim — a false accusation that points at the board instead
-// of at the caller's own input.
+// Sources/BoardKit/Store.swift's normalizedProject (canonicalProject here:
+// trims, strips trailing slashes, repeats until stable) and normalizedKey
+// (trims, then lower-cases). So the comparison here applies the same
+// normalization to the caller's input rather than comparing raw: a project
+// with incidental whitespace or a trailing slash round-trips to the same
+// canonical project, and a key differing only in case or whitespace
+// round-trips to the same (trimmed, lower-cased) key. Comparing raw, or
+// merely trimmed, would misreport "/x/repo/" as "a different project" when
+// nothing happened but the board's own canonicalisation — a false accusation
+// that points at the board instead of at the caller's own input.
 //
 // The normalization is applied to the caller's side only; got is compared
 // verbatim, the same asymmetry verifyMemoryDeleted documents at length. That
@@ -651,7 +686,7 @@ func verifyMemoryEcho(project, key string, got wireMemory) error {
 	if got.Key == "" || got.Project == "" {
 		return fmt.Errorf("the board returned a memory with no key/project field; wrong shape: %+v", got)
 	}
-	wantProject := strings.TrimSpace(project)
+	wantProject := canonicalProject(project)
 	if got.Project != wantProject {
 		return fmt.Errorf("the board returned a memory from a different project: requested project=%q, got project=%q", wantProject, got.Project)
 	}
@@ -680,9 +715,10 @@ func verifyMemoryEcho(project, key string, got wireMemory) error {
 // same shape as verifyMemoryEcho's — normalize the caller's input the way the
 // board would, then require the response to match it exactly:
 //
-//   - project is trimmed only. Store.normalizedProject trims and deliberately
-//     does not case-fold (MemoryTests.projectsAreNotCaseFolded pins that), so
-//     folding here would accept a project the board never stored.
+//   - project goes through canonicalProject (trimmed, trailing slashes
+//     stripped, to a fixpoint). Store.normalizedProject deliberately does not
+//     case-fold (MemoryTests.projectsAreNotCaseFolded pins that), so folding
+//     here would accept a project the board never stored.
 //   - key is trimmed and lower-cased, mirroring Store.normalizedKey.
 //
 // The normalization is applied to the caller's side only; got is compared
@@ -711,7 +747,7 @@ func verifyMemoryDeleted(project, key string, got wireMemoryDeleted) error {
 	if got.Deleted == "" || got.Project == "" {
 		return fmt.Errorf("the board's delete result is missing fields; wrong shape: %+v", got)
 	}
-	wantProject := strings.TrimSpace(project)
+	wantProject := canonicalProject(project)
 	if got.Project != wantProject {
 		return fmt.Errorf("the board deleted a memory from a different project: requested project=%q, got project=%q", wantProject, got.Project)
 	}
@@ -726,10 +762,10 @@ func verifyMemoryDeleted(project, key string, got wireMemoryDeleted) error {
 // to the query the caller made, rather than assuming a clean decode of the
 // list means the filtering happened correctly.
 //
-// project is compared trimmed for the same reason verifyMemoryEcho compares
-// it trimmed: store.memories(project:) normalizes project before querying,
-// so every returned row's project is the board's trimmed value, not the
-// caller's raw one. kind is compared trimmed too, matching memoryListQuery's
+// project is compared through canonicalProject for the same reason
+// verifyMemoryEcho compares it that way: store.memories(project:) normalizes
+// project before querying, so every returned row's project is the board's
+// canonical value, not the caller's raw one. kind is compared trimmed, matching memoryListQuery's
 // own trim — comparing raw here while the query builder sends trimmed would
 // silently stop matching the moment a caller passed a padded kind, the exact
 // shape of asymmetry that caused the project bug this function already fixes
@@ -743,7 +779,7 @@ func verifyMemoryDeleted(project, key string, got wireMemoryDeleted) error {
 // close from the response alone; plan_memory_list's tool description warns
 // the agent about it instead (a documentation mitigation, not a code one).
 func verifyMemoryList(project, kind string, memories []wireMemory) error {
-	wantProject := strings.TrimSpace(project)
+	wantProject := canonicalProject(project)
 	wantKind := strings.TrimSpace(kind)
 	for _, m := range memories {
 		if m.Project != wantProject {
