@@ -230,8 +230,13 @@ transition guards, so the HTTP API gets it too.
     resolved per D7 (a trailing `/.worktrees/<name>` stripped).
   - A test covers the resolution: a run whose project is
     `/x/repo/.worktrees/t1` reads the memories stored under `/x/repo`.
-  - `BoardView` gains a memory case alongside the existing graph and columns
-    cases.
+  - *(Moved to M2 mid-run.* The criterion used to read "`BoardView` gains a
+    memory case alongside the existing graph and columns cases." It cannot be
+    met inside M1's write scope: `BoardWindow.swift:28-32` switches
+    exhaustively over `model.view`, so adding a case is a compile error until
+    that switch grows a branch, and `Sources/BossSDD/Views/` is M2's. M1 would
+    have had to fail its own `swift build` criterion or write out of scope.
+    M2 now owns the case, the switch and the switcher together.*
 - **Risk / rollback.** Adding `notify()` to memory writes wakes every observer on
   every memory write, including the tidy-up's deletes. If a run prunes twenty
   entries, that is twenty reloads. Watch for it in the walkthrough; batching is
@@ -240,8 +245,13 @@ transition guards, so the HTTP API gets it too.
 ### M2 — the memory pane
 
 - `depends_on`: [`M1`]
-- `write_scope`: `Sources/BossSDD/Views/`, `Resources/en.lproj/Localizable.strings`,
+- `write_scope`: `Sources/BossSDD/Views/`, `Sources/BossSDD/BoardModel.swift`,
+  `Resources/en.lproj/Localizable.strings`,
   `Resources/zh-Hans.lproj/Localizable.strings`
+  - `BoardModel.swift` added mid-run, for the `BoardView` enum case only — see
+    M1's moved criterion. M1 and M2 both write that file, which is safe because
+    they are sequential, the same way D1 and D2 shared `Store.swift` and
+    `mcp/main.go`.
 - `exclusive_resources`: `app:bossSDD`, `port:18888`
 - role: `ui-designer`, `qa`
 - **Design source.** `design/board-mock.html`, the memory view, approved by the
@@ -249,6 +259,12 @@ transition guards, so the HTTP API gets it too.
 - **Acceptance.**
   - `swift build -c release --product BossSDD` and `swift test` exit 0.
   - `./Scripts/bundle.sh` exits 0 and produces `.build/BossSDD.app`.
+  - `BoardModel.BoardView` gains a `memory` case, `BoardWindow.swift`'s switch
+    gains the matching branch, and the switcher renders three segments. Note
+    the trap: `BoardModel.swift:24` builds the label with a ternary,
+    `loc(self == .graph ? "board.view.graph" : "board.view.columns")`, so a
+    third case silently labels itself "columns" unless that line changes too.
+    Both `Localizable.strings` files need the new key.
   - Walkthrough against a throwaway store (`BOSS_SDD_HOME` set to a temp
     directory, seeded over HTTP — **never the real board**): the view switcher
     shows a third segment; selecting it lists the seeded memories grouped by
