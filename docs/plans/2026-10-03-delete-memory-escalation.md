@@ -204,6 +204,11 @@ transition guards, so the HTTP API gets it too.
     names **every** blocking task id, and the task is still present afterwards.
   - Deleting a `running` task fails and names its status. Same for `review`.
   - Deleting an unknown task id fails with `notFound`.
+  - **Every status except `running` and `review` is deletable.** Added mid-run,
+    the same correction D1's acceptance needed: the criteria above only ever ask
+    about the two refusals, so nothing required coverage of the statuses that
+    must still delete. The implementer wrote the test anyway; this makes it
+    required rather than volunteered.
   - Its `task_lists` rows are gone from the database after a successful delete.
 - **Risk / rollback.** Shares every file with D1, which is why it depends on it
   rather than batching beside it. The dependents check has to read the whole
@@ -214,7 +219,8 @@ transition guards, so the HTTP API gets it too.
 
 - `depends_on`: [`D2`]
 - `write_scope`: `Sources/BoardKit/Store.swift`, `Sources/BossSDD/BoardModel.swift`,
-  `Tests/BoardKitTests/MemoryTests.swift`
+  `Tests/BoardKitTests/MemoryTests.swift`, `mcp/main.go`, `mcp/tools_test.go`
+  *(the two Go paths added at round 3; see the acceptance entry below)*
 - `exclusive_resources`: []
 - role: `implementer`
 - **Acceptance.**
@@ -225,8 +231,38 @@ transition guards, so the HTTP API gets it too.
     resolved per D7 (a trailing `/.worktrees/<name>` stripped).
   - A test covers the resolution: a run whose project is
     `/x/repo/.worktrees/t1` reads the memories stored under `/x/repo`.
-  - `BoardView` gains a memory case alongside the existing graph and columns
-    cases.
+  - **`deleteMemory`'s existence check moves inside the transaction.** Added
+    mid-run. It runs `SELECT 1 …` inside `queue.sync` but outside
+    `database.transaction`, then opens the transaction to delete — the same
+    shape D1 fixed in `deleteRun` and D2 kept out of `deleteTask`, and the last
+    instance of it in the file. M1 is editing that function for the `notify()`
+    change anyway. Structural, no happy-path behaviour change, so no race test
+    is required or wanted.
+  - **One canonicalisation, and every process agrees on it.** Added at round 3,
+    after the same defect survived two fixes in two different shapes. The rule
+    a project string passes through to become a bucket key must be written
+    once, be a fixpoint, and be applied the same number of times on every path.
+    Two things fail that today. `Store.canonicalPath` trims once and then
+    strips trailing slashes, so a slash hiding whitespace behind it survives —
+    `"/x/repo /"` canonicalises to `"/x/repo "` once and `"/x/repo"` twice,
+    while its doc comment claims idempotence; `normalizedProject` applies it
+    once and `projectMemories` twice, so write and read disagree again in that
+    corner. And `mcp/main.go` keeps a second copy of the rule in another
+    language: `verifyMemoryEcho`, `verifyMemoryDeleted` and `verifyMemoryList`
+    each compare the board's echo against `strings.TrimSpace(project)`, so
+    after the Swift side grew stronger a successful write comes back to the
+    agent as *"the board returned a memory from a different project"*.
+    `mcp/tools_test.go`'s `doubleNormalizedProject` mirrors the stale rule on
+    both sides, which is why `go test` stays green over it. Acceptance: a Go
+    test that fails against the old rule, and a Swift test using a spelling
+    outside the idempotent set.
+  - *(Moved to M2 mid-run.* The criterion used to read "`BoardView` gains a
+    memory case alongside the existing graph and columns cases." It cannot be
+    met inside M1's write scope: `BoardWindow.swift:28-32` switches
+    exhaustively over `model.view`, so adding a case is a compile error until
+    that switch grows a branch, and `Sources/BossSDD/Views/` is M2's. M1 would
+    have had to fail its own `swift build` criterion or write out of scope.
+    M2 now owns the case, the switch and the switcher together.*
 - **Risk / rollback.** Adding `notify()` to memory writes wakes every observer on
   every memory write, including the tidy-up's deletes. If a run prunes twenty
   entries, that is twenty reloads. Watch for it in the walkthrough; batching is
@@ -235,8 +271,23 @@ transition guards, so the HTTP API gets it too.
 ### M2 — the memory pane
 
 - `depends_on`: [`M1`]
-- `write_scope`: `Sources/BossSDD/Views/`, `Resources/en.lproj/Localizable.strings`,
-  `Resources/zh-Hans.lproj/Localizable.strings`
+- `write_scope`: `Sources/BossSDD/Views/`, `Sources/BossSDD/BoardModel.swift`,
+  `Resources/en.lproj/Localizable.strings`,
+  `Resources/zh-Hans.lproj/Localizable.strings`,
+  `Resources/en.lproj/Localizable.stringsdict`,
+  `Resources/zh-Hans.lproj/Localizable.stringsdict`
+  - The two `.stringsdict` files were added at round 1. The task shipped a
+    count as `"Kinds 6"` — a noun glued to a number — reasoning that avoiding
+    plural forms avoided needing a stringsdict. The project already has one in
+    both languages, and its own header comment states the rule: *"Only the
+    counted strings whose noun has to agree with the count live here."* The
+    precedent is `inspector.layers`, rendered as a `Pill` in the same pane as
+    the new one. So the count belongs in the dict, and the dict had to be in
+    scope to put it there.
+  - `BoardModel.swift` added mid-run, for the `BoardView` enum case only — see
+    M1's moved criterion. M1 and M2 both write that file, which is safe because
+    they are sequential, the same way D1 and D2 shared `Store.swift` and
+    `mcp/main.go`.
 - `exclusive_resources`: `app:bossSDD`, `port:18888`
 - role: `ui-designer`, `qa`
 - **Design source.** `design/board-mock.html`, the memory view, approved by the
@@ -244,6 +295,12 @@ transition guards, so the HTTP API gets it too.
 - **Acceptance.**
   - `swift build -c release --product BossSDD` and `swift test` exit 0.
   - `./Scripts/bundle.sh` exits 0 and produces `.build/BossSDD.app`.
+  - `BoardModel.BoardView` gains a `memory` case, `BoardWindow.swift`'s switch
+    gains the matching branch, and the switcher renders three segments. Note
+    the trap: `BoardModel.swift:24` builds the label with a ternary,
+    `loc(self == .graph ? "board.view.graph" : "board.view.columns")`, so a
+    third case silently labels itself "columns" unless that line changes too.
+    Both `Localizable.strings` files need the new key.
   - Walkthrough against a throwaway store (`BOSS_SDD_HOME` set to a temp
     directory, seeded over HTTP — **never the real board**): the view switcher
     shows a third segment; selecting it lists the seeded memories grouped by
@@ -285,9 +342,21 @@ transition guards, so the HTTP API gets it too.
   - `roles.md`'s "no `[complexity: high]` variant row for `qa`" paragraph no
     longer explains the absence of a row that no longer exists for anyone.
   - `references/worktree-mode.md`'s "One collision, one round" section no longer
-    uses round-budget vocabulary (`charged`, `spent`) for a budget that is gone.
+    uses the **old three-round cap's** vocabulary. Amended mid-run: this
+    criterion originally read "no round-budget vocabulary (`charged`, `spent`)
+    for a budget that is gone", which D3 falsified by putting a budget back. The
+    section must carry a count stake keyed to the 6-round ceiling — two other
+    files cite it for exactly that ruling — so `spend` is correct there and
+    `charged` is not. Overturn by restoring the original wording, which would
+    then require the section to stop making the count argument.
   - `grep -rn "three rounds\|3 rounds\|round 3\|third round\|rounds have run out"
     skills/shared/` returns nothing.
+  - **And so does the hyphenated form**, which the line above cannot match:
+    `grep -rniE "three[- ]round|3[- ]round|three failed|three attempts"
+    skills/shared/`. Added mid-run: `worktree-mode.md:11`'s *"three-round
+    limit"* — singular and hyphenated — sat in S1's own write scope through two
+    rounds while every grep above passed. The greps search the plural
+    unhyphenated form only, so they could not see it.
 - **Risk / rollback.** The one task where the acceptance is entirely human
   reading. It is also the task most likely to drift from the user's own wording,
   which is explicitly out of scope to change.
@@ -309,7 +378,12 @@ transition guards, so the HTTP API gets it too.
   - `skills/cursor/SKILL.md` and `skills/cursor/agents/implementer.md` match.
   - The two Codex role TOMLs' `# Raise to high for a task marked
     [complexity: high]` comments are gone or corrected (D4 removed that route).
-  - `grep -rn "round 3\|rounds 1 and 2\|round of three" skills/` returns nothing.
+  - `grep -rn "round 3\|rounds 1 and 2\|round of three" skills/` returns
+    nothing, and so does
+    `grep -rniE "three[- ]round|3[- ]round" skills/claude-code/ skills/cursor/
+    skills/codex/`. The second is not redundant: `skills/cursor/SKILL.md:172`
+    says *"reports as an ordinary three-round"*, which the first grep cannot
+    match. It is in S2's write scope.
   - Per the README's wrapper contract, no wrapper restates a body rule in its own
     words; each states only its platform fact and points at the body.
 - **Risk / rollback.** This is exactly the drift that produced the last cleanup —
@@ -322,24 +396,71 @@ transition guards, so the HTTP API gets it too.
 - `write_scope`: `skills/shared/references/board.md`,
   `skills/shared/references/memory.md`, `README.md`,
   `skills/claude-code/INSTALL.md`, `skills/cursor/INSTALL.md`,
-  `skills/codex/README.md`, `.gitignore`
+  `skills/codex/README.md`, `skills/claude-code/SKILL.md`,
+  `skills/cursor/SKILL.md`, `skills/shared/references/dag-contract.md`,
+  `.gitignore`
 - `exclusive_resources`: []
 - role: `implementer`
 - **Acceptance.**
   - `board.md` gains a section on when an agent may call `plan_delete_run` and
     `plan_delete_task`, written to the standard `memory.md` sets for
-    `plan_memory_delete` — including that a delete is irreversible, that the two
-    refusals exist and what they mean, and that in confirm mode this is a
-    stop-and-ask (D5).
+    `plan_memory_delete` — including that a delete is irreversible, that **all
+    three** refusals exist and what each means (a `running` run; a `running` or
+    `review` task; a task with dependents), and that in confirm mode this is a
+    stop-and-ask (D5). The earlier wording said "the two refusals", which a
+    section documenting only two of the three would have satisfied.
   - `board.md:148`'s *"this node has stopped: three failed rounds"* is corrected
     to the ceiling.
-  - Every "eleven tools" string reads thirteen:
-    `grep -rn "[Ee]leven tools" README.md skills/` returns nothing, and the tool
-    list in `skills/claude-code/INSTALL.md:150` and `skills/cursor/INSTALL.md:131`
-    names both new tools.
+  - The delete discipline says that a deleted task's **`events` rows stay in the
+    run's history**, and that the task list and the graph — not the event log —
+    are authoritative for what exists. Added mid-run; see the Decision queue.
+  - Every stale tool count reads thirteen. The check is
+    `grep -rni "eleven" README.md skills/`, not `"[Ee]leven tools"` — the
+    narrower phrase misses three of the seven sites, because two put a
+    backticked token inside the phrase (`skills/claude-code/SKILL.md:54`,
+    `skills/cursor/INSTALL.md:202`) and one says "eleven tool names"
+    (`skills/cursor/INSTALL.md:146`). That grep is allowed exactly one
+    surviving hit: `skills/claude-code/INSTALL.md:104`'s *"Do not add an
+    eleventh"*, which counts the **ten role files**, not the tools, and is
+    correct as it stands. Changing it is the failure this criterion is written
+    to prevent. The tool list in `skills/claude-code/INSTALL.md:150` and
+    `skills/cursor/INSTALL.md:131` also names both new tools.
+  - **A count can also be written as a list of names, and that form is invisible
+    to every grep above.** `skills/cursor/SKILL.md:180-182` enumerates eleven
+    tool names with no count word anywhere near them. The check that catches
+    this shape is content, not phrasing: every file that enumerates the toolset
+    must contain `plan_delete_run`. Run
+    the loop below, which must print nothing. Two files match the outer grep
+    and are correctly *not* enumerations, so they are excluded by name rather
+    than left to produce output a reader has to know to ignore:
+    `skills/codex/codex-platform.md:234` is a single-tool presence check and
+    `skills/shared/PLAYBOOK.md` names tools inside workflow steps. Neither is in
+    scope and neither should gain the delete names.
+    ```
+    for f in $(grep -rln "plan_board_status" README.md skills/ \
+                 | grep -v -e codex-platform.md -e PLAYBOOK.md); do
+      grep -q "plan_delete_run" "$f" || echo "STALE: $f"
+    done
+    ```
   - `memory.md:12`'s *"the board's seven"* reads nine.
   - The counts match reality: the number of `mcp.AddTool` calls in `mcp/main.go`
     equals the number written in the documentation.
+  - **Every claim that quantifies over the toolset or the board's refusals is
+    re-read against the two new tools.** This is the one defect family the
+    count-greps above cannot reach, because the sentences that break contain
+    neither a number nor a tool name: *"every write returns the graph
+    projection"* is falsified by `plan_delete_run`, which returns `{deleted}`
+    and no projection (`mcp/main.go:461`), and *"the board refuses two kinds of
+    write"* is falsified by three delete refusals. Known sites, all in scope
+    after the widening: `README.md:131`, `:162`, `:164`,
+    `skills/shared/references/board.md:5`, `:134`, `:163`, and
+    `skills/shared/references/dag-contract.md:169`. `board.md:58` is **not** one
+    — it is the no-board section, where there are no deletes to guard. The
+    criterion is the property; the grep below is only one way to reach it, and
+    it returns about thirteen lines including some obvious noise.
+    ```
+    grep -rniE "\bevery (write|tool|call|mutation)\b|\ball (writes|tools|calls)\b|\b(two|three|four|five) (write|writes|refusal|refusals|guard|guards|class|classes|kind|kinds)\b" README.md skills/
+    ```
   - `.gitignore`'s comment says ten role files, not nine.
 - **Risk / rollback.** Depends on D2 because the discipline cannot be written
   before the refusals are settled, and on S2 because it writes
@@ -379,14 +500,21 @@ From recon lane C, with sources.
 - **The memory pane is the first thing in this app that reads a table nothing
   watched before.** D6 changes that; if the reload cost shows up in the
   walkthrough, batching the notify is the fallback and it is a design change, not
-  a fix round.
+  a fix round. M1 made the shape of it concrete: the cost is not N
+  wakeups, it is N wakeups each carrying M extra queries, because `reload()` asks
+  for memories once per distinct run project. Measured on the live board rather
+  than guessed — 15 runs over 5 distinct projects — M is 5, and `allRuns()`
+  already costs 1 + 15x4 = 61 queries on the same reload, so the memory loop adds
+  under a tenth of what was already there. The term that actually scales is the
+  reload *count*, not the queries inside one: a prune of N entries is N notifies
+  and so N full reloads, each blocking the main thread. So the walkthrough
+  watches a burst of memory writes for visible stutter; isolating the loop's own
+  cost would be measuring the wrong term, and batching the notify is still the
+  fallback if the burst shows a problem.
 - **S1's acceptance is entirely human reading.** There is no Markdown gate in
   this repository. The static reviewer and the spec reviewer are the only checks
   those three tasks get, which is an argument for not letting them batch with
   anything that would compete for attention.
-- **The mock is uncommitted.** `design/board-mock.html` has the approved memory
-  view in the working tree and not in any commit. It is the design input to M2
-  and gets committed before the run starts.
 - **`.gitignore:22` still says "The skill's nine role files".** Stale since the
   `spec-reviewer` backport made it ten. Folded into S3's scope.
 - **Two runs on the live board are tombstoned.** Once D1 lands they can actually
@@ -416,6 +544,21 @@ From recon lane C, with sources.
   mtime or size changed. Any walkthrough that forgets `BOSS_SDD_HOME` will be
   caught here — but after the damage.
 
+- **`tasks.position` was a dense `0..n-1` invariant and nothing said so.**
+  `writeTask` is its only writer and `applyTaskPatch` calls it with the task's
+  index in the in-memory array, which `loadRun` built with `ORDER BY position`.
+  `importRun` renumbers densely. So rank, index and position were always equal
+  — and `deleteTask` is the first operation in the codebase that can break
+  that, because a plain `DELETE FROM tasks` leaves a hole and the next appended
+  task is written at `position = count`, which collides with or precedes a
+  surviving row. `deriveGraph` orders its layers from that array, so
+  `topological_order` and `topological_layers` change shape after a
+  delete-then-add, in a projection whose own doc comment calls it
+  deterministic. Found by D2's static review, verified here, sent back to D2
+  with a renumbering statement inside the same transaction and a
+  delete-then-add test. Recorded because the invariant was undocumented: any
+  future operation that removes a task row has the same trap waiting.
+
 ## Decision queue
 
 - **D1's acceptance gained a criterion mid-run** (every non-`running` status is
@@ -439,6 +582,84 @@ From recon lane C, with sources.
   two agents counting toward 6 could diverge. Ruled: add a clause at the ceiling
   sites, leave the collision section alone. Overturn by deleting the clause and
   accepting the ambiguity.
+
+- **S1 round 2 was ruled *persisting*, so it escalated.** Round 1's F6 asked for
+  the collision carve-out and the ceiling to be reconciled by adding a clause at
+  the ceiling sites and leaving the collision section alone. The clause landed,
+  but the section's justification was rewritten from the round count to the
+  model tier, so the two ceiling sites now cite it for a count ruling it no
+  longer makes. That is the same seam, moved — which the rule defines as
+  persisting, and the rule's own tie-break sends an unsure call the same way. So
+  round 2 went up a rung to `opus` on a fresh subagent with the full bundle,
+  rather than resuming cheaply. Recorded because the cheap read was available
+  and was not taken: calling it *new* would have kept the node on `sonnet`.
+- **Defect C and design decision D3 pull against each other, and that is the
+  plan's fault rather than the implementer's.** Criterion 4 told S1 to strip the
+  round-budget vocabulary from "One collision, one round" because "the budget it
+  refers to is gone"; D3 then put a budget back. The implementer followed
+  criterion 4 to the letter and produced the contradiction above. Round 2's
+  brief states both constraints and asks for both to be satisfied. Overturn by
+  dropping criterion 4's requirement for that one section.
+
+- **A deleted task's `events` rows stay. Ruled, after the spec review reframed
+  the question.** I had flagged the opposite gap — that `deleteTask` writes no
+  event while every other mutation does (`Store.swift:204, 223, 377`). The lane
+  argued, and I accept, that an `action: "delete"` row naming a task that no
+  longer exists is closer to a tombstone than to history, which is the shape
+  this plan exists to remove. The real asymmetry runs the other way: the task's
+  *old* `task`-action events survive, because `events` is foreign-keyed only to
+  `runs`, so `plan_get_run --include_events` returns rows whose `task_id` names
+  nothing. Ruled: keep them and write the rule down rather than purge them. An
+  event log is history, not state; deleting a task does not unmake the fact that
+  it ran, and a delete that silently rewrites a run's history is a worse
+  surprise than a dangling id. Goal 1's "no trace" is about run and task state,
+  which is clean. Closed in S3's `board.md` discipline instead of in code.
+  Overturn by deleting the task's `events` rows inside the same transaction —
+  one statement in `Store.swift` plus one test.
+- **A combined `running`-plus-dependents refusal names only the status.**
+  `Store.swift:272` throws before the dependents check runs, so a task that is
+  both costs two round trips. Accepted as-is: the status refusal is the more
+  urgent of the two, and the message tells the caller what to do. Overturn by
+  collecting both and naming them together.
+- **S1's tie-break citation was swapped, and I am letting it stand.** The user's
+  paragraph inverted "this skill's standing *when you cannot decide, it counts*
+  bias"; the implementer re-aimed it at the escalation rule's own tie-break
+  (`roles.md:385`). The spec review flagged this as the edit closest to the
+  do-not-re-litigate line. Ruled: not a re-litigation. The carve-out's output is
+  a classification, so the escalation tie-break is the one it actually inverts,
+  and the general bias survives untouched at `review.md:295` — verified. The
+  user's reasoning shape survives too, re-aimed rather than dropped.
+- **Two S1 edits nobody asked for by name, both kept.** `PLAYBOOK.md:228-231`
+  (the `[complexity: high]` tier sentence) and the new delegation sentence at
+  `worktree-mode.md:11-13`. The first was a named finding from the round-1
+  review, which the spec lane could not see; the second is forced, because the
+  file now restates the ceiling at six sites and "leaves it alone" could not
+  stand. Both fall under the non-goal's "bounded by contradiction, not
+  adjacency". Recorded rather than passed over in silence.
+- **My S1 dispatch invented an acceptance criterion the plan does not have.**
+  The dispatch's criterion 8 ("state the maximum number of rounds and cite every
+  file and line") appears nowhere in this document — the spec lane caught the
+  drift. It is benign and the answer it forces is useful, but it means the
+  dispatch and the plan disagreed about what the bar was. Not folded into the
+  plan: it is a reporting instruction, not a property of the deliverable.
+- **Nothing records a node's round count, and D3 made the count load-bearing.**
+  `roles.md:402` says to record the classification and the tier per round, not
+  the number. `worktree-mode.md:798` and `:847` both presume a count exists
+  without saying where it lives. Inherited — the same silence existed under the
+  old cap — but the ceiling now depends on it, and this run's own S1 rulings
+  worried about two agents counting differently. Deferred rather than folded
+  into S1, which is on the top rung with one round left; adding non-essential
+  work there risks the node for a gap that predates it.
+
+- **`roles.md:385` keeps no "except" clause for the collision carve-out.**
+  `roles.md:413` and `PLAYBOOK.md:386-387` cite the carve-out only for the
+  count stake; the tier stake lives only in `worktree-mode.md`, whose header now
+  settles precedence in its own favour for that one section. Ruled: leave it.
+  The carve-out states openly that it inverts the standing tie-break, so a
+  reader arriving from either direction is told, and `roles.md:385` is a
+  sentence the user wrote — editing it is what the non-goal forbids. Overturn by
+  adding the except clause there, which is a small edit but a change to the
+  user's own rule text.
 
 ## Needs a decision from the user
 
