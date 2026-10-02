@@ -1036,4 +1036,42 @@ private final class TestServer {
             #expect(try errorMessage(body).contains("review"))
         }
     }
+
+    // MARK: - DELETE /api/runs/{id}
+
+    @Test func deleteRemovesAFinishedRun() async throws {
+        try await withServer { server in
+            let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"收尾"}"#)
+            let runID = try field(created, "id", String.self)
+            _ = try await server.send("PATCH", "/api/runs/\(runID)", json: #"{"status":"done"}"#)
+            let (status, body) = try await server.send("DELETE", "/api/runs/\(runID)", contentType: nil)
+            #expect(status == 200)
+            #expect(try field(body, "deleted", String.self) == runID)
+            let (after, _) = try await server.send("GET", "/api/runs/\(runID)", contentType: nil)
+            #expect(after == 404)
+        }
+    }
+
+    @Test func deleteRefusesARunningRun() async throws {
+        try await withServer { server in
+            let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"进行中"}"#)
+            let runID = try field(created, "id", String.self)
+            _ = try await server.send("PATCH", "/api/runs/\(runID)", json: #"{"status":"running"}"#)
+            let before = try await server.snapshot(runID)
+
+            let (status, body) = try await server.send("DELETE", "/api/runs/\(runID)", contentType: nil)
+            #expect(status == 409)
+            #expect(try errorMessage(body).contains("running"))
+
+            // The refusal wrote nothing: the run is still there and unchanged.
+            #expect(try await server.snapshot(runID) == before)
+        }
+    }
+
+    @Test func deleteOfAnUnknownRunIs404() async throws {
+        try await withServer { server in
+            let (status, _) = try await server.send("DELETE", "/api/runs/no-such-run", contentType: nil)
+            #expect(status == 404)
+        }
+    }
 }
