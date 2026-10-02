@@ -230,6 +230,13 @@ transition guards, so the HTTP API gets it too.
     resolved per D7 (a trailing `/.worktrees/<name>` stripped).
   - A test covers the resolution: a run whose project is
     `/x/repo/.worktrees/t1` reads the memories stored under `/x/repo`.
+  - **`deleteMemory`'s existence check moves inside the transaction.** Added
+    mid-run. It runs `SELECT 1 …` inside `queue.sync` but outside
+    `database.transaction`, then opens the transaction to delete — the same
+    shape D1 fixed in `deleteRun` and D2 kept out of `deleteTask`, and the last
+    instance of it in the file. M1 is editing that function for the `notify()`
+    change anyway. Structural, no happy-path behaviour change, so no race test
+    is required or wanted.
   - *(Moved to M2 mid-run.* The criterion used to read "`BoardView` gains a
     memory case alongside the existing graph and columns cases." It cannot be
     met inside M1's write scope: `BoardWindow.swift:28-32` switches
