@@ -387,15 +387,18 @@ transition guards, so the HTTP API gets it too.
   `skills/shared/references/memory.md`, `README.md`,
   `skills/claude-code/INSTALL.md`, `skills/cursor/INSTALL.md`,
   `skills/codex/README.md`, `skills/claude-code/SKILL.md`,
-  `skills/cursor/SKILL.md`, `.gitignore`
+  `skills/cursor/SKILL.md`, `skills/shared/references/dag-contract.md`,
+  `.gitignore`
 - `exclusive_resources`: []
 - role: `implementer`
 - **Acceptance.**
   - `board.md` gains a section on when an agent may call `plan_delete_run` and
     `plan_delete_task`, written to the standard `memory.md` sets for
-    `plan_memory_delete` — including that a delete is irreversible, that the two
-    refusals exist and what they mean, and that in confirm mode this is a
-    stop-and-ask (D5).
+    `plan_memory_delete` — including that a delete is irreversible, that **all
+    three** refusals exist and what each means (a `running` run; a `running` or
+    `review` task; a task with dependents), and that in confirm mode this is a
+    stop-and-ask (D5). The earlier wording said "the two refusals", which a
+    section documenting only two of the three would have satisfied.
   - `board.md:148`'s *"this node has stopped: three failed rounds"* is corrected
     to the ceiling.
   - The delete discipline says that a deleted task's **`events` rows stay in the
@@ -432,6 +435,22 @@ transition guards, so the HTTP API gets it too.
   - `memory.md:12`'s *"the board's seven"* reads nine.
   - The counts match reality: the number of `mcp.AddTool` calls in `mcp/main.go`
     equals the number written in the documentation.
+  - **Every claim that quantifies over the toolset or the board's refusals is
+    re-read against the two new tools.** This is the one defect family the
+    count-greps above cannot reach, because the sentences that break contain
+    neither a number nor a tool name: *"every write returns the graph
+    projection"* is falsified by `plan_delete_run`, which returns `{deleted}`
+    and no projection (`mcp/main.go:461`), and *"the board refuses two kinds of
+    write"* is falsified by three delete refusals. Known sites, all in scope
+    after the widening: `README.md:131`, `:162`, `:164`,
+    `skills/shared/references/board.md:5`, `:134`, `:163`, and
+    `skills/shared/references/dag-contract.md:169`. `board.md:58` is **not** one
+    — it is the no-board section, where there are no deletes to guard. The
+    criterion is the property; the grep below is only one way to reach it, and
+    it returns about thirteen lines including some obvious noise.
+    ```
+    grep -rniE "\bevery (write|tool|call|mutation)\b|\ball (writes|tools|calls)\b|\b(two|three|four|five) (write|writes|refusal|refusals|guard|guards|class|classes|kind|kinds)\b" README.md skills/
+    ```
   - `.gitignore`'s comment says ten role files, not nine.
 - **Risk / rollback.** Depends on D2 because the discipline cannot be written
   before the refusals are settled, and on S2 because it writes
@@ -486,9 +505,6 @@ From recon lane C, with sources.
   this repository. The static reviewer and the spec reviewer are the only checks
   those three tasks get, which is an argument for not letting them batch with
   anything that would compete for attention.
-- **The mock is uncommitted.** `design/board-mock.html` has the approved memory
-  view in the working tree and not in any commit. It is the design input to M2
-  and gets committed before the run starts.
 - **`.gitignore:22` still says "The skill's nine role files".** Stale since the
   `spec-reviewer` backport made it ten. Folded into S3's scope.
 - **Two runs on the live board are tombstoned.** Once D1 lands they can actually
