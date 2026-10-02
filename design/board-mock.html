@@ -207,6 +207,46 @@ body{margin:0;color:var(--label);font:13px/1.45 var(--sans);-webkit-font-smoothi
 .log .what{color:var(--label-2)}
 .log .what b{color:var(--label);font-weight:590}
 
+/* ---- memory: content layer, a list rather than cards.
+   An entry is a claim about the project, and `source` is the handle that lets
+   somebody falsify it with one file read -- so source is a first-class line in
+   the row, not a footnote. The kind is carried by the group header, so the row
+   never repeats it. ---- */
+.mem-wrap{display:flex;flex-direction:column;gap:18px;max-width:720px}
+.mem-note{display:flex;gap:8px;align-items:flex-start;font-size:11.5px;line-height:17px;
+  color:var(--label-2);background:var(--fill-quaternary);border-radius:8px;padding:9px 11px}
+.mem-note b{color:var(--label);font-weight:590}
+.mem-group{display:flex;flex-direction:column}
+.mem-head{display:flex;align-items:baseline;gap:7px;padding:0 2px 7px;
+  border-bottom:.5px solid var(--separator);margin-bottom:2px}
+.mem-head .nm{font-size:11px;font-weight:600}
+.mem-head .kd{font:10.5px/1 var(--mono);color:var(--label-3)}
+.mem-head .n{margin-left:auto;font:11px/1 var(--mono);color:var(--label-2);
+  font-variant-numeric:tabular-nums}
+.mem{appearance:none;border:0;background:none;text-align:left;font:inherit;color:var(--label);
+  cursor:pointer;display:flex;flex-direction:column;gap:2px;padding:8px 9px;border-radius:7px;
+  border-bottom:.5px solid var(--separator)}
+.mem:last-child{border-bottom:0}
+.mem:hover{background:var(--fill-quaternary)}
+.mem:focus-visible{outline:2.5px solid color-mix(in srgb,var(--accent) 55%,transparent);outline-offset:1px}
+.mem.is-selected{background:var(--accent)}
+.mem.is-selected .mem-k,.mem.is-selected .mem-v{color:#fff}
+.mem.is-selected .mem-src{color:rgba(255,255,255,.72)}
+.mem-k{font:11px/1.4 var(--mono);color:var(--label-2);letter-spacing:-.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mem-v{font-size:12.5px;line-height:17px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mem-src{display:flex;align-items:center;gap:4px;margin-top:3px;
+  font:10.5px/1.4 var(--mono);color:var(--label-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mem-src svg{opacity:.7}
+.mem.is-note .mem-v{color:var(--label-2)}
+/* The cap is load-bearing: at 100 a new key is refused outright, nothing is evicted. */
+.cap{font-variant-numeric:tabular-nums}
+.cap.near{color:var(--orange)}
+.src-block{font:11px/17px var(--mono);word-break:break-all;color:var(--label);
+  background:var(--fill-quaternary);border-radius:6px;padding:7px 9px}
+
 .caption{max-width:1200px;width:100%;display:flex;gap:22px;flex-wrap:wrap;
   font-size:11.5px;line-height:17px;color:rgba(255,255,255,.62)}
 .caption div{flex:1 1 250px}
@@ -232,6 +272,7 @@ body{margin:0;color:var(--label);font:13px/1.45 var(--sans);-webkit-font-smoothi
       <div class="seg" role="group" aria-label="视图">
         <button type="button" id="view-dag" aria-pressed="true">依赖图</button>
         <button type="button" id="view-board" aria-pressed="false">分栏</button>
+        <button type="button" id="view-mem" aria-pressed="false">记忆</button>
       </div>
       <span class="serve"><span class="beacon"></span>127.0.0.1:18866</span>
     </div>
@@ -255,6 +296,7 @@ body{margin:0;color:var(--label);font:13px/1.45 var(--sans);-webkit-font-smoothi
     <div><b>玻璃只在功能层</b>工具栏、侧栏和悬浮控件用 Liquid Glass 的 regular 变体（文字多，按 HIG 该用 regular）。画布、任务卡、检查器全是不透明的内容层——HIG 明确写着内容层不要用玻璃。</div>
     <div><b>状态不只靠颜色</b>每张卡片带一个 SF Symbols 风格的图形加一个词。颜色是系统语义色，到 SwiftUI 里换成真正的动态系统色，不写死十六进制。</div>
     <div><b>没有装饰</b>没有彩色竖条、没有渐变卡片。层级由不透明度、0.5pt 分隔线和圆角的同心关系表达——窗口 13、卡片 8、控件 7、标签 5。</div>
+    <div><b>记忆按出处组织</b>第三个视图。记忆是项目级的，不是运行级的，所以副标题换成项目路径、不再显示这次运行的计数。kind 由分组标题承担，行里不重复；行里占位置的是<b>出处</b>，因为那是能一次文件读取就证伪这条记忆的把手。100 条上限显示在悬浮控件上，到 80% 转橙——满额是直接拒绝新 key、不淘汰旧条目。<b>待定</b>：记忆写入目前不触发 store 的 notify，所以这个视图不会随 agent 的写入自动刷新；是补通知还是显式刷新，留给计划定。</div>
   </div>
 </div>
 
@@ -325,6 +367,43 @@ const RUNS = [
   }
 ];
 
+/* Project memory is scoped to the PROJECT, not the run. Several runs on the same
+   repository -- and every worktree of it -- share one store. Keyed that way here so
+   the mock cannot accidentally imply otherwise. */
+const MEMORY={
+  "~/Project/example-app":[
+    {k:"gate:full-suite",v:"make check — 构建、单测、UI 测试一条命令，退出码即结论",kind:"gate",src:"Makefile:14",up:"09-18 14:02"},
+    {k:"gate:format",v:"swift-format lint --strict --recursive daemon/ client/",kind:"gate",src:"Makefile:21",up:"09-18 14:02"},
+    {k:"tests-concurrent",v:"否。UI 测试独占模拟器，make check 内部串行，并行跑会互相抢 A1B2C3D4",kind:"gate",src:"Makefile:28 注释",up:"09-19 09:31"},
+    {k:"run:daemon",v:"python -m daemon.server --port 8473；需要本地 broker 先起：docker compose up -d mqtt",kind:"run_recipe",src:"README.md:62-70",up:"09-12 11:40"},
+    {k:"run:client",v:"xcodebuild -scheme Client -destination 'id=A1B2C3D4'；测试账号 dev@example.test / 见 1Password「Client dev」",kind:"run_recipe",src:"docs/dev-setup.md:18",up:"09-12 11:44"},
+    {k:"no-force-push",v:"「任何情况下不要对 main 做 force push，包括你认为只是整理历史的时候。」",kind:"hard_rule",src:"AGENTS.md:7",up:"08-30 16:05"},
+    {k:"generated-dirs",v:"「daemon/proto/_gen/ 与 client/Kit/Generated/ 由代码生成，手改会在下次构建被覆盖。」",kind:"hard_rule",src:"AGENTS.md:23",up:"08-30 16:05"},
+    {k:"simulator:A1B2C3D4",v:"唯一一台配好推送证书的模拟器，UI 测试与手工走查共用",kind:"exclusive_resource",src:"docs/dev-setup.md:41",up:"09-12 11:48"},
+    {k:"broker:example-mqtt",v:"本地 broker 单实例，端口 1883，两个测试目标不能同时连",kind:"exclusive_resource",src:"docker-compose.yml:9",up:"09-12 11:49"},
+    {k:"daemon-port:8473",v:"daemon 固定端口，未提供环境变量覆盖",kind:"exclusive_resource",src:"daemon/server.py:31",up:"09-12 11:50"},
+    {k:"errors-are-events",v:"错误走事件总线，不抛异常穿透 provider 边界——新代码跟着这个来，不要在 provider 里 raise",kind:"convention",src:"daemon/provider/base.py:12-24",up:"09-02 10:12"},
+    {k:"test-naming",v:"测试文件 *_test.py，用例函数 test_<行为>_<条件>，不写 test_1/test_2",kind:"convention",src:"daemon/tests/README.md:4",up:"09-02 10:15"},
+    {k:"tui-removal",v:"实时终端查看器计划删除（留 9 删 2），新代码不要再依赖 daemon/live_tui/",kind:"note",src:"docs/plans/2026-09-12-tui-removal.md:3",up:"09-14 17:22"}
+  ],
+  "~/Project/example-gateway":[
+    {k:"gate:build",v:"go build ./...",kind:"gate",src:"Makefile:6",up:"09-07 09:10"},
+    {k:"gate:test",v:"go test ./...",kind:"gate",src:"Makefile:9",up:"09-07 09:10"},
+    {k:"gate:complexity",v:"gocyclo -over 15 ./internal/ — 提交前钩子也跑这条，工具缺失时 fail-closed",kind:"gate",src:".githooks/pre-commit:18",up:"09-11 15:48"},
+    {k:"tests-concurrent",v:"是。全部用 httptest，各起各的端口，无共享状态",kind:"gate",src:"internal/store/store_test.go:22",up:"09-11 15:52"},
+    {k:"run:gateway",v:"go run ./cmd/gateway --config config.dev.yaml；五个数据源需先可达，凭据见 infra/access/README",kind:"run_recipe",src:"README.md:34",up:"09-07 09:14"},
+    {k:"readonly-guard",v:"「网关三层只读护栏不得为了让某个查询通过而放宽，要放宽先改护栏测试。」",kind:"hard_rule",src:"AGENTS.md:11",up:"09-03 13:20"},
+    {k:"primary-db-user-catalog",v:"主库账号目录同一时刻只能一个进程改",kind:"exclusive_resource",src:"infra/primary-db/README.md:8",up:"09-09 16:41"},
+    {k:"sql-quote-doubling",v:"SQL 字符串里的引号一律双写——T4 的双解释规则要求，别换成转义反斜杠",kind:"convention",src:"gateway/skill/sql.md:27",up:"09-10 10:05"}
+  ]
+};
+const KIND_LABEL={gate:["门禁","gate"],run_recipe:["启动配方","run_recipe"],
+  convention:["约定","convention"],hard_rule:["硬规则","hard_rule"],
+  exclusive_resource:["独占资源","exclusive_resource"],note:["备注","note"]};
+/* memory.md 的顺序，不重新排名。 */
+const KIND_ORDER=["gate","run_recipe","convention","hard_rule","exclusive_resource","note"];
+const MEM_CAP=100;
+
 /* SF Symbols stand-ins. Each is the symbol the SwiftUI build will ask for by name,
    drawn here because SF Symbols is not a webfont. Shape carries the state; colour
    only reinforces it. */
@@ -343,6 +422,8 @@ const SYMBOL={
     d:'<circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-dasharray="2.1 2.5"/>'},
   resource_blocked:{name:"lock.circle.fill",color:"var(--orange)",
     d:'<circle cx="7" cy="7" r="6.1" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="4.4" y="6.6" width="5.2" height="4" rx="1.1" fill="currentColor"/><path d="M5.6 6.6V5.5a1.4 1.4 0 0 1 2.8 0v1.1" fill="none" stroke="currentColor" stroke-width="1.2"/>'},
+  source:{name:"doc.text",color:"currentColor",
+    d:'<path d="M3.4 1.9h4.3l2.9 2.9v7.3H3.4z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M7.6 1.9v3h3" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>'},
   pending:{name:"circle",color:"var(--gray)",
     d:'<circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" stroke-width="1.3"/>'}
 };
@@ -350,7 +431,7 @@ const STATE_LABEL={pending:"等上游",ready:"就绪",running:"执行中",review
   done:"完成",upstream_blocked:"等上游",resource_blocked:"资源占用"};
 const COLUMNS=[["pending","待开始"],["running","执行中"],["review","待复核"],["blocked","阻塞"],["done","已完成"]];
 
-let runIndex=0, view="dag", selected=null;
+let runIndex=0, view="dag", selected=null, selectedMem=null;
 const el=id=>document.getElementById(id);
 
 function icon(state,size=14){
@@ -435,12 +516,110 @@ function renderToolbar(run,g){
   el("run-title").textContent=run.title;
   const active=run.tasks.filter(t=>t.s==="running"||t.s==="review").length;
   const done=run.tasks.filter(t=>t.s==="done").length;
+  if(view==="mem"){
+    const rows=memOf(run);
+    const kinds=KIND_ORDER.filter(k=>rows.some(r=>r.kind===k)).length;
+    /* The memory store is the project's, so the subtitle names the project and
+       drops the run's own counters -- they would read as if memory belonged to it. */
+    el("run-sub").textContent=`${repoOf(run)} · 项目记忆 ${rows.length}/${MEM_CAP} · ${kinds} 类`;
+    el("float").innerHTML=
+      `<span class="k">${icon("source",12)}每条都带出处</span><span class="sep"></span>
+       <span class="k cap${rows.length>=MEM_CAP*.8?" near":""}">${rows.length} / ${MEM_CAP}</span>
+       <span class="sep"></span><span class="k">按 kind 分组，无搜索</span>`;
+    return;
+  }
   el("run-sub").textContent=
     `${run.project} · 完成 ${done}/${run.tasks.length} · 活动 ${active} · 就绪 ${g.ready.size}`;
   el("float").innerHTML=
     `<span class="k">${icon("ready",12)}就绪 ${g.ready.size}</span><span class="sep"></span>
      <span class="k">${icon("running",12)}活动 ${active}</span><span class="sep"></span>
      <span class="k">${g.layers.length} 个并行层</span>`;
+}
+
+/* memory.md: "`project` is the repository, not the directory you happen to be working
+   in … a node's worktree path is not a project and must never be sent as one."
+   A run created from inside a worktree carries the worktree path, so the memory view
+   resolves back to the repository rather than showing a store that does not exist. */
+function repoOf(run){ return run.project.replace(/\/\.worktrees\/[^/]+$/,""); }
+function memOf(run){ return MEMORY[repoOf(run)]||[]; }
+
+function renderMemory(run,canvas){
+  const rows=memOf(run);
+  const wrap=document.createElement("div"); wrap.className="mem-wrap";
+
+  const note=document.createElement("div"); note.className="mem-note";
+  note.innerHTML=`${icon("source",13)}<span><b>这份记忆属于项目，不属于这次运行。</b>
+    同一个仓库的每一次 plan-sdd 运行、以及它的每一个 worktree，读写的都是这一份。
+    每条都必须带 <b>出处</b>——这是让人一次文件读取就能证伪它的把手，也是它和
+    「凭印象记下来的事」唯一的区别。</span>`;
+  wrap.append(note);
+
+  if(!rows.length){
+    const empty=document.createElement("div"); empty.className="col-empty";
+    empty.textContent="这个项目还没有记忆。第一次运行的 recon 会把门禁、启动配方和硬规则写进来。";
+    wrap.append(empty); canvas.replaceChildren(wrap); return;
+  }
+
+  KIND_ORDER.forEach(kind=>{
+    const items=rows.filter(r=>r.kind===kind);
+    if(!items.length) return;   /* 空的 kind 不占版面 */
+    const [cn,en]=KIND_LABEL[kind];
+    const group=document.createElement("section"); group.className="mem-group";
+    group.innerHTML=`<div class="mem-head"><span class="nm">${cn}</span>
+      <span class="kd">${en}</span>
+      <span class="n">${String(items.length).padStart(2,"0")}</span></div>`;
+    items.forEach(r=>{
+      const b=document.createElement("button");
+      b.type="button"; b.className="mem"+(kind==="note"?" is-note":"")
+        +(selectedMem===r.k?" is-selected":"");
+      b.innerHTML=`<span class="mem-k">${r.k}</span>
+        <span class="mem-v">${r.v}</span>
+        <span class="mem-src">${icon("source",11)}${r.src}</span>`;
+      b.onclick=()=>{selectedMem=selectedMem===r.k?null:r.k;render()};
+      group.append(b);
+    });
+    wrap.append(group);
+  });
+  canvas.replaceChildren(wrap);
+}
+
+function renderMemoryInspector(run){
+  const box=el("inspector"), rows=memOf(run);
+  const entry=rows.find(r=>r.k===selectedMem);
+  if(!entry){
+    const byKind=KIND_ORDER.map(k=>[k,rows.filter(r=>r.kind===k).length]).filter(([,n])=>n);
+    box.innerHTML=`<div class="insp-head">
+        <div class="id">${tail(repoOf(run),2)}</div>
+        <h2>项目记忆</h2>
+        <div class="row">
+          <span class="pill cap${rows.length>=MEM_CAP*.8?" near":""}">${rows.length} / ${MEM_CAP} 条</span>
+          <span class="pill">${byKind.length} 类</span></div>
+      </div>
+      <div class="field"><h3>分布</h3>${values(byKind.map(([k,n])=>`${KIND_LABEL[k][1]} ${n}`))}</div>
+      <div class="field"><h3>上限</h3><p>满 100 条时新 key 被直接拒绝，<b>不淘汰旧条目</b>——
+        为腾地方悄悄丢掉一条硬规则，比从没存过更糟。对已有 key 的改写在满额时仍然成功，
+        所以错的条目永远能被纠正。</p></div>
+      <div class="field"><h3>没有搜索</h3><p>这是故意的。有搜索就会出现「查不到」被当成
+        「这条事实没被记过」，而实际上它只是存在你没想到的 key 下面。列表一次给全，
+        上限就是让这份列表始终读得完的那个东西。</p></div>
+      <div class="field"><h3>提示</h3><p class="none">选中一条，这里显示它的完整内容与出处。</p></div>`;
+    return;
+  }
+  const [cn,en]=KIND_LABEL[entry.kind];
+  box.innerHTML=`<div class="insp-head">
+      <div class="id">${entry.k}</div>
+      <h2>${cn}</h2>
+      <div class="row"><span class="pill">${en}</span>
+        <span class="pill">更新于 ${entry.up}</span></div>
+    </div>
+    <div class="field"><h3>内容</h3><p>${entry.v}</p></div>
+    <div class="field"><h3>出处</h3><div class="src-block">${entry.src}</div></div>
+    <div class="field"><h3>key</h3><div class="src-block">${entry.k}</div>
+      <p class="none" style="margin-top:6px">存库前会去空格并转小写，这里显示的是存下来的那一份。</p></div>
+    <div class="field"><h3>作用域</h3><p>${repoOf(run)}</p>
+      ${repoOf(run)!==run.project?`<p class="none" style="margin-top:6px">
+        这次运行登记的是 worktree 路径 <code>${tail(run.project,3)}</code>。记忆按仓库存，
+        不按 worktree——同一仓库的几棵树共用这一份。</p>`:""}</div>`;
 }
 
 function card(task,g){
@@ -559,12 +738,15 @@ function render(){
   renderSidebar(); renderToolbar(run,g);
   el("view-dag").setAttribute("aria-pressed",String(view==="dag"));
   el("view-board").setAttribute("aria-pressed",String(view==="board"));
+  el("view-mem").setAttribute("aria-pressed",String(view==="mem"));
   const canvas=el("canvas");
+  if(view==="mem"){ renderMemory(run,canvas); renderMemoryInspector(run); return; }
   view==="dag"?renderDag(run,g,canvas):renderBoard(run,g,canvas);
   renderInspector(run,g);
 }
 
 el("view-dag").onclick=()=>{view="dag";render()};
 el("view-board").onclick=()=>{view="board";render()};
+el("view-mem").onclick=()=>{view="mem";render()};
 render();
 </script>
