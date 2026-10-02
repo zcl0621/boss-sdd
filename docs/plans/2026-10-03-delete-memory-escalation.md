@@ -1,11 +1,15 @@
-Status: awaiting_confirmation
+Status: running
 Run id: f53f044f6df2491284fa3d15507b2819
-Base ref: 0eef1b3af90e7ddb38cb69d3157a3c19e1d500c0
+Base ref: 95ac1395eaecec62ef0a83ee233d343bc6659715
 Project memory: on
 Integration branch: plan/2026-10-03-delete-memory-escalation
 Main working tree: /Users/zhang/Project/boss-sdd
-Integration worktree: (created on approval — see "Worktrees")
+Integration worktree: /Users/zhang/Project/boss-sdd-worktrees/integration
 Updated: 2026-10-03
+
+`Base ref` is the replacement value, not the phase-0 one. Phase 0 recorded
+`0eef1b3`; the approved design mock and this document were then committed as
+`95ac139`, and the integration branch is cut from that.
 
 # Board deletion, the app's memory pane, and the escalation rework
 
@@ -309,7 +313,7 @@ transition guards, so the HTTP API gets it too.
 - `write_scope`: `skills/shared/references/board.md`,
   `skills/shared/references/memory.md`, `README.md`,
   `skills/claude-code/INSTALL.md`, `skills/cursor/INSTALL.md`,
-  `skills/codex/README.md`
+  `skills/codex/README.md`, `.gitignore`
 - `exclusive_resources`: []
 - role: `implementer`
 - **Acceptance.**
@@ -327,6 +331,7 @@ transition guards, so the HTTP API gets it too.
   - `memory.md:12`'s *"the board's seven"* reads nine.
   - The counts match reality: the number of `mcp.AddTool` calls in `mcp/main.go`
     equals the number written in the documentation.
+  - `.gitignore`'s comment says ten role files, not nine.
 - **Risk / rollback.** Depends on D2 because the discipline cannot be written
   before the refusals are settled, and on S2 because it writes
   `skills/claude-code/SKILL.md`'s neighbourhood. Landing last is deliberate.
@@ -373,6 +378,8 @@ From recon lane C, with sources.
 - **The mock is uncommitted.** `design/board-mock.html` has the approved memory
   view in the working tree and not in any commit. It is the design input to M2
   and gets committed before the run starts.
+- **`.gitignore:22` still says "The skill's nine role files".** Stale since the
+  `spec-reviewer` backport made it ten. Folded into S3's scope.
 - **Two runs on the live board are tombstoned.** Once D1 lands they can actually
   be deleted. That is a user action on live data, not a task.
 - **`Scripts/verify.sh`'s live stage checks that the real board file is
@@ -418,11 +425,19 @@ their own `httptest` server (`mcp/client_test.go:14-19`).
 
 ## Worktrees
 
-Not created yet — confirm mode stops at this document. On approval, one worktree
-per node cut from the integration branch, plus the integration worktree, under
-`/Users/zhang/Project/boss-sdd/.worktrees/`. The user's main working tree at
-`/Users/zhang/Project/boss-sdd` is theirs and is not checked out to the
-integration branch at any point.
+Under `/Users/zhang/Project/boss-sdd-worktrees/` — a **sibling** of the main
+working tree, not `.worktrees/` inside it. `.gitignore` does not ignore
+`.worktrees/`, so creating them inside would leave `?? .worktrees/` in the user's
+`git status` for the length of the run. Adding an ignore rule to make the inner
+path legal would be a write to the user's repository for the orchestrator's
+convenience, so the trees moved instead.
+
+One worktree per node on its own `node/<id>` branch, cut from the integration
+branch's **current tip** at dispatch time (not from the base ref — a node whose
+dependencies are `done` needs their merged work in its tree). Plus the
+integration worktree, where every merge and every post-merge gate runs. The main
+working tree at `/Users/zhang/Project/boss-sdd` stays on `main` and is never
+checked out to the integration branch.
 
 ## Delivery steps, after phase 3
 
