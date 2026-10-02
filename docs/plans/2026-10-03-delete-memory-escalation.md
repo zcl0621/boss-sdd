@@ -174,6 +174,10 @@ transition guards, so the HTTP API gets it too.
   - A new store test: deleting a `running` run throws, the run is still present
     afterwards, and the error names the status.
   - A new store test: deleting an unknown id throws `notFound`.
+  - A new store test: every status **except** `running` is deletable. Added
+    2026-10-03 — D2 says "every other status deletes and cascades" and these
+    criteria only ever asked about a `done` run, so the plan under-covered its
+    own design decision. The gap was in this document, not in the code.
 - **Risk / rollback.** The guard sits in `Store.deleteRun`, which the HTTP API
   already calls, so a mistake here changes behaviour for an existing endpoint as
   well as the new tool. Rollback is the node's branch.
@@ -389,7 +393,12 @@ From recon lane C, with sources.
 
 ## Decision queue
 
-Empty. Confirm mode; nothing was decided without asking.
+- **D1's acceptance gained a criterion mid-run** (every non-`running` status is
+  deletable). The spec review found the plan under-covered design decision D2;
+  the implementer had already written the test. Adding the criterion corrects the
+  document rather than lowering the bar — the code was ahead of the plan, not
+  behind it. Overturn by deleting the criterion; the test would then be an
+  unrequested addition rather than a required one.
 
 ## Needs a decision from the user
 
