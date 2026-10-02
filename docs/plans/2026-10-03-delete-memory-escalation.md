@@ -107,7 +107,12 @@ through. **User decision, 2026-10-03.**
 
 **D3. A hard ceiling of 6 total rounds, under the escalation rule, not replacing
 it.** Whatever the classification, after 6 rounds the node is `blocked` and says
-so. The classification keeps deciding tier and whether to resume. *Beat:*
+so. **A "round" here is a turn of the fix loop, not the node's first
+implementation attempt** — the body already defines it that way at
+`PLAYBOOK.md:272-273` ("a round is one turn of the fix loop inside a node"), so
+the ceiling is 6 rework rounds and 7 agent turns in all. Pinned 2026-10-03 after
+S1's implementer asked; the definition predates this plan, but D3 did not cite
+it and "6 total rounds" read both ways on its own. The classification keeps deciding tier and whether to resume. *Beat:*
 restoring the 3-round cap; leaving it unbounded. *Why:* the persisting path
 already terminates (sonnet→opus→fable→fable, four rounds); the all-new path does
 not, and goal mode runs unattended. 6 leaves two rounds of headroom for genuine
