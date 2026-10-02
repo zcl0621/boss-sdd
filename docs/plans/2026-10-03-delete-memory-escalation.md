@@ -367,7 +367,7 @@ transition guards, so the HTTP API gets it too.
 - `write_scope`: `skills/shared/references/board.md`,
   `skills/shared/references/memory.md`, `README.md`,
   `skills/claude-code/INSTALL.md`, `skills/cursor/INSTALL.md`,
-  `skills/codex/README.md`, `.gitignore`
+  `skills/codex/README.md`, `skills/claude-code/SKILL.md`, `.gitignore`
 - `exclusive_resources`: []
 - role: `implementer`
 - **Acceptance.**
@@ -381,10 +381,17 @@ transition guards, so the HTTP API gets it too.
   - The delete discipline says that a deleted task's **`events` rows stay in the
     run's history**, and that the task list and the graph — not the event log —
     are authoritative for what exists. Added mid-run; see the Decision queue.
-  - Every "eleven tools" string reads thirteen:
-    `grep -rn "[Ee]leven tools" README.md skills/` returns nothing, and the tool
-    list in `skills/claude-code/INSTALL.md:150` and `skills/cursor/INSTALL.md:131`
-    names both new tools.
+  - Every stale tool count reads thirteen. The check is
+    `grep -rni "eleven" README.md skills/`, not `"[Ee]leven tools"` — the
+    narrower phrase misses three of the seven sites, because two put a
+    backticked token inside the phrase (`skills/claude-code/SKILL.md:54`,
+    `skills/cursor/INSTALL.md:202`) and one says "eleven tool names"
+    (`skills/cursor/INSTALL.md:146`). That grep is allowed exactly one
+    surviving hit: `skills/claude-code/INSTALL.md:104`'s *"Do not add an
+    eleventh"*, which counts the **ten role files**, not the tools, and is
+    correct as it stands. Changing it is the failure this criterion is written
+    to prevent. The tool list in `skills/claude-code/INSTALL.md:150` and
+    `skills/cursor/INSTALL.md:131` also names both new tools.
   - `memory.md:12`'s *"the board's seven"* reads nine.
   - The counts match reality: the number of `mcp.AddTool` calls in `mcp/main.go`
     equals the number written in the documentation.
@@ -427,13 +434,17 @@ From recon lane C, with sources.
 - **The memory pane is the first thing in this app that reads a table nothing
   watched before.** D6 changes that; if the reload cost shows up in the
   walkthrough, batching the notify is the fallback and it is a design change, not
-  a fix round. M1 landed sharper than this entry anticipated: the cost is not N
+  a fix round. M1 made the shape of it concrete: the cost is not N
   wakeups, it is N wakeups each carrying M extra queries, because `reload()` asks
-  for memories once per distinct run project. The live board has fourteen runs.
-  Against that, `allRuns()` already loads every run in full on the same reload,
-  so the addition is probably not what a walkthrough would notice first — which
-  is the reason to have the walkthrough measure the whole reload rather than the
-  memory query alone.
+  for memories once per distinct run project. Measured on the live board rather
+  than guessed — 15 runs over 5 distinct projects — M is 5, and `allRuns()`
+  already costs 1 + 15x4 = 61 queries on the same reload, so the memory loop adds
+  under a tenth of what was already there. The term that actually scales is the
+  reload *count*, not the queries inside one: a prune of N entries is N notifies
+  and so N full reloads, each blocking the main thread. So the walkthrough
+  watches a burst of memory writes for visible stutter; isolating the loop's own
+  cost would be measuring the wrong term, and batching the notify is still the
+  fallback if the burst shows a problem.
 - **S1's acceptance is entirely human reading.** There is no Markdown gate in
   this repository. The static reviewer and the spec reviewer are the only checks
   those three tasks get, which is an argument for not letting them batch with
