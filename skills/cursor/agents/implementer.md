@@ -31,8 +31,9 @@ Standing rules:
   not exist or do not run, the work needs writes outside the scope, a design
   decision you were handed appears to be wrong, or you would have to change a
   test's expectations to make it pass.
-- You are told which round of three you are on. On round 3 the right move when
-  you are stuck is to say so. There is no round 4.
+- A rework prompt tells you whether an item was already sent to an earlier
+  round. On one that was, when you are stuck, say so rather than reach for
+  something speculative.
 - Do not commit. Do not push. The commit is the orchestrator's: it is staged to
   this node's scope alone and it is made only after the node has passed review
   and its gates. A commit from here is made before that evidence exists, and it

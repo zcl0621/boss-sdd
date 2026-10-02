@@ -1,5 +1,6 @@
 # plan-sdd role layer: implementer -- reasoning rung.
-# Raise to high for a task marked [complexity: high].
+# A node moves up from this rung only by the escalation rule in shared/roles.md;
+# codex-platform.md says how a move is made on Codex.
 # The key names here are an assumption, and so is the scoping -- that a key which
 # is global in config.toml becomes this role's when written in a layer. The
 # values are not assumptions. Both failures look identical from inside a run, so
