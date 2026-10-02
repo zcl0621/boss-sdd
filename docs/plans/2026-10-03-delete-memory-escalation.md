@@ -55,7 +55,11 @@ now, in goal mode, the all-new path has no written stop at all.
 
 1. An agent that created a junk run or a junk task removes it with one MCP call,
    and afterwards `plan_board_status` and `plan_get_run` show no trace — no
-   tombstone, no `done` that means void.
+   tombstone, no `done` that means void. Narrowed mid-run, and the goal
+   sentence is narrowed with it: "no trace" is run and task state. A deleted
+   task's `events` rows stay, so `plan_get_run --include_events` still returns
+   rows naming it. The Decision queue argues why, and `board.md:255-261` is
+   where an agent is told.
 2. Opening the board window and switching to the memory view shows, for the
    project the selected run belongs to, every memory entry with its key, its
    value and its `source`, grouped by kind, with a live count against the 100
@@ -63,7 +67,10 @@ now, in goal mode, the all-new path has no written stop at all.
 3. The repository teaches the new/persisting escalation rule; all three
    packagings agree with each other about it; and goal mode terminates on every
    path, including the all-new one.
-4. The user's local install and the repository hold the same text.
+4. The user's local install and the repository hold the same text. This one is
+   the only goal the branch cannot discharge: it closes at Delivery step 2,
+   when the install is re-copied from the merged repo. The branch is its
+   precondition.
 
 ## Non-goals
 
@@ -331,9 +338,16 @@ transition guards, so the HTTP API gets it too.
 - **Acceptance.** No machine gate exists for Markdown (recon lane A: *"Skills are
   pure Markdown… no check mode"*), so every criterion here is a read:
   - The eight files' worth of escalation text from `~/.claude/skills/plan-sdd/`
-    is present in `skills/shared/`, by diff: `diff -r` between the repo's
-    `skills/shared/` and the install's `shared/` reports no difference in the
-    escalation text.
+    is present in `skills/shared/`, by diff. **One-directional, and this is a
+    correction to how I first wrote it.** I asked for `diff -r` between the
+    repo's `skills/shared/` and the install's `shared/` to report no
+    difference, which no state of this branch can produce: D3 and D4 are
+    decided in this run, so the repo is ahead of the install by construction,
+    and the install only catches up at Delivery step 2. What the node owes is
+    the direction that can be wrong: read every hunk and confirm no escalation
+    text present in the install was dropped from the repo, and that every
+    remaining difference is either work this plan authorised or one of the
+    install's own contradictions S1 exists to fix.
   - `PLAYBOOK.md:114`'s goal-mode stop condition states the 6-round ceiling (D3),
     not "three fix/review rounds".
   - `references/review.md` no longer says "if the rounds have run out".
@@ -511,6 +525,40 @@ From recon lane C, with sources.
   watches a burst of memory writes for visible stutter; isolating the loop's own
   cost would be measuring the wrong term, and batching the notify is still the
   fallback if the burst shows a problem.
+- **`Sources/BossSDD/` has no test target, and M2 is the node that put
+  contracts into it.** `Package.swift` declares one `testTarget`, over
+  `BoardKit`. So the kind ordering, the empty-kind suppression, the 80-of-100
+  colour threshold and `BoardView`'s third case carry no automated coverage —
+  only the walkthrough, which is a person looking once. Pre-existing and out of
+  M2's write scope, so not fixed here; recorded because reordering
+  `MemoryKind.allCases` would silently reorder the pane with every gate still
+  green, and the enum's declaration order being the pane's contract is exactly
+  the kind of thing nobody remembers a year later.
+- **D7 resolves the worktree layout this skill no longer tells agents to
+  create.** Found by the phase-3 branch review, which is the only level that
+  could see it: D7's evidence and the rule that contradicts it sit ~550 lines
+  apart in this document. `Store.repository(ofRunProject:)` strips a trailing
+  `/.worktrees/<name>`, but `worktree-mode.md:149-152` says to put worktrees in
+  a **sibling** directory — `/w/repo-worktrees/<name>` — and that is the layout
+  this very run used. A run recorded under a sibling worktree therefore gets a
+  private memory bucket, with `differed` false, so the pane cannot even say the
+  path it shows is not the repository.
+  Measured on the live board rather than argued: one run carries the
+  `.worktrees/` form (`agent-remote`, the row D7 was written from) and **zero**
+  carry the sibling form, so nothing is broken today and the implemented branch
+  is not dead code. Not fixed here, deliberately: `/w/repo-worktrees/x` →
+  `/w/repo` has to assume no real repository is named `repo-worktrees`, which
+  is a weaker heuristic than the one it would join, and choosing to accept it
+  is the user's call rather than a fix to slip into this branch. Filed.
+- **`repository(ofRunProject:)`'s docstring promises canonicalisation it does
+  not deliver.** It says every return path is trimmed, but the resolved path is
+  the slice before `/.worktrees/`, so `"/x/repo /.worktrees/t1"` returns
+  `"/x/repo "` with the space. The bucket read is still right — `memories()`
+  re-normalises — but `ProjectMemories.repository` is rendered directly in the
+  subtitle and the inspector, so the UI would print the trailing space. Needs a
+  repository path ending in whitespace, so cosmetic; recorded because a
+  docstring stating a guarantee the code does not provide is the exact shape
+  that cost this plan a round-3 escalation. Filed with the entry above.
 - **S1's acceptance is entirely human reading.** There is no Markdown gate in
   this repository. The static reviewer and the spec reviewer are the only checks
   those three tasks get, which is an argument for not letting them batch with
@@ -649,7 +697,9 @@ From recon lane C, with sources.
   old cap — but the ceiling now depends on it, and this run's own S1 rulings
   worried about two agents counting differently. Deferred rather than folded
   into S1, which is on the top rung with one round left; adding non-essential
-  work there risks the node for a gap that predates it.
+  work there risks the node for a gap that predates it. **Promoted at phase 3**
+  into `## Needs a decision from the user`: the node it would have risked is
+  merged, so the reason for deferring it no longer exists.
 
 - **`roles.md:385` keeps no "except" clause for the collision carve-out.**
   `roles.md:413` and `PLAYBOOK.md:386-387` cite the carve-out only for the
@@ -663,8 +713,23 @@ From recon lane C, with sources.
 
 ## Needs a decision from the user
 
-Empty at the time of writing. The four questions raised at the end of recon were
-answered on 2026-10-03 and are recorded as D1–D5 above.
+The five questions raised at the end of recon were answered on 2026-10-03 and
+are recorded as D1–D5 above.
+
+One item was added at phase 3, promoted out of the Decision queue because it is
+the only deferral whose gap this branch widens rather than inherits:
+
+- **The 6-round ceiling has no counter.** D3 makes a number decide whether a
+  node is `blocked`, and the merged text now cites that number at six or more
+  sites, while no file says where the number is kept or who increments it.
+  `roles.md:402` asks for the classification and the tier per round, not the
+  count. Deferring it was right for S1 — it was on the top rung with one round
+  left — but the deferral reason has expired with the node. Two ways to close
+  it, and the choice is yours: name the field the count lives in (one sentence
+  at `roles.md:402`, cheapest), or accept that each orchestrator keeps the
+  count in its own head for the length of one run, which is what happens today
+  and is why two agents can count differently. Not a merge blocker either way;
+  it should just stop being invisible.
 
 ## Gates
 
