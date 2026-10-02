@@ -398,12 +398,18 @@ transition guards, so the HTTP API gets it too.
     tool names with no count word anywhere near them. The check that catches
     this shape is content, not phrasing: every file that enumerates the toolset
     must contain `plan_delete_run`. Run
-    `for f in $(grep -rln "plan_board_status" README.md skills/); do grep -q
-    "plan_delete_run" "$f" || echo "STALE: $f"; done` and expect no output.
-    Two files match the outer grep and are correctly *not* enumerations —
+    the loop below, which must print nothing. Two files match the outer grep
+    and are correctly *not* enumerations, so they are excluded by name rather
+    than left to produce output a reader has to know to ignore:
     `skills/codex/codex-platform.md:234` is a single-tool presence check and
-    `skills/shared/PLAYBOOK.md` names tools inside workflow steps; neither is in
+    `skills/shared/PLAYBOOK.md` names tools inside workflow steps. Neither is in
     scope and neither should gain the delete names.
+    ```
+    for f in $(grep -rln "plan_board_status" README.md skills/ \
+                 | grep -v -e codex-platform.md -e PLAYBOOK.md); do
+      grep -q "plan_delete_run" "$f" || echo "STALE: $f"
+    done
+    ```
   - `memory.md:12`'s *"the board's seven"* reads nine.
   - The counts match reality: the number of `mcp.AddTool` calls in `mcp/main.go`
     equals the number written in the documentation.
