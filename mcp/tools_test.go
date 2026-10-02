@@ -530,11 +530,17 @@ func TestVerifyMemoryDeletedRejectsAPaddedKeyEcho(t *testing.T) {
 // 200 (not 201), {"error":{"code","message"}} on failure, and the two
 // distinct 400s for an absent vs. empty `project`. This is a double's output,
 // not the real app's.
-// Mirrors Sources/BoardKit/Store.swift's normalizedProject/normalizedKey:
-// project is trimmed only, key is trimmed and lower-cased. Reproduced here
-// (rather than just lower-casing the key like round 1 did) because that
-// asymmetry is exactly what round 2 of this task found the verifiers missing.
-func doubleNormalizedProject(project string) string { return strings.TrimSpace(project) }
+// Mirrors Sources/BoardKit/Store.swift's normalizedProject/normalizedKey.
+// project goes through canonicalProject — the same function the verifiers
+// use, not a second copy of the rule. A second copy here mirrored the stale
+// trim-only rule on both sides of every assertion, so the suite stayed green
+// while the real board had moved on. The double cannot disagree with the
+// verifier by construction; what pins both to the board is
+// canonicalProjectVectors, the table the Swift suite runs against the real
+// Store. key is trimmed and lower-cased. Reproduced here (rather than just
+// lower-casing the key like round 1 did) because that asymmetry is exactly
+// what round 2 of this task found the verifiers missing.
+func doubleNormalizedProject(project string) string { return canonicalProject(project) }
 func doubleNormalizedKey(key string) string         { return strings.ToLower(strings.TrimSpace(key)) }
 
 // doubleQueryValue reads one query parameter the way the board's own parser
@@ -1225,6 +1231,136 @@ func TestMemoryToolsEndToEndToleratesWhitespacePaddedProject(t *testing.T) {
 	}
 	if verr := verifyMemoryDeleted(padded, "note.padding", deleted); verr != nil {
 		t.Fatalf("delete response for a padded project must verify clean: %v", verr)
+	}
+}
+
+// ---- the one rule, pinned to the board ----
+//
+// canonicalProjectVectors is transcribed, entry for entry, from
+// Tests/BoardKitTests/MemoryTests.swift (canonicalProjectVectors), where the
+// same table runs against the real Store on every memory path. It is the only
+// thing holding this binary's canonicalProject to the board's canonicalPath:
+// a drift in either copy fails that copy's own suite. What it cannot catch is
+// the rule and the table both being changed on one side only — the two tables
+// are not read from one file (that would be sharing the rule, not
+// transcribing it, and is a design decision not taken here).
+//
+// An empty canonical means the board refuses the project; canonicalProject
+// returns "" there and leaves the refusal to the board.
+var canonicalProjectVectors = []struct{ input, canonical string }{
+	// Nothing but whitespace: refused.
+	{"", ""},
+	{"  ", ""},
+	{"\t\n", ""},
+	// A lone slash is a path; more slashes collapse onto it.
+	{"/", "/"},
+	{"//", "/"},
+	{"///", "/"},
+	// Whitespace behind a trailing slash: one trim-then-strip pass leaves it exposed.
+	{"/ /", "/"},
+	{"/a/ /", "/a"},
+	{"/x/repo /", "/x/repo"},
+	{"/x/repo/ \n/ ", "/x/repo"},
+	// Trailing slashes and outer whitespace, including a non-breaking space.
+	{"/x/repo/", "/x/repo"},
+	{"  /x/repo/ ", "/x/repo"},
+	{"\u00A0/x/repo/\u00A0", "/x/repo"},
+	// Leading slashes, case and inner whitespace are all kept.
+	{"//a//", "//a"},
+	{"/x/Repo", "/x/Repo"},
+	{"/x/my repo", "/x/my repo"},
+	{"boss-sdd", "boss-sdd"},
+}
+
+func TestCanonicalProjectAgreesWithTheBoardOnEveryVector(t *testing.T) {
+	for _, v := range canonicalProjectVectors {
+		if got := canonicalProject(v.input); got != v.canonical {
+			t.Errorf("canonicalProject(%q) = %q, want %q (the board's spelling)", v.input, got, v.canonical)
+		}
+		if again := canonicalProject(v.canonical); again != v.canonical {
+			t.Errorf("canonicalProject is not a fixpoint: applied to its own output %q it gives %q", v.canonical, again)
+		}
+	}
+}
+
+// The verifiers must reach the rule, not just the rule exist: for every
+// vector the board would store, the board's canonical echo verifies clean
+// through all three, however the caller spelled the project.
+func TestVerifiersAcceptTheBoardsCanonicalEchoOnEveryVector(t *testing.T) {
+	for _, v := range canonicalProjectVectors {
+		if v.canonical == "" {
+			continue
+		}
+		if err := verifyMemoryEcho(v.input, "gate", wireMemory{Project: v.canonical, Key: "gate", Source: "src"}); err != nil {
+			t.Errorf("verifyMemoryEcho(%q): %v", v.input, err)
+		}
+		if err := verifyMemoryDeleted(v.input, "gate", wireMemoryDeleted{Deleted: "gate", Project: v.canonical}); err != nil {
+			t.Errorf("verifyMemoryDeleted(%q): %v", v.input, err)
+		}
+		if err := verifyMemoryList(v.input, "", []wireMemory{{Project: v.canonical, Key: "gate", Source: "src"}}); err != nil {
+			t.Errorf("verifyMemoryList(%q): %v", v.input, err)
+		}
+	}
+}
+
+// Round 3 regression, through the registered handlers: the board now strips
+// trailing slashes from a project before it stores it (Store.canonicalPath,
+// reached through normalizedProject on every memory route), and echoes that
+// stored spelling on every response. A caller passing "/x/repo/" gets
+// "/x/repo" back from a write that genuinely happened; the tool must accept
+// that echo, not hand the agent "the board returned a memory from a
+// different project" for a successful operation.
+func TestToolMemoryToolsAcceptTheBoardsSlashStrippedEcho(t *testing.T) {
+	b := newMemoryContractDouble(t)
+	session := newToolSession(t, b)
+	ctx := context.Background()
+	const slashed = "/x/repo/"
+	const stored = "/x/repo"
+
+	addResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "plan_memory_add",
+		Arguments: map[string]any{
+			"project": slashed, "key": "gate", "value": "v", "kind": "gate", "source": "mcp/tools_test.go:3",
+		},
+	})
+	if err != nil || addResult.IsError {
+		t.Fatalf("add with a slash-suffixed project must succeed: err=%v result=%s", err, resultErrorText(addResult))
+	}
+	if added := decodeStructured[memoryView](t, addResult); added.Project != stored {
+		t.Fatalf("expected the board's stored spelling %q back, got %q", stored, added.Project)
+	}
+
+	getResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "plan_memory_get",
+		Arguments: map[string]any{"project": slashed, "key": "gate"},
+	})
+	if err != nil || getResult.IsError {
+		t.Fatalf("get with a slash-suffixed project must succeed: err=%v result=%s", err, resultErrorText(getResult))
+	}
+	if got := decodeStructured[memoryView](t, getResult); got.Project != stored {
+		t.Fatalf("expected the board's stored spelling %q back, got %q", stored, got.Project)
+	}
+
+	listResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "plan_memory_list",
+		Arguments: map[string]any{"project": slashed},
+	})
+	if err != nil || listResult.IsError {
+		t.Fatalf("list with a slash-suffixed project must succeed: err=%v result=%s", err, resultErrorText(listResult))
+	}
+	if list := decodeStructured[memoryListOutput](t, listResult); len(list.Memories) != 1 || list.Memories[0].Project != stored {
+		t.Fatalf("expected the one record under %q, got %#v", stored, list.Memories)
+	}
+
+	deleteResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "plan_memory_delete",
+		Arguments: map[string]any{"project": slashed, "key": "gate"},
+	})
+	if err != nil || deleteResult.IsError {
+		t.Fatalf("delete with a slash-suffixed project must succeed: err=%v result=%s", err, resultErrorText(deleteResult))
+	}
+	if deleted := decodeStructured[memoryDeleteOutput](t, deleteResult); deleted.Project != stored {
+		t.Fatalf("expected the board's stored spelling %q back, got %q", stored, deleted.Project)
 	}
 }
 

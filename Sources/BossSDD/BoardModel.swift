@@ -10,6 +10,10 @@ import BoardKit
 @Observable
 final class BoardModel {
     private(set) var runs: [Run] = []
+    /// Memories per run `project` string, resolved to the repository, kept fresh by
+    /// `reload()` so the observation system sees them change. Keyed on what the run
+    /// recorded rather than the repository, so a lookup is one dictionary read.
+    private(set) var memoriesByRunProject: [String: ProjectMemories] = [:]
     private(set) var serverState: ServerState = .stopped
     private(set) var loadError: String?
     private(set) var importReport: String?
@@ -68,6 +72,11 @@ final class BoardModel {
             if let id = selectedRunID, !runs.contains(where: { $0.id == id }) { selectedRunID = nil }
             if selectedRunID == nil { selectedRunID = runs.first?.id }
             if let task = selectedTaskID, selectedRun?.task(task) == nil { selectedTaskID = nil }
+            var memories: [String: ProjectMemories] = [:]
+            for project in Set(runs.map(\.project)) where !project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                memories[project] = try store.projectMemories(forRunProject: project)
+            }
+            memoriesByRunProject = memories
         } catch {
             loadError = String(describing: error)
         }
@@ -76,6 +85,14 @@ final class BoardModel {
     var selectedRun: Run? {
         guard let id = selectedRunID else { return runs.first }
         return runs.first { $0.id == id } ?? runs.first
+    }
+
+    /// The selected run's project memories, read under the repository its `project`
+    /// resolves to (a worktree path resolves to the repository). Nil for a run with
+    /// no project. `differed` and `repository` are there for the pane to say so when
+    /// the run's own `project` was not the repository.
+    var selectedProjectMemories: ProjectMemories? {
+        selectedRun.flatMap { memoriesByRunProject[$0.project] }
     }
 
     var graph: GraphProjection? {
