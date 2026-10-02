@@ -574,3 +574,343 @@ private func withTempDatabaseFile(_ body: (URL) throws -> Void) throws {
         }
     }
 }
+
+/// Counts how many times a store observer has fired. `notify()` delivers on a global
+/// queue, so tests wait on a semaphore rather than assuming the handler already ran.
+private final class ObserverProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var fired = 0
+
+    var handler: @Sendable () -> Void {
+        { [self] in
+            lock.lock(); fired += 1; lock.unlock()
+            semaphore.signal()
+        }
+    }
+
+    /// How many times the handler has run so far.
+    var count: Int {
+        lock.lock(); defer { lock.unlock() }
+        return fired
+    }
+
+    /// True if an observer call arrives within `seconds`.
+    func fires(within seconds: Double = 2) -> Bool {
+        semaphore.wait(timeout: .now() + seconds) == .success
+    }
+}
+
+@Suite struct MemoryNotificationTests {
+
+    // MARK: - Memory writes wake observers (D6)
+
+    @Test func upsertMemoryNotifiesObservers() throws {
+        try withTempStore { store in
+            let probe = ObserverProbe()
+            _ = store.addObserver(probe.handler)
+            try store.upsertMemory(
+                project: "boss-sdd", key: "gate", value: "swift test", kind: .gate, source: "README:1"
+            )
+            #expect(probe.fires())
+        }
+    }
+
+    @Test func deleteMemoryNotifiesObservers() throws {
+        try withTempStore { store in
+            try store.upsertMemory(
+                project: "boss-sdd", key: "gate", value: "swift test", kind: .gate, source: "README:1"
+            )
+            let probe = ObserverProbe()
+            _ = store.addObserver(probe.handler)
+            try store.deleteMemory(project: "boss-sdd", key: "gate")
+            #expect(probe.fires())
+        }
+    }
+
+    /// A write that throws changed nothing, so it must not wake the window.
+    @Test func refusedMemoryWritesDoNotNotify() throws {
+        try withTempStore { store in
+            let probe = ObserverProbe()
+            _ = store.addObserver(probe.handler)
+            #expect(throws: BoardError.self) {
+                try store.upsertMemory(project: "p", key: "gate", value: "v", kind: .gate, source: " ")
+            }
+            #expect(throws: BoardError.self) {
+                try store.deleteMemory(project: "p", key: "missing")
+            }
+            #expect(!probe.fires(within: 0.3))
+        }
+    }
+
+    /// The empty-`source` refusal above throws before `queue.sync` is entered, so it
+    /// cannot show where `notify()` sits. The 100-key cap throws from inside the
+    /// transaction: a `notify()` placed inside `queue.sync` would fire here.
+    @Test func anUpsertRefusedByTheCapInsideTheTransactionDoesNotNotify() throws {
+        try withTempStore { store in
+            for i in 0..<memoryLimit {
+                try store.upsertMemory(
+                    project: "full", key: "k\(i)", value: "v", kind: .note, source: "x:\(i)"
+                )
+            }
+            // Registered after the fill, so only the refused write could reach it.
+            let probe = ObserverProbe()
+            _ = store.addObserver(probe.handler)
+            #expect(throws: BoardError.self) {
+                try store.upsertMemory(
+                    project: "full", key: "one-too-many", value: "v", kind: .note, source: "x:1"
+                )
+            }
+            #expect(!probe.fires(within: 0.3))
+            #expect(probe.count == 0)
+        }
+    }
+
+    // MARK: - Project resolution (D7)
+
+    @Test func aWorktreePathResolvesToItsRepository() {
+        #expect(Store.repository(ofRunProject: "/x/repo/.worktrees/t1") == "/x/repo")
+        #expect(Store.repository(ofRunProject: "/x/repo/.worktrees/t1/") == "/x/repo")
+    }
+
+    @Test func aPlainRepositoryPathIsLeftAlone() {
+        #expect(Store.repository(ofRunProject: "/x/repo") == "/x/repo")
+        #expect(Store.repository(ofRunProject: "boss-sdd") == "boss-sdd")
+        // Only a *trailing* worktree segment is stripped, and only one level of it.
+        #expect(Store.repository(ofRunProject: "/x/.worktrees/repo/src") == "/x/.worktrees/repo/src")
+        #expect(Store.repository(ofRunProject: "/x/repo/.worktrees/t1/sub") == "/x/repo/.worktrees/t1/sub")
+        // Nothing to resolve to: an empty repository part is not a repository.
+        #expect(Store.repository(ofRunProject: "/.worktrees/t1") == "/.worktrees/t1")
+        #expect(Store.repository(ofRunProject: "/x/repo/.worktrees/") == "/x/repo/.worktrees")
+    }
+
+    /// A trailing slash or stray whitespace must not change which bucket a path
+    /// reads: every return path canonicalises the same way.
+    @Test func trailingSlashesAndWhitespaceAreCanonicalisedOnEveryPath() {
+        #expect(Store.repository(ofRunProject: "/x/repo/") == "/x/repo")
+        #expect(Store.repository(ofRunProject: "/x/repo//") == "/x/repo")
+        #expect(Store.repository(ofRunProject: "  /x/repo/ ") == "/x/repo")
+        #expect(Store.repository(ofRunProject: "/") == "/")
+        #expect(
+            Store.repository(ofRunProject: "/x/repo/")
+                == Store.repository(ofRunProject: "/x/repo/.worktrees/t1/")
+        )
+    }
+
+    /// `/x/repo/` and `/x/repo/.worktrees/t1/` are one repository, and a plain path
+    /// that only differs by a slash was not resolved from anything, so `differed`
+    /// must stay false for it.
+    @Test func aTrailingSlashOnAPlainPathSharesTheBucketAndDidNotDiffer() throws {
+        try withTempStore { store in
+            try store.upsertMemory(
+                project: "/x/repo", key: "gate", value: "swift test", kind: .gate, source: "README:1"
+            )
+            let plain = try store.projectMemories(forRunProject: "/x/repo/")
+            #expect(plain.repository == "/x/repo")
+            #expect(!plain.differed)
+            #expect(plain.memories.map(\.key) == ["gate"])
+
+            let worktree = try store.projectMemories(forRunProject: "/x/repo/.worktrees/t1/")
+            #expect(worktree.repository == "/x/repo")
+            #expect(worktree.differed)
+            #expect(worktree.memories == plain.memories)
+        }
+    }
+
+    @Test func aWorktreeRunReadsTheRepositorysMemories() throws {
+        try withTempStore { store in
+            try store.upsertMemory(
+                project: "/x/repo", key: "gate", value: "swift test", kind: .gate, source: "README:1"
+            )
+            // A memory filed under the worktree path itself must not leak in.
+            try store.upsertMemory(
+                project: "/x/repo/.worktrees/t1", key: "stray", value: "v", kind: .note, source: "x:1"
+            )
+
+            let view = try store.projectMemories(forRunProject: "/x/repo/.worktrees/t1")
+            #expect(view.repository == "/x/repo")
+            #expect(view.runProject == "/x/repo/.worktrees/t1")
+            #expect(view.differed)
+            #expect(view.memories.map(\.key) == ["gate"])
+        }
+    }
+
+    @Test func aRunOnTheRepositoryItselfDidNotDiffer() throws {
+        try withTempStore { store in
+            try store.upsertMemory(
+                project: "/x/repo", key: "gate", value: "swift test", kind: .gate, source: "README:1"
+            )
+            let view = try store.projectMemories(forRunProject: "/x/repo")
+            #expect(view.repository == "/x/repo")
+            #expect(!view.differed)
+            #expect(view.memories.map(\.key) == ["gate"])
+        }
+    }
+
+    @Test func aRunWithNoProjectIsRefused() throws {
+        try withTempStore { store in
+            #expect(throws: BoardError.self) { _ = try store.projectMemories(forRunProject: "  ") }
+        }
+    }
+
+    // MARK: - One bucket key for reads and writes alike
+
+    /// The spelling a write files a memory under and the spelling the pane reads
+    /// must be the same one, or a memory written as `/x/repo/` is invisible to the
+    /// very run it belongs to — which is what D7 exists to prevent.
+    @Test func aSlashSuffixedProjectWritesTheBucketThePaneReads() throws {
+        try withTempStore { store in
+            try store.upsertMemory(
+                project: "/x/repo/", key: "gate", value: "swift test", kind: .gate, source: "README:1"
+            )
+            let plain = try store.projectMemories(forRunProject: "/x/repo/")
+            #expect(plain.repository == "/x/repo")
+            #expect(!plain.differed)
+            #expect(plain.memories.map(\.key) == ["gate"])
+
+            // And a worktree run under that repository reads the same row.
+            let worktree = try store.projectMemories(forRunProject: "/x/repo/.worktrees/t1")
+            #expect(worktree.memories == plain.memories)
+        }
+    }
+
+    /// All four memory operations pass through one canonicalisation, so a trailing
+    /// slash or stray whitespace cannot split a project into two buckets no matter
+    /// which operation writes it.
+    @Test func trailingSlashesDoNotSplitAProjectAcrossOperations() throws {
+        try withTempStore { store in
+            try store.upsertMemory(
+                project: "/x/repo", key: "gate", value: "v1", kind: .gate, source: "a:1"
+            )
+            // The slashed spelling updates that row in place rather than adding a second.
+            let updated = try store.upsertMemory(
+                project: "/x/repo/", key: "gate", value: "v2", kind: .gate, source: "a:2"
+            )
+            #expect(updated.project == "/x/repo")
+            #expect(try store.memories(project: "/x/repo").map(\.value) == ["v2"])
+            #expect(try store.memory(project: "/x/repo//", key: "gate").value == "v2")
+
+            let deleted = try store.deleteMemory(project: "  /x/repo/ ", key: "gate")
+            #expect(deleted.project == "/x/repo")
+            #expect(try store.memories(project: "/x/repo").isEmpty)
+        }
+    }
+
+    /// The degenerate paths, since canonicalisation now runs before the emptiness
+    /// check: `"/"` is still a (strange but non-empty) path, `"///"` collapses onto
+    /// it rather than becoming a second bucket, and whitespace is still refused.
+    @Test func degenerateProjectPathsCanonicaliseWithoutBecomingEmpty() throws {
+        try withTempStore { store in
+            let written = try store.upsertMemory(
+                project: "///", key: "gate", value: "v", kind: .gate, source: "a:1"
+            )
+            #expect(written.project == "/")
+            #expect(try store.memories(project: "/").map(\.value) == ["v"])
+            #expect(try store.memory(project: "///", key: "gate").project == "/")
+            #expect(throws: BoardError.self) { _ = try store.memories(project: "  ") }
+            #expect(throws: BoardError.self) {
+                _ = try store.upsertMemory(
+                    project: "  ", key: "gate", value: "v", kind: .gate, source: "a:1"
+                )
+            }
+        }
+    }
+}
+
+// MARK: - The canonical spelling of a project, pinned vector by vector
+
+/// Transcribed, entry for entry, in `mcp/tools_test.go` (`canonicalProjectVectors`).
+/// The Go binary validates every memory echo against its own copy of the board's
+/// rule; the two copies are held together only by both passing this one table.
+/// Change the rule, this table and that table together, never one alone.
+///
+/// An empty `canonical` means the board refuses the project (`project must not be
+/// empty`), where the Go copy returns "" and leaves the refusal to the board.
+private let canonicalProjectVectors: [(input: String, canonical: String)] = [
+    // Nothing but whitespace: refused.
+    ("", ""),
+    ("  ", ""),
+    ("\t\n", ""),
+    // A lone slash is a path; more slashes collapse onto it.
+    ("/", "/"),
+    ("//", "/"),
+    ("///", "/"),
+    // Whitespace behind a trailing slash: one trim-then-strip pass leaves it exposed.
+    ("/ /", "/"),
+    ("/a/ /", "/a"),
+    ("/x/repo /", "/x/repo"),
+    ("/x/repo/ \n/ ", "/x/repo"),
+    // Trailing slashes and outer whitespace, including a non-breaking space.
+    ("/x/repo/", "/x/repo"),
+    ("  /x/repo/ ", "/x/repo"),
+    ("\u{00A0}/x/repo/\u{00A0}", "/x/repo"),
+    // Leading slashes, case and inner whitespace are all kept.
+    ("//a//", "//a"),
+    ("/x/Repo", "/x/Repo"),
+    ("/x/my repo", "/x/my repo"),
+    ("boss-sdd", "boss-sdd"),
+]
+
+@Suite struct ProjectCanonicalisationTests {
+
+    /// Spellings outside the set where a single trim-then-strip pass already happens
+    /// to be idempotent. The write path applies the rule once and the pane's read
+    /// path applies it twice; unless the rule is a fixpoint those are two buckets,
+    /// the memory is invisible to its own run, and `differed` is false so the pane
+    /// cannot even say so.
+    @Test func whitespaceBehindATrailingSlashReadsTheBucketItWrote() throws {
+        for spelling in ["/x/repo /", "/ /", "/a/\n/"] {
+            try withTempStore { store in
+                let written = try store.upsertMemory(
+                    project: spelling, key: "gate", value: "v", kind: .gate, source: "a:1"
+                )
+                let view = try store.projectMemories(forRunProject: spelling)
+                #expect(view.repository == written.project, "\(spelling.debugDescription)")
+                #expect(!view.differed, "\(spelling.debugDescription)")
+                #expect(view.memories.map(\.key) == ["gate"], "\(spelling.debugDescription)")
+            }
+        }
+    }
+
+    /// Every operation that turns a project string into a bucket key agrees with the
+    /// table, and the canonical spelling is its own canonical spelling on each of
+    /// them. That second half is what makes applying the rule once on the write
+    /// path and twice on the read path harmless.
+    @Test func everyVectorCanonicalisesTheSameWayOnEveryPathAndIsAFixpoint() throws {
+        for vector in canonicalProjectVectors {
+            let label = "\(vector.input.debugDescription)"
+            try withTempStore { store in
+                if vector.canonical.isEmpty {
+                    #expect(throws: BoardError.self, "\(label)") {
+                        try store.upsertMemory(
+                            project: vector.input, key: "gate", value: "v", kind: .gate, source: "a:1"
+                        )
+                    }
+                    #expect(throws: BoardError.self, "\(label)") {
+                        _ = try store.projectMemories(forRunProject: vector.input)
+                    }
+                    return
+                }
+                let written = try store.upsertMemory(
+                    project: vector.input, key: "gate", value: "v", kind: .gate, source: "a:1"
+                )
+                #expect(written.project == vector.canonical, "\(label)")
+                // Fixpoint, on the write path and on the resolution path.
+                let again = try store.upsertMemory(
+                    project: vector.canonical, key: "gate", value: "v2", kind: .gate, source: "a:2"
+                )
+                #expect(again.project == vector.canonical, "\(label)")
+                #expect(Store.repository(ofRunProject: vector.canonical) == vector.canonical, "\(label)")
+                // The read paths land in the bucket the write filled.
+                #expect(try store.memory(project: vector.input, key: "gate").value == "v2", "\(label)")
+                #expect(try store.memories(project: vector.input).count == 1, "\(label)")
+                let view = try store.projectMemories(forRunProject: vector.input)
+                #expect(view.runProject == vector.canonical, "\(label)")
+                #expect(view.repository == vector.canonical, "\(label)")
+                #expect(!view.differed, "\(label)")
+                #expect(view.memories.map(\.value) == ["v2"], "\(label)")
+                #expect(try store.deleteMemory(project: vector.input, key: "gate").project == vector.canonical, "\(label)")
+            }
+        }
+    }
+}
