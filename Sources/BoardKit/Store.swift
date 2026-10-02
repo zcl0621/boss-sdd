@@ -253,6 +253,62 @@ public final class Store: @unchecked Sendable {
         notify()
     }
 
+    /// Removes one task from a run and returns the run as it now stands. The schema's
+    /// `ON DELETE CASCADE` takes the task's `task_lists` rows with it. Three refusals, all
+    /// `.conflict`: a task another task still lists in `depends_on` (every such task is
+    /// named, so one retry is enough), a `running` task, and a `review` task. Like
+    /// `deleteRun`, these refuse rather than repair, and they live here so every caller
+    /// gets them.
+    public func deleteTask(runID: String, taskID: String) throws -> Run {
+        let result: Run = try queue.sync {
+            // Reading, checking and deleting share one transaction (BEGIN IMMEDIATE), so a
+            // second process cannot add a `depends_on` edge to this task, or move it to
+            // running or review, between the check and the delete.
+            try database.transaction {
+                let run = try loadRun(runID)
+                guard let task = run.task(taskID) else {
+                    throw BoardError.notFound("task \(taskID) not found in run \(runID)")
+                }
+                guard !task.status.isActive else {
+                    throw BoardError.conflict(
+                        "cannot delete task \(taskID): its status is \(task.status.rawValue), so it is still in "
+                            + "flight; set the task to a status other than \(task.status.rawValue), then try the delete again"
+                    )
+                }
+                let dependents = run.tasks.filter { $0.id != taskID && $0.dependsOn.contains(taskID) }
+                guard dependents.isEmpty else {
+                    let names = dependents.map(\.id).joined(separator: ", ")
+                    throw BoardError.conflict(
+                        "cannot delete task \(taskID): these tasks depend on it: \(names); "
+                            + "remove \(taskID) from their depends_on (or delete them first), then call the delete again"
+                    )
+                }
+                // `position` is written from a task's index in the loaded array, so it has to stay
+                // dense: close the gap this delete leaves, or the next appended task collides
+                // with (or sorts ahead of) an older one.
+                let deletedPosition = try database.query(
+                    "SELECT position FROM tasks WHERE run_id = ? AND id = ?", [.text(runID), .text(taskID)]
+                ).first?.int("position")
+                try database.run(
+                    "DELETE FROM tasks WHERE run_id = ? AND id = ?", [.text(runID), .text(taskID)]
+                )
+                if let deletedPosition {
+                    try database.run(
+                        "UPDATE tasks SET position = position - 1 WHERE run_id = ? AND position > ?",
+                        [.text(runID), .int(Int64(deletedPosition))]
+                    )
+                }
+                try database.run(
+                    "UPDATE runs SET updated_at = ? WHERE id = ?",
+                    [.double(Date().timeIntervalSince1970), .text(runID)]
+                )
+                return try loadRun(runID)
+            }
+        }
+        notify()
+        return result
+    }
+
     public func upsertTask(runID: String, taskID: String, patch: TaskPatch) throws -> Run {
         try upsertTasks(runID: runID, patches: [(taskID: taskID, patch: patch)])
     }

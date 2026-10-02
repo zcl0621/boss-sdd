@@ -325,4 +325,229 @@ private func withTempStore(_ body: (Store) throws -> Void) throws {
             }
         }
     }
+
+    // MARK: - deleteTask
+
+    private func taskListCount(_ database: Database, runID: String, taskID: String) throws -> Int {
+        try database.query(
+            "SELECT COUNT(*) AS n FROM task_lists WHERE run_id = ? AND task_id = ?",
+            [.text(runID), .text(taskID)]
+        ).first?.int("n") ?? -1
+    }
+
+    /// Runs `body`, expecting a `.conflict`, and hands back its message.
+    private func conflictMessage(_ body: () throws -> Void) -> String? {
+        do {
+            try body()
+            Issue.record("expected the delete to be refused with .conflict, but it succeeded")
+        } catch let error as BoardError {
+            guard case .conflict(let message) = error else {
+                Issue.record("expected .conflict, got \(error)")
+                return nil
+            }
+            return message
+        } catch {
+            Issue.record("expected a BoardError, got \(error)")
+        }
+        return nil
+    }
+
+    @Test func deletingAFreeTaskRemovesItAndItsListRowsFromTheDatabase() throws {
+        try withTempStoreAndPath { store, path in
+            let run = try store.createRun(title: "r", project: "")
+            _ = try store.upsertTask(runID: run.id, taskID: "T1", patch: TaskPatch(title: "one"))
+            _ = try store.upsertTask(runID: run.id, taskID: "T2", patch: TaskPatch(
+                title: "two", dependsOn: .replace(["T1"]),
+                writeScope: .replace(["Sources/", "Tests/"]), exclusiveResource: .replace(["gate:full"])
+            ))
+
+            // Observe on a second connection; the before-count must be non-zero or the
+            // after-count proves nothing.
+            let observer = try Database(path: path.path)
+            #expect(try taskListCount(observer, runID: run.id, taskID: "T2") == 4)
+
+            let after = try store.deleteTask(runID: run.id, taskID: "T2")
+
+            #expect(after.tasks.map(\.id) == ["T1"])
+            #expect(try store.run(run.id).task("T2") == nil)
+            #expect(try rowCount(observer, "tasks", runID: run.id) == 1)
+            #expect(try taskListCount(observer, runID: run.id, taskID: "T2") == 0)
+            #expect(deriveGraph(after).valid)
+        }
+    }
+
+    /// `tasks.position` is written from a task's index in the loaded array, so a delete that
+    /// leaves a hole lets the next appended task collide with, or sort ahead of, an older one.
+    @Test func deletingMiddleTasksThenAddingKeepsInsertionOrderAndDensePositions() throws {
+        try withTempStoreAndPath { store, path in
+            let run = try store.createRun(title: "r", project: "")
+            for id in ["T1", "T2", "T3", "T4"] {
+                _ = try store.upsertTask(runID: run.id, taskID: id, patch: TaskPatch(title: id))
+            }
+            _ = try store.deleteTask(runID: run.id, taskID: "T2")
+            _ = try store.upsertTask(runID: run.id, taskID: "T5", patch: TaskPatch(title: "T5"))
+            #expect(try store.run(run.id).tasks.map(\.id) == ["T1", "T3", "T4", "T5"])
+
+            _ = try store.deleteTask(runID: run.id, taskID: "T1")
+            _ = try store.deleteTask(runID: run.id, taskID: "T4")
+            let added = try store.upsertTask(runID: run.id, taskID: "T6", patch: TaskPatch(title: "T6"))
+            #expect(added.tasks.map(\.id) == ["T3", "T5", "T6"])
+            #expect(deriveGraph(added).topologicalOrder == ["T3", "T5", "T6"])
+
+            // Positions are what ORDER BY reads: they must be distinct and gap-free.
+            let observer = try Database(path: path.path)
+            let positions = try observer.query(
+                "SELECT position FROM tasks WHERE run_id = ? ORDER BY position", [.text(run.id)]
+            ).map { $0.int("position") }
+            #expect(positions == [0, 1, 2])
+        }
+    }
+
+    @Test func aSuccessfulDeleteBumpsTheRunsUpdatedAt() throws {
+        try withTempStore { store in
+            let run = try store.createRun(title: "r", project: "")
+            _ = try store.upsertTask(runID: run.id, taskID: "T1", patch: TaskPatch(title: "one"))
+            let before = try store.run(run.id)
+            Thread.sleep(forTimeInterval: 0.02)
+
+            let after = try store.deleteTask(runID: run.id, taskID: "T1")
+
+            #expect(after.updatedAt > before.updatedAt)
+            #expect(try store.run(run.id).updatedAt == after.updatedAt)
+        }
+    }
+
+    @Test func deletingATaskLeavesSiblingsAndOtherRunsAlone() throws {
+        try withTempStore { store in
+            let run = try store.createRun(title: "r", project: "")
+            let other = try store.createRun(title: "other", project: "")
+            _ = try store.upsertTask(runID: run.id, taskID: "T1", patch: TaskPatch(title: "one", writeScope: .replace(["a/"])))
+            _ = try store.upsertTask(runID: run.id, taskID: "T2", patch: TaskPatch(title: "two", writeScope: .replace(["b/"])))
+            _ = try store.upsertTask(runID: other.id, taskID: "T2", patch: TaskPatch(title: "same id elsewhere", writeScope: .replace(["c/"])))
+
+            _ = try store.deleteTask(runID: run.id, taskID: "T2")
+
+            #expect(try store.run(run.id).task("T1")?.writeScope == ["a/"])
+            #expect(try store.run(other.id).task("T2")?.writeScope == ["c/"])
+        }
+    }
+
+    @Test func aTaskWithDependentsIsRefusedAndTheMessageNamesEveryBlocker() throws {
+        try withTempStore { store in
+            let run = try store.createRun(title: "r", project: "")
+            _ = try store.upsertTask(runID: run.id, taskID: "T1", patch: TaskPatch(title: "base"))
+            _ = try store.upsertTask(runID: run.id, taskID: "T5", patch: TaskPatch(title: "five", dependsOn: .replace(["T1"])))
+            _ = try store.upsertTask(runID: run.id, taskID: "T9", patch: TaskPatch(title: "nine", dependsOn: .replace(["T1"])))
+            _ = try store.upsertTask(runID: run.id, taskID: "T7", patch: TaskPatch(title: "seven"))
+            let before = try store.run(run.id)
+
+            let message = conflictMessage { _ = try store.deleteTask(runID: run.id, taskID: "T1") }
+            let text = try #require(message)
+            #expect(text.contains("T1"))
+            #expect(text.contains("T5"))
+            #expect(text.contains("T9"))
+            #expect(!text.contains("T7"))
+
+            // The refusal wrote nothing.
+            let after = try store.run(run.id)
+            #expect(after.tasks.map(\.id) == before.tasks.map(\.id))
+            #expect(after.task("T5")?.dependsOn == ["T1"])
+            #expect(after.updatedAt == before.updatedAt)
+        }
+    }
+
+    @Test func aDependentInAnotherRunDoesNotBlockTheDelete() throws {
+        try withTempStore { store in
+            let run = try store.createRun(title: "r", project: "")
+            let other = try store.createRun(title: "other", project: "")
+            _ = try store.upsertTask(runID: run.id, taskID: "T1", patch: TaskPatch(title: "base"))
+            _ = try store.upsertTask(runID: other.id, taskID: "T2", patch: TaskPatch(title: "elsewhere", dependsOn: .replace(["T1"])))
+
+            let after = try store.deleteTask(runID: run.id, taskID: "T1")
+            #expect(after.tasks.isEmpty)
+        }
+    }
+
+    @Test func aRunningTaskIsRefusedAndNamesItsStatus() throws {
+        try withTempStore { store in
+            let run = try store.createRun(title: "r", project: "")
+            _ = try store.upsertTask(runID: run.id, taskID: "T1", patch: TaskPatch(title: "one", status: .running))
+
+            let message = conflictMessage { _ = try store.deleteTask(runID: run.id, taskID: "T1") }
+            let text = try #require(message)
+            #expect(text.contains("running"))
+            #expect(text.contains("T1"))
+            #expect(try store.run(run.id).task("T1")?.status == .running)
+        }
+    }
+
+    @Test func aTaskInReviewIsRefusedAndNamesItsStatus() throws {
+        try withTempStore { store in
+            let run = try store.createRun(title: "r", project: "")
+            _ = try store.upsertTask(runID: run.id, taskID: "T1", patch: TaskPatch(title: "one", status: .review))
+
+            let message = conflictMessage { _ = try store.deleteTask(runID: run.id, taskID: "T1") }
+            let text = try #require(message)
+            #expect(text.contains("review"))
+            #expect(text.contains("T1"))
+            #expect(try store.run(run.id).task("T1")?.status == .review)
+        }
+    }
+
+    @Test func refusalMessagesDoNotSuggestMarkingTheTaskDone() throws {
+        try withTempStore { store in
+            let run = try store.createRun(title: "r", project: "")
+            _ = try store.upsertTask(runID: run.id, taskID: "T1", patch: TaskPatch(title: "one", status: .running))
+            _ = try store.upsertTask(runID: run.id, taskID: "T2", patch: TaskPatch(title: "two", status: .review))
+            _ = try store.upsertTask(runID: run.id, taskID: "T3", patch: TaskPatch(title: "three", dependsOn: .replace(["T4"])))
+            _ = try store.upsertTask(runID: run.id, taskID: "T4", patch: TaskPatch(title: "four"))
+
+            for id in ["T1", "T2", "T4"] {
+                let text = try #require(conflictMessage { _ = try store.deleteTask(runID: run.id, taskID: id) })
+                #expect(!text.lowercased().contains("done"), "message for \(id) mentions done: \(text)")
+            }
+        }
+    }
+
+    @Test func everyTaskStatusButRunningAndReviewIsDeletable() throws {
+        try withTempStore { store in
+            let run = try store.createRun(title: "r", project: "")
+            for status in TaskStatus.allCases where status != .running && status != .review {
+                let id = "T-\(status.rawValue)"
+                _ = try store.upsertTask(runID: run.id, taskID: id, patch: TaskPatch(title: id, status: status))
+                _ = try store.deleteTask(runID: run.id, taskID: id)
+                #expect(try store.run(run.id).task(id) == nil, "\(status.rawValue) should be deletable")
+            }
+        }
+    }
+
+    @Test func deletingAnUnknownTaskIsNotFound() throws {
+        try withTempStore { store in
+            let run = try store.createRun(title: "r", project: "")
+            do {
+                _ = try store.deleteTask(runID: run.id, taskID: "T404")
+                Issue.record("deleteTask on an unknown task should have thrown")
+            } catch let error as BoardError {
+                guard case .notFound(let message) = error else {
+                    Issue.record("expected .notFound, got \(error)")
+                    return
+                }
+                #expect(message.contains("T404"))
+            }
+        }
+    }
+
+    @Test func deletingATaskOfAnUnknownRunIsNotFound() throws {
+        try withTempStore { store in
+            do {
+                _ = try store.deleteTask(runID: "no-such-run", taskID: "T1")
+                Issue.record("deleteTask on an unknown run should have thrown")
+            } catch let error as BoardError {
+                guard case .notFound = error else {
+                    Issue.record("expected .notFound, got \(error)")
+                    return
+                }
+            }
+        }
+    }
 }
