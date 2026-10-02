@@ -5,6 +5,7 @@ Project memory: on
 Integration branch: plan/2026-10-03-delete-memory-escalation
 Main working tree: /Users/zhang/Project/boss-sdd
 Integration worktree: /Users/zhang/Project/boss-sdd-worktrees/integration
+Pull request: https://github.com/zcl0621/boss-sdd/pull/1
 Updated: 2026-10-03
 
 `Base ref` is the replacement value, not the phase-0 one. Phase 0 recorded
