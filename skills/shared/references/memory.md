@@ -9,7 +9,7 @@ The four tools reaching it are `plan_memory_list`, `plan_memory_get`,
 `plan_memory_add` and `plan_memory_delete`, tabulated below. They come and go
 with the rest of the `plan-sdd` tools, so [board.md](board.md) decides which of
 its three cases you are in before any of this applies. "The four tools"
-throughout this file means those four and never the board's seven.
+throughout this file means those four and never the board's nine.
 
 ## Turning it off
 
