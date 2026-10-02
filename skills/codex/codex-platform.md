@@ -62,9 +62,8 @@ if you send the short one to a subagent that does not remember the task, are its
 rules; the only thing this file adds is that on Codex you do not yet know which
 branch you are on.
 
-Its round-3 rule is unaffected by that uncertainty, because it already requires a
-fresh subagent whatever the platform can do. So if you later confirm resume
-works, what changes is rounds 1 and 2 — not round 3.
+That file also names a case where the platform's capability does not decide the
+form at all. Read it there.
 
 **Whether Codex can give a subagent its own git worktree is not documented.**
 [shared/references/worktree-mode.md](shared/references/worktree-mode.md) is
