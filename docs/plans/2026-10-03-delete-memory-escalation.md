@@ -204,6 +204,11 @@ transition guards, so the HTTP API gets it too.
     names **every** blocking task id, and the task is still present afterwards.
   - Deleting a `running` task fails and names its status. Same for `review`.
   - Deleting an unknown task id fails with `notFound`.
+  - **Every status except `running` and `review` is deletable.** Added mid-run,
+    the same correction D1's acceptance needed: the criteria above only ever ask
+    about the two refusals, so nothing required coverage of the statuses that
+    must still delete. The implementer wrote the test anyway; this makes it
+    required rather than volunteered.
   - Its `task_lists` rows are gone from the database after a successful delete.
 - **Risk / rollback.** Shares every file with D1, which is why it depends on it
   rather than batching beside it. The dependents check has to read the whole
@@ -285,7 +290,13 @@ transition guards, so the HTTP API gets it too.
   - `roles.md`'s "no `[complexity: high]` variant row for `qa`" paragraph no
     longer explains the absence of a row that no longer exists for anyone.
   - `references/worktree-mode.md`'s "One collision, one round" section no longer
-    uses round-budget vocabulary (`charged`, `spent`) for a budget that is gone.
+    uses the **old three-round cap's** vocabulary. Amended mid-run: this
+    criterion originally read "no round-budget vocabulary (`charged`, `spent`)
+    for a budget that is gone", which D3 falsified by putting a budget back. The
+    section must carry a count stake keyed to the 6-round ceiling — two other
+    files cite it for exactly that ruling — so `spend` is correct there and
+    `charged` is not. Overturn by restoring the original wording, which would
+    then require the section to stop making the count argument.
   - `grep -rn "three rounds\|3 rounds\|round 3\|third round\|rounds have run out"
     skills/shared/` returns nothing.
   - **And so does the hyphenated form**, which the line above cannot match:
@@ -344,6 +355,9 @@ transition guards, so the HTTP API gets it too.
     stop-and-ask (D5).
   - `board.md:148`'s *"this node has stopped: three failed rounds"* is corrected
     to the ceiling.
+  - The delete discipline says that a deleted task's **`events` rows stay in the
+    run's history**, and that the task list and the graph — not the event log —
+    are authoritative for what exists. Added mid-run; see the Decision queue.
   - Every "eleven tools" string reads thirteen:
     `grep -rn "[Ee]leven tools" README.md skills/` returns nothing, and the tool
     list in `skills/claude-code/INSTALL.md:150` and `skills/cursor/INSTALL.md:131`
@@ -468,6 +482,56 @@ From recon lane C, with sources.
   criterion 4 to the letter and produced the contradiction above. Round 2's
   brief states both constraints and asks for both to be satisfied. Overturn by
   dropping criterion 4's requirement for that one section.
+
+- **A deleted task's `events` rows stay. Ruled, after the spec review reframed
+  the question.** I had flagged the opposite gap — that `deleteTask` writes no
+  event while every other mutation does (`Store.swift:204, 223, 377`). The lane
+  argued, and I accept, that an `action: "delete"` row naming a task that no
+  longer exists is closer to a tombstone than to history, which is the shape
+  this plan exists to remove. The real asymmetry runs the other way: the task's
+  *old* `task`-action events survive, because `events` is foreign-keyed only to
+  `runs`, so `plan_get_run --include_events` returns rows whose `task_id` names
+  nothing. Ruled: keep them and write the rule down rather than purge them. An
+  event log is history, not state; deleting a task does not unmake the fact that
+  it ran, and a delete that silently rewrites a run's history is a worse
+  surprise than a dangling id. Goal 1's "no trace" is about run and task state,
+  which is clean. Closed in S3's `board.md` discipline instead of in code.
+  Overturn by deleting the task's `events` rows inside the same transaction —
+  one statement in `Store.swift` plus one test.
+- **A combined `running`-plus-dependents refusal names only the status.**
+  `Store.swift:272` throws before the dependents check runs, so a task that is
+  both costs two round trips. Accepted as-is: the status refusal is the more
+  urgent of the two, and the message tells the caller what to do. Overturn by
+  collecting both and naming them together.
+- **S1's tie-break citation was swapped, and I am letting it stand.** The user's
+  paragraph inverted "this skill's standing *when you cannot decide, it counts*
+  bias"; the implementer re-aimed it at the escalation rule's own tie-break
+  (`roles.md:385`). The spec review flagged this as the edit closest to the
+  do-not-re-litigate line. Ruled: not a re-litigation. The carve-out's output is
+  a classification, so the escalation tie-break is the one it actually inverts,
+  and the general bias survives untouched at `review.md:295` — verified. The
+  user's reasoning shape survives too, re-aimed rather than dropped.
+- **Two S1 edits nobody asked for by name, both kept.** `PLAYBOOK.md:228-231`
+  (the `[complexity: high]` tier sentence) and the new delegation sentence at
+  `worktree-mode.md:11-13`. The first was a named finding from the round-1
+  review, which the spec lane could not see; the second is forced, because the
+  file now restates the ceiling at six sites and "leaves it alone" could not
+  stand. Both fall under the non-goal's "bounded by contradiction, not
+  adjacency". Recorded rather than passed over in silence.
+- **My S1 dispatch invented an acceptance criterion the plan does not have.**
+  The dispatch's criterion 8 ("state the maximum number of rounds and cite every
+  file and line") appears nowhere in this document — the spec lane caught the
+  drift. It is benign and the answer it forces is useful, but it means the
+  dispatch and the plan disagreed about what the bar was. Not folded into the
+  plan: it is a reporting instruction, not a property of the deliverable.
+- **Nothing records a node's round count, and D3 made the count load-bearing.**
+  `roles.md:402` says to record the classification and the tier per round, not
+  the number. `worktree-mode.md:798` and `:847` both presume a count exists
+  without saying where it lives. Inherited — the same silence existed under the
+  old cap — but the ceiling now depends on it, and this run's own S1 rulings
+  worried about two agents counting differently. Deferred rather than folded
+  into S1, which is on the top rung with one round left; adding non-essential
+  work there risks the node for a gap that predates it.
 
 ## Needs a decision from the user
 
