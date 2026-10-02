@@ -18,7 +18,7 @@ mcp/plan-sdd-mcp
 # macOS
 .DS_Store
 
-# The skill's nine role files, copied here by INSTALL.md step 3. The canonical
+# The skill's ten role files, copied here by INSTALL.md step 3. The canonical
 # copy is skills/claude-code/agents/; an installed second copy in the repository
 # would go stale against it without anything saying so.
 .claude/

@@ -147,7 +147,7 @@ this line rests on this repository's own documentation and not on that table.
 Where your installation registers MCP servers differently, its documentation
 wins over this one.
 
-That registration exposes eleven tools, named in `mcp/main.go`:
+That registration exposes thirteen tools, named in `mcp/main.go`:
 
 | Tool | What it does |
 | --- | --- |
@@ -158,6 +158,8 @@ That registration exposes eleven tools, named in `mcp/main.go`:
 | `plan_set_task` | create or update one task |
 | `plan_graph` | read-only graph projection |
 | `plan_get_run` | every task plus the projection |
+| `plan_delete_run` | delete one run with its tasks and events; irreversible |
+| `plan_delete_task` | delete one task from a run; irreversible |
 | `plan_memory_list` | every memory for a project, or only one kind of them |
 | `plan_memory_get` | one memory, by project and key |
 | `plan_memory_add` | upsert a memory on `(project, key)` |
