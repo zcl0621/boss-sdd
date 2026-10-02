@@ -55,10 +55,13 @@ reads and that the run prunes as it goes; that is
    with the exit code of the last stage, so a failing test suite piped into
    `tail` looks like a pass. If the output is long, let it be long.
 4. **The fix/review loop lives inside a node. It is never a DAG edge.** A node
-   that fails review goes back to implementing within itself. Three rounds
-   maximum. After the third failed round give the node the `blocked` status,
-   propagate that status to everything downstream of it, and keep running
-   everything else.
+   that fails review goes back to implementing within itself. No count decides
+   the tier: the model escalates when the same problem survives a round (phase 2
+   step 7). When a problem survives the top rung twice, give the node the
+   `blocked` status, propagate that status to everything downstream of it, and
+   keep running everything else. Under that rule sits a ceiling of 6 rounds per
+   node, whatever the classification; it is the only bound on a run of all-new
+   rounds, so that an unattended run always ends.
 5. **`write_scope` and `exclusive_resources` are what make parallel dispatch
    safe, and isolation relieves only the first of them.** Every node gets its own
    worktree, so two overlapping scopes no longer corrupt each other — they
@@ -110,9 +113,10 @@ Even in goal mode, stop and hand back to the user when:
 - An irreversible or high-impact external action is required: pushing, opening a
   PR, merging, deploying, sending a message, touching production data.
 - Something the user explicitly forbade turns out to be necessary.
-- A single node has failed three fix/review rounds. Stop that node and its
-  downstream, not the run. Give all of them the `blocked` status and let
-  everything else keep running.
+- A single node is stuck: the same problem has survived two rounds on the top
+  rung, or it has had 6 fix/review rounds and still has valid findings. Stop that
+  node and its downstream, not the run. Give all of them the `blocked` status and
+  let everything else keep running.
 - Every safe path is blocked and no further real progress is possible.
 
 ## Where the nodes write
@@ -222,8 +226,9 @@ Every task declares:
 - the main risk, and the rollback point
 
 Mark cross-system or high-risk tasks `[complexity: high]` and give their
-implementer a fuller context bundle and a stronger model tier. See
-[roles.md](roles.md) for the tier per role.
+implementer a fuller context bundle. The mark does not change the model tier:
+every implementer starts on the reasoning tier, and a node moves up only by the
+escalation rule under "Model tiers" in [roles.md](roles.md).
 
 Write the plan document first. It goes in the repository, following whatever
 convention the project already has for plans; if there is no convention, ask
@@ -268,7 +273,7 @@ full. Read it alongside this list rather than deriving the difference yourself:
 this list on its own is not enough to run a node.
 
 Each scheduling pass ("pass" here, never "round"; a round is one turn of the fix
-loop inside a node, of which there are at most three):
+loop inside a node, of which there are at most six):
 
 1. **Pick a batch.** Candidates are the ready set: every task whose status is
    `pending` and whose every `depends_on` is `done`. The board's
@@ -351,23 +356,41 @@ loop inside a node, of which there are at most three):
    back to the implementer using the rework message in
    [dispatch.md](references/dispatch.md), which has one form for a platform that
    can resume a subagent and a fuller one for a platform that cannot. Either way
-   it counts as one round. You do not fix it yourself. Three rounds maximum per
-   task.
+   it counts as one round. You do not fix it yourself.
 
-   **Round 3 changes both the model and the subagent.** Rounds 1 and 2 stay on
-   the tier the node started on and, where the platform can resume a subagent, go
-   back to the one that did the work. Round 3 does neither: dispatch a fresh
-   subagent on the strongest tier available to you, and send it the full context
-   bundle rather than the short rework form. Resuming would hand the work back to
-   a context that has already failed at it twice, carried by the same model that
-   produced both failures; and the short form assumes a subagent that remembers
-   the task, which a fresh one does not. This is the one escalation that needs no
-   separate justification — two failed rounds are the justification.
+   **Classify before you send.** Each failing item is either *new* (something the
+   previous round was not asked to fix) or *persisting* (the same underlying
+   problem the previous round was sent to fix, still there, including a fix that
+   just moved it). Judge by root cause, not wording; when unsure, it is
+   persisting. The full rule is under "Model tiers" in
+   [roles.md](roles.md).
 
-   Still failing after the third, give the node and its downstream the
-   `blocked` status and follow your operating mode. When you re-review after a
-   fix, give the reviewer the diff from the new starting point, not the original
-   one.
+   - **All new** → stay on the node's current tier and, where the platform can
+     resume, send it back to the same subagent (Form A). Found-something-else
+     rounds never escalate the node.
+   - **Any persisting** → go up one rung (`sonnet` → `opus` → `fable` on Claude
+     Code) and dispatch a **fresh** subagent with the full context bundle
+     (Form B). Resuming would hand the stuck problem back to the context and the
+     model that just failed at it.
+   - **Persisting on the top rung** → one more fresh round there. If the same
+     problem survives that, the node is stuck for a reason a stronger model will
+     not fix.
+
+   A node never steps back down once escalated. Note the classification and the
+   tier for each round on the board.
+
+   **A ceiling of 6 rounds sits under all three.** Whatever the classification, a
+   node that has had 6 rework rounds and still has valid findings takes the
+   `blocked` status. The classification keeps deciding the tier and whether to
+   resume; the ceiling exists so that the all-new path, which has no limit of its
+   own, cannot keep an unattended run going forever. A conflict at 8b and the
+   gate failure at 8c from the same interaction are one round, not two (see "One
+   collision, one round" in [worktree-mode.md](references/worktree-mode.md)).
+
+   Stuck on the top rung as above, or at the ceiling, give the node and its
+   downstream the `blocked` status and follow your operating mode. When you
+   re-review after a fix, give the reviewer the diff from the new starting point,
+   not the original one.
 
 8. **Close the node.** Set it to `done` only once implementation, independent
    review, and the node's gates have all passed. Where the project's conventions
@@ -437,10 +460,11 @@ code-reading tier. If it cannot get at least the reasoning tier, the node waits.
 ## Phase 3: close the branch out
 
 Phase 3 starts when every task's status is `done` or `blocked`. That condition is
-reachable only because blocking propagates: a node that exhausts its three rounds
-takes its transitive downstream with it, each marked `blocked` with a reason
-naming the upstream node that stopped it. Nodes left sitting in `pending` behind a
-blocked upstream would hold this phase open forever.
+reachable only because blocking propagates: a node stuck on the top rung, or one
+that reaches the 6-round ceiling, takes its transitive downstream with it, each
+marked `blocked` with a reason naming the upstream node that stopped it. Nodes
+left sitting in `pending` behind a blocked upstream would hold this phase open
+forever.
 
 Set the plan to `review`, then run the project's full gate set yourself, one
 command at a time, with the output kept. Per-task gates run scoped, so they cannot
@@ -508,7 +532,7 @@ back and wants to scan the state in a few seconds.
 
 ```
 T3  pass  ci.yml plus the two install scripts  gates 5/5  1 parked
-T4  fail  still failing after round 3, stuck on the fixture reset  details at the end
+T4  fail  stuck on fable after 2 rounds, the fixture reset  details at the end
 ```
 
 Task id, pass or fail, what it was, the gate count, and either the parked count

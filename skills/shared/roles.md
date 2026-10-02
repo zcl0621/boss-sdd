@@ -181,9 +181,9 @@ happen.
 not exist or do not run, the work requires writing outside the write scope, a
 design decision it was handed appears to be wrong, or it would have to change a
 test's expectations to make it pass. Each is a stop and a report, never a
-workaround. It is told which round of three it is on; on round 3 the right move
-when it is stuck is to say so, because there is no round 4 to recover a
-speculative attempt in.
+workaround. It is told which round it is on and whether the problem it is fixing
+has already survived a round; when it is stuck on a problem that has, the right
+move is to say so rather than reach for something increasingly speculative.
 
 ## ui-designer
 
@@ -363,20 +363,55 @@ Four rungs, strongest first. This ladder is what "step down one tier" in
 
 "The reasoning tier" means rung 3.
 
-**The reserve is a reserve, not a default.** Left unsaid, an agent reads
-`[complexity: high]` and routes straight to the most expensive model available,
-which spends the reserve on the first hard task of the run and leaves nothing
-for the node that has already burned two fix rounds. High complexity starts on
-**strong**. You escalate to **reserve** for a specific node that strong has
-demonstrably failed on: the same finding surviving a second round, a defect
-nobody can locate, a node the run cannot close without. Escalation is an event
-with a reason you can name. Without one, what you are doing is defaulting.
+**Implementation starts on reasoning, whatever the complexity.** `implementer`
+and `ui-designer` are dispatched on reasoning (`sonnet` on Claude Code) for
+every node, `[complexity: high]` included. That mark still buys a fuller
+`<background>`, not a stronger model. The stronger rungs are spent only by the
+escalation rule below, on a node that has shown it needs them.
 
-**The third fix round is the one escalation that fires on its own.** Two rounds
-have already failed on the tier the node started on, which is the named reason;
-you do not need to find another. So round 3 goes to the strongest tier available
-and to a fresh subagent rather than a resumed one — the playbook's phase 2 step 7
-says why, and that is where the rule is written out.
+**Escalation keys on the problem, not on the round count.** Every time a node
+fails and goes back for rework, sort each failing item before you send it:
+
+- **New** — something the previous rework did not ask to be fixed: a different
+  defect the review only now found, a missed case visible on the new diff, a
+  regression somewhere the last fix did not touch. The current tier has not
+  failed at it yet, so there is nothing to escalate for.
+- **Persisting** — the same underlying problem the previous round was sent to
+  fix, still there: the same finding surviving, the same gate failing for the
+  same reason, or the fix moving the defect around (fixing A breaks B, fixing B
+  breaks A again). Judge by root cause, not by the finding's wording; a
+  reworded finding about the same defect is persisting.
+
+When you cannot tell which it is, it is persisting.
+
+- **Every item new** → the next round stays on the node's current tier and, where
+  the platform can resume, goes back to the same subagent (Form A in
+  [dispatch.md](references/dispatch.md)). Such rounds never escalate, and only
+  the ceiling below limits them; a review that keeps finding different things is
+  doing its job, and the model that is fixing them is not the problem.
+- **Any item persisting** → the next round goes **up one rung** from the node's
+  current tier (on Claude Code `sonnet` → `opus` → `fable`) to a **fresh**
+  subagent with the full bundle (Form B). Resuming would hand the stuck problem
+  back to the context and the model that just failed at it.
+- **Persisting on the top rung** → one more fresh round on that rung. If the
+  same problem survives that too, the node is `blocked`: two attempts by the
+  strongest model on one problem says the task, the spec or a design decision is
+  wrong, and another round will not find that out.
+
+A node never steps back down once it has escalated; later rounds, new items
+included, stay on the tier it reached. Record the classification and the tier
+for each round in the board's task notes, so the escalation has a reason you
+can name after the fact.
+
+A ceiling of 6 rounds sits under all of this. Whatever the classification, a
+node that has had 6 rework rounds and still has valid findings is `blocked`.
+The ceiling decides nothing else: tier and resume are still the classification's
+call. It exists so that the all-new path, which has no limit of its own, ends,
+because goal mode runs with nobody watching to stop it. The persisting path
+ends sooner by itself (`sonnet`, `opus`, `fable`, `fable` is four rounds), which
+leaves two rounds of headroom. A conflict at 8b and the gate failure at 8c from
+the same interaction are one round, not two (see "One collision, one round" in
+[worktree-mode.md](references/worktree-mode.md)).
 
 ### The identifiers per platform
 
@@ -466,23 +501,25 @@ steps, not keep a fourth that changes nothing.
 | `recon-product` | strong | `opus` | `high` | `claude-opus-5` |
 | `implementer` | reasoning | `sonnet` | `medium` | `composer-2.5` |
 | `ui-designer` | reasoning | `sonnet` | `medium` | `composer-2.5` |
-| `implementer` or `ui-designer`, `[complexity: high]` | strong | `opus` | `high` | `claude-opus-5` |
+| `implementer` or `ui-designer`, first escalation (a persisting problem) | strong | `opus` | `high` | `claude-opus-5` |
 | `qa` | reasoning | `sonnet` | `medium` | `composer-2.5` |
 | `reviewer` | strong | `opus` | `high` | `claude-opus-5` |
 | `spec-reviewer` | strong | `opus` | `high` | `claude-opus-5` |
 | `branch-reviewer` | strong | `opus` | `high` | `claude-opus-5` |
 | `adversary` | reasoning | `sonnet` | `medium` | `composer-2.5` |
-| escalation reserve | reserve | `fable` | `xhigh` | `claude-opus-5[effort=high]` |
+| escalation reserve (a problem persisting on strong) | reserve | `fable` | `xhigh` | `claude-opus-5[effort=high]` |
 
 `PLAYBOOK.md` sets the choosing rule, risk and difficulty rather than cost, and
 gives the user's own choice of model the final say. What follows is why each row
 sits where it does, which is what you need in order to move one.
 
-There is no `[complexity: high]` variant row for `qa`. The mark changes what the
-implementing role has to hold in its head; it does not change what a walkthrough
-does, which is start the application, exercise the flows, and write down what
-appeared. `reviewer` has no variant row either, for the opposite reason: it is
-already on strong for every task.
+No role has a `[complexity: high]` variant row. `implementer` and `ui-designer`
+lost theirs, and the reason is under their own paragraph below. `qa` never had
+one: the mark changes what the implementing role has to hold in its head, and so
+what its `<background>` carries; it does not change what a walkthrough does,
+which is start the application, exercise the flows, and write down what
+appeared, so `qa` stays on reasoning. `reviewer` has none either, for the
+opposite reason: it is already on strong for every task.
 
 **`recon-rules` and `recon-code` read cheap because a wrong answer is cheap to
 catch.** Both answer "what is there": quote the hard rules, list the gate
@@ -511,16 +548,14 @@ runs. `qa` is mostly observation, but it has to notice when what it saw does not
 match what the task promised, and that noticing is a judgment, which is why the
 floor rule below covers it.
 
-**`implementer` and `ui-designer` move to strong on a `[complexity: high]`
-task.** `PLAYBOOK.md` says to put that mark on cross-system or high-risk work, and
-leaves what counts to the planner. My reason for spending the stronger tier
-there is narrower than the mark itself: the work that earns it is the work whose
-mistakes the node's own gates cannot see. A rounding error passes every test
-written by the agent that got the rounding wrong. A missing authorization check
-has no failing test at all, because the suite asserts presences and this defect
-is an absence. Where the gate can catch the error, the reasoning rung plus a fix
-round is cheaper than the stronger model; where it cannot, the model is the only
-thing standing there.
+**`implementer` and `ui-designer` no longer move to strong on a
+`[complexity: high]` task.** They used to, on the argument that some mistakes
+(a rounding error, a missing authorization check) are invisible to the node's
+own gates, so the model is the only thing standing there. The stronger model is
+better spent on the outside check: `reviewer` and `spec-reviewer` stay on strong
+and are what catches an absence the tests cannot. The mark still earns a fuller
+`<background>`. What moves an implementer up a rung now is evidence, a problem
+that survived a fix round, per the escalation rule under Model tiers.
 
 **`reviewer` and `branch-reviewer` sit on strong because they are the outside
 check.** The orchestrator reads the diff too, but the orchestrator ran the

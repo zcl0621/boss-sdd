@@ -208,19 +208,19 @@ interchangeable: sending the short one to a fresh subagent leaves it with no
 working directory, no goal, no write scope, no rules, and no acceptance
 commands.
 
-Either form counts as one round, and both tell the subagent which round it is on.
-That matters: round 3 is the last, and a subagent that knows it should say it is
+Either form counts as one round, and both tell the subagent which round it is on
+and whether anything it is being sent was already sent once before. That matters:
+a subagent told that a problem has already survived a round should say it is
 stuck rather than reach for something increasingly speculative.
 
-**Round 3 is Form B whatever your platform can do.** The choice above turns on
-capability; this one overrides it and turns on nothing. A node reaching its third
-round has failed twice with that context and that model behind it, so
-[PLAYBOOK.md](../PLAYBOOK.md) phase 2 step 7 sends a fresh subagent on the
-strongest tier — and a fresh subagent knows nothing, which is Form B by
-definition. On a platform that can resume, round 3 is the one round where you do
-not. Resuming there is not a cheaper route to the same outcome; it hands the work
-back to the exact context and the exact model that have already failed at it
-twice, which is the thing the rule exists to prevent.
+**An escalation round is Form B whatever your platform can do.** The choice above
+turns on capability; this one overrides it. When any item is *persisting* — the
+same problem a previous round was sent to fix, still there — [PLAYBOOK.md](../PLAYBOOK.md)
+phase 2 step 7 moves the node up one rung on a fresh subagent, and a fresh
+subagent knows nothing, which is Form B by definition. Resuming there is not a
+cheaper route to the same outcome; it hands the problem back to the exact context
+and model that have already failed at it. When every item is *new*, resume
+(Form A) on the same tier.
 
 ### Form A, when you can resume the original subagent
 
@@ -242,7 +242,8 @@ refactors, tests that do not cover the behaviour change.
 </diff_notes>
 
 Fix these. Do not start other work. Re-run the acceptance commands from your
-original brief and paste the full output. This is round <n> of 3.
+original brief and paste the full output. This is round <n>; every item above is
+new (none was sent to you before).
 ```
 
 ### Form B, when you cannot
@@ -280,7 +281,8 @@ What is already there, so you do not have to reconstruct it:
 </current_diff>
 
 <review_findings>
-...as in form A...
+...as in form A, with each item tagged NEW or PERSISTING, and for a persisting
+one what the earlier round tried...
 </review_findings>
 
 <gate_output>
@@ -293,7 +295,9 @@ What is already there, so you do not have to reconstruct it:
 
 Fix the findings above. Do not rewrite the parts nobody objected to, and do not
 start other work. Re-run the acceptance commands in your brief and paste the full
-output. This is round <n> of 3.
+output. This is round <n>. Items marked PERSISTING in <review_findings> were
+sent to an earlier round and survived it: find the root cause, and if you
+cannot, say so instead of trying something speculative.
 ```
 
 The `<work_already_done>` and `<current_diff>` blocks are what stop a fresh
