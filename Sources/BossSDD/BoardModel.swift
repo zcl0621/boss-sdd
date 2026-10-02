@@ -23,9 +23,15 @@ final class BoardModel {
     var view: BoardView = .graph
 
     enum BoardView: String, CaseIterable, Identifiable {
-        case graph, columns
+        case graph, columns, memory
         var id: String { rawValue }
-        var label: String { loc(self == .graph ? "board.view.graph" : "board.view.columns") }
+        var label: String {
+            switch self {
+            case .graph: return loc("board.view.graph")
+            case .columns: return loc("board.view.columns")
+            case .memory: return loc("board.view.memory")
+            }
+        }
     }
 
     let port: UInt16

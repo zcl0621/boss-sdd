@@ -4,6 +4,11 @@ import BoardKit
 struct BoardWindow: View {
     @Bindable var model: BoardModel
     @State private var inspectorShown = true
+    /// Which memory row is selected. Local to the window rather than on `BoardModel`:
+    /// it is view state with no meaning outside the memory view, and a memory's key
+    /// is only unique within one project, so a run change, a repository change or the
+    /// entry's deletion clears it.
+    @State private var selectedMemoryKey: String?
 
     var body: some View {
         NavigationSplitView {
@@ -17,6 +22,17 @@ struct BoardWindow: View {
                     inspector.inspectorColumnWidth(min: 260, ideal: 300, max: 420)
                 }
                 .toolbar { toolbar }
+                .onChange(of: model.selectedRunID) { selectedMemoryKey = nil }
+                .onChange(of: model.selectedProjectMemories) { old, new in
+                    // The key is only meaningful inside one project's set. Drop it when the
+                    // repository changes, and when the entry is gone, so a key deleted and
+                    // later written again does not come back already selected.
+                    guard let key = selectedMemoryKey else { return }
+                    if old?.repository != new?.repository
+                        || new?.memories.contains(where: { $0.key == key }) != true {
+                        selectedMemoryKey = nil
+                    }
+                }
         }
     }
 
@@ -30,18 +46,30 @@ struct BoardWindow: View {
                         GraphView(run: run, graph: graph, selectedTaskID: $model.selectedTaskID)
                     case .columns:
                         StatusColumnsView(run: run, graph: graph, selectedTaskID: $model.selectedTaskID)
+                    case .memory:
+                        MemoryView(memories: model.selectedProjectMemories, selectedKey: $selectedMemoryKey)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 ScrollEdge()
 
-                if !graph.valid {
+                // The graph's problems are about scheduling, which the memory view has
+                // no part in, so its banner stays out of that view.
+                if model.view != .memory, !graph.valid {
                     GraphProblemBanner(errors: graph.errors)
                 }
-                FloatingTally(graph: graph, run: run)
-                    .padding(.leading, 18)
-                    .padding(.bottom, 14)
+                if model.view == .memory {
+                    if let memories = model.selectedProjectMemories {
+                        MemoryTally(memories: memories)
+                            .padding(.leading, 18)
+                            .padding(.bottom, 14)
+                    }
+                } else {
+                    FloatingTally(graph: graph, run: run)
+                        .padding(.leading, 18)
+                        .padding(.bottom, 14)
+                }
             }
             .background(Palette.content)
         } else {
@@ -56,7 +84,13 @@ struct BoardWindow: View {
     @ViewBuilder
     private var inspector: some View {
         if let run = model.selectedRun, let graph = model.graph {
-            InspectorView(run: run, graph: graph, task: model.selectedTask)
+            if model.view == .memory {
+                MemoryInspector(
+                    run: run, memories: model.selectedProjectMemories, selectedKey: selectedMemoryKey
+                )
+            } else {
+                InspectorView(run: run, graph: graph, task: model.selectedTask)
+            }
         } else {
             Color(nsColor: .controlBackgroundColor)
         }
@@ -77,7 +111,7 @@ struct BoardWindow: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 150)
+            .frame(width: 210)
 
             Button {
                 inspectorShown.toggle()
@@ -90,11 +124,24 @@ struct BoardWindow: View {
 
     private var subtitle: String {
         guard let run = model.selectedRun, let graph = model.graph else { return "" }
+        if model.view == .memory { return memorySubtitle }
         let done = run.tasks.count { $0.status == .done }
         let active = run.tasks.count { $0.status.isActive }
         return loc(
             "board.subtitle",
             run.project, done, run.tasks.count, active, graph.readyTaskIDs.count
+        )
+    }
+
+    /// The memory store is the project's, so the subtitle names the repository and
+    /// leaves out the run's own counters, which would read as if memory belonged to
+    /// the run. A run whose project resolved to a different repository says so.
+    private var memorySubtitle: String {
+        guard let memories = model.selectedProjectMemories else { return loc("sidebar.noProject") }
+        return loc(
+            memories.differed ? "memory.subtitle.resolved" : "memory.subtitle",
+            memories.repository, memories.memories.count, memoryLimit,
+            loc("memory.kinds", memories.kindCount)
         )
     }
 }
