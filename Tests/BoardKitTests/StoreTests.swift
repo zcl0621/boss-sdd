@@ -5,12 +5,17 @@ import Testing
 /// Builds a `Store` backed by a throwaway SQLite file under a fresh temporary
 /// directory, and removes that directory afterwards. Never touches
 /// `Store.defaultDirectory` (`~/.claude/plan-sdd`), which holds the user's real board.
-private func withTempStore(_ body: (Store) throws -> Void) throws {
+private func withTempStoreAndPath(_ body: (Store, URL) throws -> Void) throws {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("boss-sdd-store-tests-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let store = try Store(path: directory.appendingPathComponent("board.sqlite3"))
-    try body(store)
+    let path = directory.appendingPathComponent("board.sqlite3")
+    let store = try Store(path: path)
+    try body(store, path)
+}
+
+private func withTempStore(_ body: (Store) throws -> Void) throws {
+    try withTempStoreAndPath { store, _ in try body(store) }
 }
 
 @Suite struct StoreTests {
@@ -221,6 +226,103 @@ private func withTempStore(_ body: (Store) throws -> Void) throws {
             #expect(reloadedTask.dependsOn == [])
             #expect(reloadedTask.writeScope == [])
             #expect(reloadedTask.exclusiveResource == [])
+        }
+    }
+
+    // MARK: - deleteRun
+
+    /// Counts rows directly through a second connection (see `withTempStoreAndPath`):
+    /// `Store.loadRun` throws not-found once the run row is gone, so it cannot tell
+    /// "cascaded away" from "orphaned but unreachable".
+    private func rowCount(_ database: Database, _ table: String, runID: String) throws -> Int {
+        try database.query("SELECT COUNT(*) AS n FROM \(table) WHERE run_id = ?", [.text(runID)])
+            .first?.int("n") ?? -1
+    }
+
+    @Test func deletingADoneRunRemovesItsTasksAndEventsToo() throws {
+        try withTempStoreAndPath { store, path in
+            let run = try store.createRun(title: "to delete", project: "")
+            _ = try store.upsertTask(runID: run.id, taskID: "T1", patch: TaskPatch(title: "one", dependsOn: .replace([])))
+            _ = try store.upsertTask(runID: run.id, taskID: "T2", patch: TaskPatch(title: "two", dependsOn: .replace(["T1"])))
+            _ = try store.updateRun(run.id, status: .done, summary: "finished")
+
+            // A second connection to the same file: observe the rows, do not assume them.
+            let observer = try Database(path: path.path)
+            #expect(try rowCount(observer, "tasks", runID: run.id) == 2)
+            #expect(try rowCount(observer, "task_lists", runID: run.id) == 1)
+            #expect(try rowCount(observer, "events", runID: run.id) >= 1)
+
+            try store.deleteRun(run.id)
+
+            #expect(throws: BoardError.self) { try store.run(run.id) }
+            #expect(try observer.query("SELECT COUNT(*) AS n FROM runs WHERE id = ?", [.text(run.id)]).first?.int("n") == 0)
+            #expect(try rowCount(observer, "tasks", runID: run.id) == 0)
+            #expect(try rowCount(observer, "task_lists", runID: run.id) == 0)
+            #expect(try rowCount(observer, "events", runID: run.id) == 0)
+        }
+    }
+
+    @Test func deletingARunLeavesOtherRunsAlone() throws {
+        try withTempStoreAndPath { store, path in
+            let doomed = try store.createRun(title: "doomed", project: "")
+            let kept = try store.createRun(title: "kept", project: "")
+            _ = try store.upsertTask(runID: kept.id, taskID: "T1", patch: TaskPatch(title: "stays"))
+
+            try store.deleteRun(doomed.id)
+
+            let observer = try Database(path: path.path)
+            #expect(try rowCount(observer, "tasks", runID: kept.id) == 1)
+            #expect(try rowCount(observer, "events", runID: kept.id) >= 1)
+            #expect(try store.run(kept.id).task("T1")?.title == "stays")
+        }
+    }
+
+    @Test func deletingARunningRunIsRefusedAndLeavesItIntact() throws {
+        try withTempStore { store in
+            let run = try store.createRun(title: "in flight", project: "")
+            _ = try store.upsertTask(runID: run.id, taskID: "T1", patch: TaskPatch(title: "one"))
+            _ = try store.updateRun(run.id, status: .running, summary: nil)
+
+            do {
+                try store.deleteRun(run.id)
+                Issue.record("deleteRun on a running run should have thrown")
+            } catch let error as BoardError {
+                guard case .conflict(let message) = error else {
+                    Issue.record("expected .conflict, got \(error)")
+                    return
+                }
+                #expect(message.contains("running"))
+                #expect(message.contains(run.id))
+            }
+
+            let survivor = try store.run(run.id)
+            #expect(survivor.status == .running)
+            #expect(survivor.tasks.count == 1)
+        }
+    }
+
+    @Test func everyStatusButRunningIsDeletable() throws {
+        try withTempStore { store in
+            for status in RunStatus.allCases where status != .running {
+                let run = try store.createRun(title: "as \(status.rawValue)", project: "")
+                _ = try store.updateRun(run.id, status: status, summary: nil)
+                try store.deleteRun(run.id)
+                #expect(throws: BoardError.self) { try store.run(run.id) }
+            }
+        }
+    }
+
+    @Test func deletingAnUnknownRunIsNotFound() throws {
+        try withTempStore { store in
+            do {
+                try store.deleteRun("no-such-run")
+                Issue.record("deleteRun on an unknown id should have thrown")
+            } catch let error as BoardError {
+                guard case .notFound = error else {
+                    Issue.record("expected .notFound, got \(error)")
+                    return
+                }
+            }
         }
     }
 }

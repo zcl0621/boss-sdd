@@ -157,6 +157,15 @@ type wireMemoryDeleted struct {
 	Project string `json:"project"`
 }
 
+// wireRunDeleted mirrors DELETE /api/runs/<id>'s body: just the id that went.
+type wireRunDeleted struct {
+	Deleted string `json:"deleted"`
+}
+
+type runDeleteOutput struct {
+	Deleted string `json:"deleted"`
+}
+
 // memoryView is what a tool call actually hands the agent. source rides along
 // on every read path on purpose: a memory whose provenance the agent cannot
 // see is the exact failure project memory exists to prevent.
@@ -416,6 +425,23 @@ func registerTools(server *mcp.Server, api *board) {
 			return nil, memoryDeleteOutput{}, err
 		}
 		return nil, memoryDeleteOutput{Deleted: wire.Deleted, Project: wire.Project}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:  "plan_delete_run",
+		Title: "Delete one run",
+		Description: "Deletes one run by ID together with all of its tasks and events; this cannot be undone. " +
+			"A run whose status is running is refused with an error and stays on the board; every other status can be deleted. " +
+			"An ID that does not exist is an error, never silently treated as a success.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runInput) (*mcp.CallToolResult, runDeleteOutput, error) {
+		var wire wireRunDeleted
+		if err := api.call(ctx, "DELETE", "/api/runs/"+url.PathEscape(in.Run), nil, &wire); err != nil {
+			return nil, runDeleteOutput{}, err
+		}
+		if wire.Deleted != in.Run {
+			return nil, runDeleteOutput{}, fmt.Errorf("asked the board to delete run %q but it reported deleting %q", in.Run, wire.Deleted)
+		}
+		return nil, runDeleteOutput{Deleted: wire.Deleted}, nil
 	})
 }
 

@@ -231,10 +231,22 @@ public final class Store: @unchecked Sendable {
         return result
     }
 
+    /// Removes a run; the schema's `ON DELETE CASCADE` takes its tasks, task lists and events
+    /// with it. A `running` run is refused rather than deleted: an agent is mid-way through
+    /// it, and, like the two task write guards, this one refuses instead of repairing. The
+    /// check sits here and not in the API layer so every caller gets it.
     public func deleteRun(_ id: String) throws {
         try queue.sync {
-            _ = try loadRun(id)
+            // The status read and the delete share one transaction (BEGIN IMMEDIATE), so a
+            // second process cannot flip the run to running between the check and the delete.
             try database.transaction {
+                let run = try loadRun(id)
+                guard run.status != .running else {
+                    throw BoardError.conflict(
+                        "cannot delete run \(id): its status is running, so an agent may still be working on it; "
+                            + "set the run to a status other than running, then call the delete again"
+                    )
+                }
                 try database.run("DELETE FROM runs WHERE id = ?", [.text(id)])
             }
         }
