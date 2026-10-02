@@ -288,6 +288,12 @@ transition guards, so the HTTP API gets it too.
     uses round-budget vocabulary (`charged`, `spent`) for a budget that is gone.
   - `grep -rn "three rounds\|3 rounds\|round 3\|third round\|rounds have run out"
     skills/shared/` returns nothing.
+  - **And so does the hyphenated form**, which the line above cannot match:
+    `grep -rniE "three[- ]round|3[- ]round|three failed|three attempts"
+    skills/shared/`. Added mid-run: `worktree-mode.md:11`'s *"three-round
+    limit"* — singular and hyphenated — sat in S1's own write scope through two
+    rounds while every grep above passed. The greps search the plural
+    unhyphenated form only, so they could not see it.
 - **Risk / rollback.** The one task where the acceptance is entirely human
   reading. It is also the task most likely to drift from the user's own wording,
   which is explicitly out of scope to change.
@@ -309,7 +315,12 @@ transition guards, so the HTTP API gets it too.
   - `skills/cursor/SKILL.md` and `skills/cursor/agents/implementer.md` match.
   - The two Codex role TOMLs' `# Raise to high for a task marked
     [complexity: high]` comments are gone or corrected (D4 removed that route).
-  - `grep -rn "round 3\|rounds 1 and 2\|round of three" skills/` returns nothing.
+  - `grep -rn "round 3\|rounds 1 and 2\|round of three" skills/` returns
+    nothing, and so does
+    `grep -rniE "three[- ]round|3[- ]round" skills/claude-code/ skills/cursor/
+    skills/codex/`. The second is not redundant: `skills/cursor/SKILL.md:172`
+    says *"reports as an ordinary three-round"*, which the first grep cannot
+    match. It is in S2's write scope.
   - Per the README's wrapper contract, no wrapper restates a body rule in its own
     words; each states only its platform fact and points at the body.
 - **Risk / rollback.** This is exactly the drift that produced the last cleanup —
@@ -439,6 +450,24 @@ From recon lane C, with sources.
   two agents counting toward 6 could diverge. Ruled: add a clause at the ceiling
   sites, leave the collision section alone. Overturn by deleting the clause and
   accepting the ambiguity.
+
+- **S1 round 2 was ruled *persisting*, so it escalated.** Round 1's F6 asked for
+  the collision carve-out and the ceiling to be reconciled by adding a clause at
+  the ceiling sites and leaving the collision section alone. The clause landed,
+  but the section's justification was rewritten from the round count to the
+  model tier, so the two ceiling sites now cite it for a count ruling it no
+  longer makes. That is the same seam, moved — which the rule defines as
+  persisting, and the rule's own tie-break sends an unsure call the same way. So
+  round 2 went up a rung to `opus` on a fresh subagent with the full bundle,
+  rather than resuming cheaply. Recorded because the cheap read was available
+  and was not taken: calling it *new* would have kept the node on `sonnet`.
+- **Defect C and design decision D3 pull against each other, and that is the
+  plan's fault rather than the implementer's.** Criterion 4 told S1 to strip the
+  round-budget vocabulary from "One collision, one round" because "the budget it
+  refers to is gone"; D3 then put a budget back. The implementer followed
+  criterion 4 to the letter and produced the contradiction above. Round 2's
+  brief states both constraints and asks for both to be satisfied. Overturn by
+  dropping criterion 4's requirement for that one section.
 
 ## Needs a decision from the user
 
