@@ -47,5 +47,19 @@
       <string>导入 %lld 个运行</string>
     </dict>
   </dict>
+  <key>memory.kinds</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key>
+    <string>%#@kinds@</string>
+    <key>kinds</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key>
+      <string>NSStringPluralRuleType</string>
+      <key>NSStringFormatValueTypeKey</key>
+      <string>lld</string>
+      <key>other</key>
+      <string>共 %lld 类</string>
+    </dict>
+  </dict>
 </dict>
 </plist>

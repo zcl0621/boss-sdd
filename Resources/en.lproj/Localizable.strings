@@ -23,9 +23,10 @@
 "run.status.blocked" = "Blocked";
 "run.status.done" = "Done";
 
-/* Toolbar view switcher — two segments sharing 150pt. */
+/* Toolbar view switcher — three segments sharing 210pt. */
 "board.view.graph" = "Graph";
 "board.view.columns" = "Columns";
+"board.view.memory" = "Memory";
 
 /* Write API status. */
 "server.stopped" = "Server stopped";
@@ -107,3 +108,44 @@
 "card.dispatchable" = "Ready to dispatch";
 "card.unassigned" = "Unassigned";
 "card.accessibility" = "%1$@, %2$@, %3$@";
+
+/* Memory view. The pane shows one repository's memories for the selected run. The
+   count of kinds, whose noun has to agree, is "memory.kinds" in Localizable.stringsdict. */
+"memory.kind.gate" = "Verification gate";
+"memory.kind.runRecipe" = "Run recipe";
+"memory.kind.convention" = "Convention";
+"memory.kind.hardRule" = "Hard rule";
+"memory.kind.exclusiveResource" = "Exclusive resource";
+"memory.kind.note" = "Note";
+/* **…** marks emphasis (Markdown). Keep each marked span clear of the punctuation next to it. */
+"memory.note" = "**Memory belongs to the project, not to this run.** Every run on this repository, from any of its worktrees, reads and writes the same set. Every entry must cite a **source**, so anyone can disprove it with a single file read. That is all that separates a memory from a hunch.";
+"memory.empty" = "Nothing remembered for this project yet. The first run's recon records its gates, run recipes and hard rules here.";
+"memory.noProject.detail" = "Memory is kept per repository. Create the run with a project path to see its memory here.";
+"memory.tally.source" = "Every entry cites a source";
+"memory.tally.grouped" = "Grouped by kind, no search";
+/* Entries stored against the per-project limit: the tally reads "7 / 100", the
+   inspector pill adds the unit. */
+"memory.cap" = "%1$lld / %2$lld";
+"memory.cap.pill" = "%1$lld / %2$lld entries";
+"memory.updated" = "Updated %@";
+/* %1$@ repository, %2$lld entries, %3$lld limit, %4$@ the kinds count ("memory.kinds"). The
+   second form is for a run whose own project path resolved to a different repository. */
+"memory.subtitle" = "%1$@ · Project memory %2$lld/%3$lld · %4$@";
+"memory.subtitle.resolved" = "%1$@ (resolved from the run's path) · Project memory %2$lld/%3$lld · %4$@";
+
+/* Memory inspector. */
+"memory.overview.title" = "Project memory";
+"memory.field.distribution" = "Distribution";
+"memory.field.limit" = "Limit";
+"memory.field.noSearch" = "No search";
+"memory.field.hint" = "Details";
+"memory.field.value" = "Value";
+"memory.field.source" = "Source";
+"memory.field.key" = "Key";
+"memory.field.scope" = "Scope";
+/* %lld is the per-project limit. */
+"memory.limit.body" = "At %lld entries a new key is refused outright and nothing older is evicted. Quietly dropping a hard rule to make room is worse than never having stored it. Rewriting an existing key still works at the limit, so a wrong entry can always be corrected.";
+"memory.noSearch.body" = "On purpose. With search, a miss gets read as \"nobody recorded this\" when the fact may simply sit under a key you did not think of. The list always shows everything, and the limit keeps it short enough to read in one sitting.";
+"memory.hint.body" = "Select an entry to see its full value and source.";
+"memory.key.note" = "Keys are stored trimmed and lowercased; this is the stored spelling.";
+"memory.scope.resolved" = "This run was recorded under %@. Memory is filed by repository, not by worktree, so every worktree of the same repository shares this set.";

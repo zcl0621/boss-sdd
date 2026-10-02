@@ -32,18 +32,18 @@ struct InspectorView: View {
     @ViewBuilder
     private var runOverview: some View {
         header(eyebrow: String(run.id.prefix(10)), title: loc("inspector.runOverview")) {
-            Pill(symbol: run.symbolForPill, tint: run.status.tint, text: run.status.label)
-            Pill(text: loc("inspector.layers", graph.topologicalLayers.count))
-            Pill(text: loc("inspector.ready", graph.readyTaskIDs.count))
+            InspectorPill(symbol: run.symbolForPill, tint: run.status.tint, text: run.status.label)
+            InspectorPill(text: loc("inspector.layers", graph.topologicalLayers.count))
+            InspectorPill(text: loc("inspector.ready", graph.readyTaskIDs.count))
         }
-        Field(loc("inspector.summary")) {
+        InspectorField(loc("inspector.summary")) {
             if run.summary.isEmpty {
                 Text(loc("inspector.summary.empty")).font(.system(size: 12)).foregroundStyle(.tertiary)
             } else {
                 Text(run.summary).font(.system(size: 12)).textSelection(.enabled)
             }
         }
-        Field(loc("inspector.activity")) {
+        InspectorField(loc("inspector.activity")) {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(run.events.suffix(12).reversed().enumerated()), id: \.offset) { _, event in
                     HStack(alignment: .top, spacing: 9) {
@@ -89,29 +89,29 @@ struct InspectorView: View {
         let conflicts = graph.blockedBy[task.id]?.resourceConflicts ?? []
 
         header(eyebrow: task.id, title: task.title) {
-            Pill(symbol: state == .running ? nil : state.symbol, tint: state.tint, text: state.label)
-            Pill(text: task.agent.isEmpty ? loc("inspector.unassigned") : task.agent)
+            InspectorPill(symbol: state == .running ? nil : state.symbol, tint: state.tint, text: state.label)
+            InspectorPill(text: task.agent.isEmpty ? loc("inspector.unassigned") : task.agent)
         }
-        Field(loc("inspector.progress")) {
+        InspectorField(loc("inspector.progress")) {
             if task.detail.isEmpty {
                 Text(loc("inspector.progress.empty")).font(.system(size: 12)).foregroundStyle(.tertiary)
             } else {
                 Text(task.detail).font(.system(size: 12)).textSelection(.enabled)
             }
         }
-        Field(loc("inspector.dependsOn")) { Values(task.dependsOn) }
-        Field(loc("inspector.waitingOn")) { Values(graph.waitingOn[task.id] ?? []) }
-        Field(loc("inspector.writeScope")) { Values(task.writeScope) }
-        Field(loc("inspector.exclusiveResources")) {
-            Values(task.exclusiveResource, warning: !conflicts.isEmpty)
+        InspectorField(loc("inspector.dependsOn")) { InspectorValues(task.dependsOn) }
+        InspectorField(loc("inspector.waitingOn")) { InspectorValues(graph.waitingOn[task.id] ?? []) }
+        InspectorField(loc("inspector.writeScope")) { InspectorValues(task.writeScope) }
+        InspectorField(loc("inspector.exclusiveResources")) {
+            InspectorValues(task.exclusiveResource, warning: !conflicts.isEmpty)
         }
         if !conflicts.isEmpty {
-            Field(loc("inspector.resourceConflicts")) {
-                Values(conflicts.map { "\($0.taskID) · \($0.resources.joined(separator: " / "))" },
+            InspectorField(loc("inspector.resourceConflicts")) {
+                InspectorValues(conflicts.map { "\($0.taskID) · \($0.resources.joined(separator: " / "))" },
                        warning: true)
             }
         }
-        Field(loc("inspector.dependents")) { Values(graph.dependents[task.id] ?? []) }
+        InspectorField(loc("inspector.dependents")) { InspectorValues(graph.dependents[task.id] ?? []) }
     }
 
     // MARK: - Chrome
@@ -120,138 +120,10 @@ struct InspectorView: View {
     private func header(
         eyebrow: String, title: String, @ViewBuilder pills: () -> some View
     ) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(eyebrow)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.secondary)
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 7) { pills() }.padding(.top, 6)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 15)
-        .padding(.top, 13)
-        .padding(.bottom, 11)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: Metrics.hairline)
-        }
+        InspectorHeader(eyebrow: eyebrow, title: title, pills: pills)
     }
 }
 
 private extension Run {
     var symbolForPill: String? { status == .running ? nil : status.symbol }
-}
-
-private struct Pill: View {
-    var symbol: String?
-    var tint: Color = .secondary
-    let text: String
-
-    var body: some View {
-        HStack(spacing: 4) {
-            if let symbol {
-                Image(systemName: symbol).font(.system(size: 11)).foregroundStyle(tint)
-            }
-            Text(text).font(.system(size: 11)).foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 2)
-        .background(Color(nsColor: .quaternaryLabelColor).opacity(0.5),
-                    in: RoundedRectangle(cornerRadius: Metrics.control - 1, style: .continuous))
-    }
-}
-
-private struct Field<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
-
-    init(_ title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 11)).foregroundStyle(.secondary)
-            content.frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 15)
-        .padding(.vertical, 10)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: Metrics.hairline)
-        }
-    }
-}
-
-private struct Values: View {
-    let items: [String]
-    var warning = false
-
-    init(_ items: [String], warning: Bool = false) {
-        self.items = items
-        self.warning = warning
-    }
-
-    var body: some View {
-        if items.isEmpty {
-            Text("—").font(.system(size: 12)).foregroundStyle(.tertiary)
-        } else {
-            FlowLayout(spacing: 4) {
-                ForEach(items, id: \.self) { item in
-                    Text(item)
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(warning ? Color.orange : Color.primary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            warning ? Color.orange.opacity(0.12)
-                                : Color(nsColor: .quaternaryLabelColor).opacity(0.5),
-                            in: RoundedRectangle(cornerRadius: Metrics.chip, style: .continuous)
-                        )
-                        .textSelection(.enabled)
-                }
-            }
-        }
-    }
-}
-
-/// Wraps chips onto as many rows as they need; `HStack` would clip them and a `Grid`
-/// would give every chip the widest one's width.
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 4
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > width {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-        return CGSize(width: proposal.width ?? x, height: y + rowHeight)
-    }
-
-    func placeSubviews(
-        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
-    ) {
-        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > bounds.minX, x + size.width > bounds.maxX {
-                x = bounds.minX
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            subview.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: .unspecified)
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-    }
 }
