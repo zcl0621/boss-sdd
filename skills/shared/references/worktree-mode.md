@@ -7,8 +7,12 @@ subagent a worktree of its own cannot run this skill, and phase 0 is where you
 find that out.
 
 This file owns six steps of the phase 2 loop and owns what `write_scope` is
-protecting you from. It leaves the DAG, the roles, the review protocol, the
-three-round limit, and who runs the gates alone.
+protecting you from. The DAG, the roles, the review protocol, the escalation
+rule with its 6-round ceiling, and who runs the gates belong to other files. It
+restates any of those only where a merge, a post-merge gate or a reopening makes
+them bite, and on those points those files govern — except the collision
+carve-out under "One collision, one round" below, which those files delegate
+here.
 
 Read the next two sections before you set anything up. The obvious reading of
 "each agent is now isolated" is wrong in two separate directions, and each one
@@ -458,9 +462,10 @@ would stop measuring whether 8a ran.
 Everything below depends on this step having run. The node's own worktree holds
 one side of the conflict and no trace of the other, so a fix round routed into
 it unsynced asks an implementer to fix something it cannot see. It changes what
-it can see, the re-merge produces the same conflict, and three rounds later a
-node that did nothing wrong is `blocked`. A cross-pass `write_scope` overlap is
-legitimate, and it must not be able to end a correct node that way.
+it can see, the re-merge produces the same conflict, and after escalating all the
+way to the top rung a node that did nothing wrong is `blocked`. A cross-pass
+`write_scope` overlap is legitimate, and it must not be able to end a correct
+node that way.
 
 Three things follow, two of them from leaving that merge in progress rather than
 committing it.
@@ -729,30 +734,38 @@ they differ only in who pays for it.
 
 **One collision, one round.** A single interaction can surface twice: first as a
 conflict at 8b, then, once that is resolved, as a gate failure at 8c in the same
-region. That is one problem seen from two angles, and it is charged once. Before
-spending a round, check whether it is the same interaction the node was already
-charged for; if it is, carry on with the round already spent. Charging both would
-cost a node two of its three rounds for one collision the scheduler allowed.
+region. That is one problem seen from two angles, and it is not two problems.
+Before classifying the second sighting, check whether it is the same interaction
+the node was already sent back for. If it is, two things follow, and the node
+needs both. It is not *persisting*, so the node stays on its current tier: its
+fix has not failed at it, the collision has only now shown its other half. And
+it is one round, not two — the node carries on with the round it is already in
+rather than opening a second one, and the 6-round ceiling sees one. Calling the
+second angle *persisting* would escalate the node's model for one collision the
+scheduler allowed, and counting it twice would spend two of the node's six
+rounds on it.
 
 The test is the same counterpart node plus the same ground: the other side of the
 collision is the node it collided with before, and the conflict and the gate
 failure land in the same files or on the same symbol. A different counterpart, or
 a failure somewhere the conflict never touched, is a second interaction and a
-second round.
+new item.
 
 **When you cannot tell whether it is the same interaction, treat it as the same
-one and charge nothing further.** That inverts this skill's standing "when you
-cannot decide, it counts" bias, deliberately. That bias exists so an unverified
-defect never ships, and nothing ships either way here: the node is in a fix round
-whichever way you call it, and the only question is who pays. Guessing wrong in
-this direction costs one extra round somewhere later, and you will see it happen.
-Guessing wrong in the other direction puts a correct node at `blocked` for a
-collision the scheduler created, which the delivery report shows as a node that
-failed.
+one: one round, and not *persisting*.** That deliberately inverts the escalation
+rule's standing tie-break, under which an item you cannot place is persisting.
+That tie-break exists so a stuck problem reaches a stronger model rather than
+the same one again, and nothing is stuck here: the node is in a fix round
+whichever way you call it, and the only questions are whether its model is
+escalated for it and whether it spends a second of its six rounds on it.
+Guessing wrong in this direction costs one extra round somewhere later, on the
+same tier, and you will see it happen. Guessing wrong in the other direction
+escalates a node, and can walk a correct one up to `blocked`, for a collision
+the scheduler created, which the delivery report shows as a node that failed.
 
-Three rounds is still three rounds. A node that spends its third on a merge or
-post-merge failure takes the `blocked` status unmerged, propagates that
-downstream, and keeps its worktree.
+The escalation rule still applies. A node that ends up stuck on the top rung, or
+at the 6-round ceiling, on a merge or post-merge failure takes the `blocked`
+status unmerged, propagates that downstream, and keeps its worktree.
 
 ## Reopening a node that is already `done`
 
@@ -788,8 +801,9 @@ To reopen one:
    refill it.
 5. When it passes, it goes through 8a, 8b and 8c again like any other node.
 
-A node reopened this way and then exhausting its rounds takes the `blocked`
-status, and its new worktree is kept under the cleanup rule below.
+A node reopened this way takes the `blocked` status if a problem then survives
+two rounds on the top rung, or if it reaches the 6-round ceiling. Its new
+worktree is kept under the cleanup rule below.
 
 ## When a blocked node comes back
 
@@ -907,7 +921,7 @@ the work is merged and reads exactly like the refusal that does.
 
 **Keep the worktree and the branch of any node that reached `blocked`.** That
 tree is the evidence: the half-finished state, the failing test, whatever the
-third round left behind. It is the one artefact a person debugging the blockage
+last round left behind. It is the one artefact a person debugging the blockage
 would actually want, and once it is deleted it cannot be reconstructed from the
 integration branch, because that node's work never landed there.
 
