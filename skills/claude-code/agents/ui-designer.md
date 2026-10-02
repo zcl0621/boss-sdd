@@ -46,5 +46,5 @@ extending it, that is a decision to report and not to make.
 escalation reserve, the step-down and the floor sit with the routing table in
 `~/.claude/skills/plan-sdd/shared/roles.md`. Retune them there, not here.
 
-A task the plan marks `[complexity: high]` is dispatched on `opus` instead, and
-`fable` is the escalation reserve rather than a default.
+A node the escalation rule moves up a rung is dispatched on that rung's model by
+the call, not by this default. The rule is under "Model tiers" in that file.

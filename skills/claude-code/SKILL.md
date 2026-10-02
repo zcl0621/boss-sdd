@@ -49,7 +49,7 @@ against, except the four marked, which say what they rest on instead.
 | "issue several such calls in one message" | several `Agent` calls in a single assistant message; they run concurrently |
 | "where role definitions live" | `.claude/agents/<role>.md`, the ten files in [agents/](agents/) |
 | "the model identifiers that are valid for you" | `fable`, `opus`, `sonnet`, `haiku`, routed per role by the Claude Code column of [shared/roles.md](shared/roles.md) |
-| "whether your platform can resume the subagent" ([dispatch.md](shared/references/dispatch.md)) | it can: `SendMessage`, addressed by the agent id the dispatch returned. **Form A on rounds 1 and 2, Form B on round 3** — that last one is the body's rule, not a platform limit |
+| "whether your platform can resume the subagent" ([dispatch.md](shared/references/dispatch.md)) | it can: `SendMessage`, addressed by the agent id the dispatch returned. Whether a rework resumes (Form A) or goes to a fresh subagent (Form B) is the body's rule, keyed on new versus persisting items, not a platform limit |
 | "which of the two worktree cases you are" ([worktree-mode.md](shared/references/worktree-mode.md)) | the second: trees you create with `git worktree add` and name in each node's `<working_directory>` *(the table licenses `isolation: "worktree"` on the `Agent` call and nothing more; the case follows from what it leaves unsaid, below)* |
 | "the `plan-sdd` MCP tools" ([board.md](shared/references/board.md)) | the eleven `plan_*` tools of the board server, registered per [INSTALL.md](INSTALL.md) *(from `mcp/main.go` and `README.md` in the repository; the table has no MCP row for any platform)* |
 | "check whether your platform exposes an invocable review skill" | [references/native-review.md](references/native-review.md) *(not from the table; it says what it rests on)* |
@@ -83,13 +83,11 @@ Claude Code can resume a subagent with its context intact — a `SendMessage`
 addressed to the agent id its dispatch returned. So keep each node's agent id
 alongside its diff baseline for as long as the node is active.
 
-That is the whole of the platform's answer. Which rework message to send, and on
-which round you must not resume at all, belong to
+That is the whole of the platform's answer. Which rework message to send, and
+when you must not resume at all, belong to
 [shared/references/dispatch.md](shared/references/dispatch.md); read them there
 rather than here, because a copy in this file is a copy that goes stale the next
-time that rule moves. The one further thing this wrapper owes it: where that file
-escalates to "the strongest tier", the name on Claude Code is `fable`, per the
-Claude Code column of [shared/roles.md](shared/roles.md).
+time that rule moves.
 
 ### Read-only roles are read-only by instruction here
 
