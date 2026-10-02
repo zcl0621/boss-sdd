@@ -367,7 +367,8 @@ transition guards, so the HTTP API gets it too.
 - `write_scope`: `skills/shared/references/board.md`,
   `skills/shared/references/memory.md`, `README.md`,
   `skills/claude-code/INSTALL.md`, `skills/cursor/INSTALL.md`,
-  `skills/codex/README.md`, `skills/claude-code/SKILL.md`, `.gitignore`
+  `skills/codex/README.md`, `skills/claude-code/SKILL.md`,
+  `skills/cursor/SKILL.md`, `.gitignore`
 - `exclusive_resources`: []
 - role: `implementer`
 - **Acceptance.**
@@ -392,6 +393,17 @@ transition guards, so the HTTP API gets it too.
     correct as it stands. Changing it is the failure this criterion is written
     to prevent. The tool list in `skills/claude-code/INSTALL.md:150` and
     `skills/cursor/INSTALL.md:131` also names both new tools.
+  - **A count can also be written as a list of names, and that form is invisible
+    to every grep above.** `skills/cursor/SKILL.md:180-182` enumerates eleven
+    tool names with no count word anywhere near them. The check that catches
+    this shape is content, not phrasing: every file that enumerates the toolset
+    must contain `plan_delete_run`. Run
+    `for f in $(grep -rln "plan_board_status" README.md skills/); do grep -q
+    "plan_delete_run" "$f" || echo "STALE: $f"; done` and expect no output.
+    Two files match the outer grep and are correctly *not* enumerations —
+    `skills/codex/codex-platform.md:234` is a single-tool presence check and
+    `skills/shared/PLAYBOOK.md` names tools inside workflow steps; neither is in
+    scope and neither should gain the delete names.
   - `memory.md:12`'s *"the board's seven"* reads nine.
   - The counts match reality: the number of `mcp.AddTool` calls in `mcp/main.go`
     equals the number written in the documentation.
