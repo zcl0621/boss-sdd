@@ -427,7 +427,13 @@ From recon lane C, with sources.
 - **The memory pane is the first thing in this app that reads a table nothing
   watched before.** D6 changes that; if the reload cost shows up in the
   walkthrough, batching the notify is the fallback and it is a design change, not
-  a fix round.
+  a fix round. M1 landed sharper than this entry anticipated: the cost is not N
+  wakeups, it is N wakeups each carrying M extra queries, because `reload()` asks
+  for memories once per distinct run project. The live board has fourteen runs.
+  Against that, `allRuns()` already loads every run in full on the same reload,
+  so the addition is probably not what a walkthrough would notice first — which
+  is the reason to have the walkthrough measure the whole reload rather than the
+  memory query alone.
 - **S1's acceptance is entirely human reading.** There is no Markdown gate in
   this repository. The static reviewer and the spec reviewer are the only checks
   those three tasks get, which is an argument for not letting them batch with
