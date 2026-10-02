@@ -391,6 +391,26 @@ From recon lane C, with sources.
   `spec-reviewer` backport made it ten. Folded into S3's scope.
 - **Two runs on the live board are tombstoned.** Once D1 lands they can actually
   be deleted. That is a user action on live data, not a task.
+- **The legacy import is a second, unguarded path to the same rows, and it is
+  live.** `Sources/BossSDD/Views/MenuBarContent.swift:27` wires the menu bar's
+  "Import from legacy JSON" button to `BoardModel.importLegacyRuns()`
+  (`BoardModel.swift:116`), which has no emptiness check — unlike
+  `importLegacyRunsIfEmpty()` at `:109`, which the startup path uses.
+  `Store.importRun` then runs an unconditional `DELETE FROM runs WHERE id = ?`
+  and the schema cascades. Verified against the live board: both legacy JSON
+  files in `~/.claude/plan-sdd/runs/` name ids that exist as runs right now, and
+  `fc46951c` has genuinely diverged — the JSON holds `status: running` with an
+  in-progress summary while the row holds `status: done` with its closure
+  summary. Clicking that menu item today reverts a finished run. D1's guard
+  closes the HTTP delete path and does not touch this one. Out of D1's write
+  scope and filed as separate work, not folded into this run.
+- **Six raw `"/api/runs/"+in.Run` concatenations survive in `mcp/main.go`**
+  (`:248, 262, 281, 292, 314, 327`). Pre-existing; D1's new call site is the
+  only one using `url.PathEscape`. Not exploitable — the API is loopback-only
+  and the caller already holds every tool — but an id containing `/` changes
+  the route's shape before `isValidRunID` ever runs, so "validation gates every
+  path" is false. D2 and S3 both touch this file; D2 is the natural place to
+  close it.
 - **`Scripts/verify.sh`'s live stage checks that the real board file is
   untouched** (`verify.sh:21-24`, `74-75`, `330-331`) and fails the run if its
   mtime or size changed. Any walkthrough that forgets `BOSS_SDD_HOME` will be
@@ -404,6 +424,21 @@ From recon lane C, with sources.
   document rather than lowering the bar — the code was ahead of the plan, not
   behind it. Overturn by deleting the criterion; the test would then be an
   unrequested addition rather than a required one.
+- **D1's refusal message was ruled a change, not a nit.** Both the spec reviewer
+  and the adversary left it `unsure` and explicitly to the orchestrator. The old
+  wording stopped at "set the run to another status" and named no follow-up, and
+  the obvious other status for a finished run is `done` — the exact tombstone
+  this plan exists to kill, in the one sentence an agent reads at the moment it
+  is refused. Ruled: name the follow-up, do not name `done`. Overturn by
+  reverting to the shorter sentence; the acceptance criterion ("the error names
+  the status") is met either way, which is why this was a judgement call.
+- **S1's "One collision, one round" carve-out was ruled explicit, not
+  restructured.** The reviewer traced the mechanics and found them reconcilable:
+  a conflict at 8b and the gate failure at 8c are one round. But the ceiling
+  makes the count material, and nothing at the ceiling's own sites said so, so
+  two agents counting toward 6 could diverge. Ruled: add a clause at the ceiling
+  sites, leave the collision section alone. Overturn by deleting the clause and
+  accepting the ambiguity.
 
 ## Needs a decision from the user
 
