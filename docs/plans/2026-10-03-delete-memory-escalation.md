@@ -441,6 +441,21 @@ From recon lane C, with sources.
   mtime or size changed. Any walkthrough that forgets `BOSS_SDD_HOME` will be
   caught here — but after the damage.
 
+- **`tasks.position` was a dense `0..n-1` invariant and nothing said so.**
+  `writeTask` is its only writer and `applyTaskPatch` calls it with the task's
+  index in the in-memory array, which `loadRun` built with `ORDER BY position`.
+  `importRun` renumbers densely. So rank, index and position were always equal
+  — and `deleteTask` is the first operation in the codebase that can break
+  that, because a plain `DELETE FROM tasks` leaves a hole and the next appended
+  task is written at `position = count`, which collides with or precedes a
+  surviving row. `deriveGraph` orders its layers from that array, so
+  `topological_order` and `topological_layers` change shape after a
+  delete-then-add, in a projection whose own doc comment calls it
+  deterministic. Found by D2's static review, verified here, sent back to D2
+  with a renumbering statement inside the same transaction and a
+  delete-then-add test. Recorded because the invariant was undocumented: any
+  future operation that removes a task row has the same trap waiting.
+
 ## Decision queue
 
 - **D1's acceptance gained a criterion mid-run** (every non-`running` status is
@@ -532,6 +547,16 @@ From recon lane C, with sources.
   worried about two agents counting differently. Deferred rather than folded
   into S1, which is on the top rung with one round left; adding non-essential
   work there risks the node for a gap that predates it.
+
+- **`roles.md:385` keeps no "except" clause for the collision carve-out.**
+  `roles.md:413` and `PLAYBOOK.md:386-387` cite the carve-out only for the
+  count stake; the tier stake lives only in `worktree-mode.md`, whose header now
+  settles precedence in its own favour for that one section. Ruled: leave it.
+  The carve-out states openly that it inverts the standing tie-break, so a
+  reader arriving from either direction is told, and `roles.md:385` is a
+  sentence the user wrote — editing it is what the non-goal forbids. Overturn by
+  adding the except clause there, which is a small edit but a change to the
+  user's own rule text.
 
 ## Needs a decision from the user
 
