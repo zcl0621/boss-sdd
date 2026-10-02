@@ -166,7 +166,8 @@ Nothing else makes a task ready. In particular, an upstream whose implementation
 returned but whose review has not finished is not `done`, so nothing downstream
 of it is ready.
 
-With a board, every write returns a read-only projection carrying both results:
+With a board, every write to a run, other than deleting the run itself, returns a
+read-only projection carrying both results:
 `valid`, and `ready_task_ids` computed by the rule above. Use them, and call
 `plan_graph` when you have not just written and need to re-read. Without a board,
 evaluate both yourself against the plan document. That is not guessing. Guessing
