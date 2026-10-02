@@ -247,11 +247,11 @@ Sort the surviving findings into:
   task's fix loop. The round count continues from what that task already used; it
   does not restart.
 
-  A task whose status is already `blocked` has no rounds left, so nothing routes
-  into it. Record the finding against that task in the partial close-out instead,
-  alongside the reason it blocked, and leave it blocked. Do not open a fourth
-  round, and do not reset the count to buy one. Three is three, and a blocked task
-  is already a thing the user has to look at.
+  A task whose status is already `blocked` has stopped, whatever stopped it, so
+  nothing routes into it. Record the finding against that task in the partial
+  close-out instead, alongside the reason it blocked, and leave it blocked. Do
+  not open another round, and do not undo whatever blocked it to buy one. A
+  blocked task is already a thing the user has to look at.
 - `unassigned`. Findings that belong to no single task: a task that was never
   done, two tasks contradicting each other, the same thing implemented twice in
   different places. Do not fix these yourself. Add each as a new task to the
@@ -288,7 +288,8 @@ you can invoke it yourself; if not, it is a handoff to the user. See
 You check every finding against its evidence. Valid ones go into a fix round.
 False positives get a short recorded reason and get closed. Time pressure and
 round pressure are not reasons to wave through a high-impact problem; if the
-rounds have run out, the node is `blocked` and the problem goes to the user, not
-into the delivery report as resolved.
+node is stuck on the top rung or has reached the 6-round ceiling, it is
+`blocked` and the problem goes to the user, not into the delivery report as
+resolved.
 
 When you cannot decide whether something counts as a failure, it counts.
