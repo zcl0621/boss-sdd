@@ -219,7 +219,8 @@ transition guards, so the HTTP API gets it too.
 
 - `depends_on`: [`D2`]
 - `write_scope`: `Sources/BoardKit/Store.swift`, `Sources/BossSDD/BoardModel.swift`,
-  `Tests/BoardKitTests/MemoryTests.swift`
+  `Tests/BoardKitTests/MemoryTests.swift`, `mcp/main.go`, `mcp/tools_test.go`
+  *(the two Go paths added at round 3; see the acceptance entry below)*
 - `exclusive_resources`: []
 - role: `implementer`
 - **Acceptance.**
@@ -237,6 +238,24 @@ transition guards, so the HTTP API gets it too.
     instance of it in the file. M1 is editing that function for the `notify()`
     change anyway. Structural, no happy-path behaviour change, so no race test
     is required or wanted.
+  - **One canonicalisation, and every process agrees on it.** Added at round 3,
+    after the same defect survived two fixes in two different shapes. The rule
+    a project string passes through to become a bucket key must be written
+    once, be a fixpoint, and be applied the same number of times on every path.
+    Two things fail that today. `Store.canonicalPath` trims once and then
+    strips trailing slashes, so a slash hiding whitespace behind it survives —
+    `"/x/repo /"` canonicalises to `"/x/repo "` once and `"/x/repo"` twice,
+    while its doc comment claims idempotence; `normalizedProject` applies it
+    once and `projectMemories` twice, so write and read disagree again in that
+    corner. And `mcp/main.go` keeps a second copy of the rule in another
+    language: `verifyMemoryEcho`, `verifyMemoryDeleted` and `verifyMemoryList`
+    each compare the board's echo against `strings.TrimSpace(project)`, so
+    after the Swift side grew stronger a successful write comes back to the
+    agent as *"the board returned a memory from a different project"*.
+    `mcp/tools_test.go`'s `doubleNormalizedProject` mirrors the stale rule on
+    both sides, which is why `go test` stays green over it. Acceptance: a Go
+    test that fails against the old rule, and a Swift test using a spelling
+    outside the idempotent set.
   - *(Moved to M2 mid-run.* The criterion used to read "`BoardView` gains a
     memory case alongside the existing graph and columns cases." It cannot be
     met inside M1's write scope: `BoardWindow.swift:28-32` switches
