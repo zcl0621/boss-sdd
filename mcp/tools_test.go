@@ -1346,3 +1346,209 @@ func TestToolPlanDeleteRunDetectsWrongRunEcho(t *testing.T) {
 		t.Fatalf("expected an error result for a mismatched echo, got success: %#v", result.StructuredContent)
 	}
 }
+
+// ---- plan_delete_task ----
+
+// deletedTaskBody is a wire run with a valid, task-free graph: what the board answers
+// after the last task of a run has been deleted.
+func deletedTaskBody(deleted string) map[string]any {
+	return map[string]any{
+		"id": "r1", "title": "t", "project": "", "status": "running", "summary": "",
+		"tasks": []any{}, "events": []any{},
+		"deleted": deleted,
+		"graph": map[string]any{
+			"valid": true, "errors": []any{}, "ready_task_ids": []any{},
+		},
+	}
+}
+
+// plan_delete_task must be registered, and must reach the board as exactly one
+// DELETE /api/runs/<run>/tasks/<task> with BOTH ids escaped for a path segment.
+// The ids are deliberately not legal run ids: the board would refuse the run id,
+// but this test is about what the tool puts on the wire, and a raw "/" or " "
+// would change the route's shape rather than be carried inside the id.
+func TestToolPlanDeleteTaskIssuesDeleteWithBothIDsEscaped(t *testing.T) {
+	var gotMethod, gotEscapedPath string
+	calls := 0
+	b := newMaliciousBoard(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		gotMethod, gotEscapedPath = r.Method, r.URL.EscapedPath()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		json.NewEncoder(w).Encode(deletedTaskBody("T 1/x"))
+	})
+	session := newToolSession(t, b)
+
+	tools, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	registered := false
+	for _, tool := range tools.Tools {
+		if tool.Name == "plan_delete_task" {
+			registered = true
+		}
+	}
+	if !registered {
+		t.Fatalf("plan_delete_task is not among the registered tools")
+	}
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "plan_delete_task",
+		Arguments: map[string]any{"run": "a b/c", "id": "T 1/x"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool transport error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error result: %s", resultErrorText(result))
+	}
+	if calls != 1 {
+		t.Fatalf("expected exactly one request to the board, got %d", calls)
+	}
+	if gotMethod != "DELETE" {
+		t.Fatalf("method = %q, want DELETE", gotMethod)
+	}
+	if want := "/api/runs/a%20b%2Fc/tasks/T%201%2Fx"; gotEscapedPath != want {
+		t.Fatalf("path = %q, want %q", gotEscapedPath, want)
+	}
+	out := decodeStructured[struct {
+		Deleted string `json:"deleted"`
+		Graph   struct {
+			Valid bool `json:"valid"`
+		} `json:"graph"`
+	}](t, result)
+	if out.Deleted != "T 1/x" {
+		t.Fatalf("deleted = %q, want %q", out.Deleted, "T 1/x")
+	}
+	if !out.Graph.Valid {
+		t.Fatalf("the graph projection from the board must reach the agent, got %s", mustJSON(t, result.StructuredContent))
+	}
+}
+
+// A refusal from the board (a task with dependents answers 409 and names them)
+// must reach the agent as an error result carrying the board's own message.
+func TestToolPlanDeleteTaskSurfacesTheBoardsRefusal(t *testing.T) {
+	b := newMaliciousBoard(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(409)
+		json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{
+			"code": "conflict", "message": "cannot delete task T1: these tasks depend on it: T5, T9",
+		}})
+	})
+	session := newToolSession(t, b)
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "plan_delete_task",
+		Arguments: map[string]any{"run": "r1", "id": "T1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool transport error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected an error result for a refused delete, got success: %#v", result.StructuredContent)
+	}
+	if text := resultErrorText(result); !strings.Contains(text, "T5, T9") {
+		t.Fatalf("expected the board's refusal text to reach the agent, got %q", text)
+	}
+}
+
+// A board that answers 200 but names a different task than the one asked for
+// has not deleted what the agent asked it to; the tool must not report success.
+func TestToolPlanDeleteTaskDetectsWrongTaskEcho(t *testing.T) {
+	b := newMaliciousBoard(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		json.NewEncoder(w).Encode(deletedTaskBody("T2"))
+	})
+	session := newToolSession(t, b)
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "plan_delete_task",
+		Arguments: map[string]any{"run": "r1", "id": "T1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool transport error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected an error result for a mismatched echo, got success: %#v", result.StructuredContent)
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return string(raw)
+}
+
+// ---- every run-scoped tool escapes the run id ----
+
+// An id containing "/" changes the route's shape before the board's own id
+// validation ever runs, so every tool that puts a caller-supplied run id into a
+// path has to escape it. Each tool is driven by name; the double records the
+// escaped path of every request after the identity probe and answers with a run
+// body, except that PUT answers 409 when `failPut` is set so plan_set_tasks
+// takes its follow-up GET path as well.
+func TestEveryRunScopedToolEscapesTheRunID(t *testing.T) {
+	const rawRun = "a b/c"
+	const escapedRun = "/api/runs/a%20b%2Fc"
+	cases := []struct {
+		tool    string
+		args    map[string]any
+		failPut bool
+	}{
+		{"plan_update_run", map[string]any{"run": rawRun, "status": "running"}, false},
+		{"plan_set_task", map[string]any{"run": rawRun, "id": "T1", "title": "t"}, false},
+		{"plan_set_tasks", map[string]any{"run": rawRun, "tasks": []any{map[string]any{"id": "T1", "title": "t"}}}, false},
+		{"plan_set_tasks", map[string]any{"run": rawRun, "tasks": []any{map[string]any{"id": "T1", "title": "t"}}}, true},
+		{"plan_graph", map[string]any{"run": rawRun}, false},
+		{"plan_get_run", map[string]any{"run": rawRun}, false},
+		{"plan_delete_run", map[string]any{"run": rawRun}, false},
+		{"plan_delete_task", map[string]any{"run": rawRun, "id": "T1"}, false},
+	}
+	for _, tc := range cases {
+		name := tc.tool
+		if tc.failPut {
+			name += "/follow-up-get"
+		}
+		t.Run(name, func(t *testing.T) {
+			var paths []string
+			b := newMaliciousBoard(t, func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.Method+" "+r.URL.EscapedPath())
+				w.Header().Set("Content-Type", "application/json")
+				if tc.failPut && r.Method == "PUT" {
+					w.WriteHeader(409)
+					json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "conflict", "message": "no"}})
+					return
+				}
+				w.WriteHeader(200)
+				body := deletedTaskBody("T1")
+				body["deleted"] = rawRun // satisfies plan_delete_run's echo check; harmless elsewhere
+				if tc.tool == "plan_delete_task" {
+					body["deleted"] = "T1"
+				}
+				json.NewEncoder(w).Encode(body)
+			})
+			session := newToolSession(t, b)
+			if _, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: tc.tool, Arguments: tc.args}); err != nil {
+				t.Fatalf("CallTool transport error: %v", err)
+			}
+			if len(paths) == 0 {
+				t.Fatalf("%s never reached the board", tc.tool)
+			}
+			wantRequests := 1
+			if tc.failPut {
+				wantRequests = 2
+			}
+			if len(paths) != wantRequests {
+				t.Fatalf("%s made %d requests %v, want %d", tc.tool, len(paths), paths, wantRequests)
+			}
+			for _, p := range paths {
+				if !strings.Contains(p, " "+escapedRun) {
+					t.Errorf("%s sent %q; the run id must appear as %q", tc.tool, p, escapedRun)
+				}
+			}
+		})
+	}
+}
