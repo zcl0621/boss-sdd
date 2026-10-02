@@ -14,6 +14,20 @@ struct RunWithGraph: Encodable {
     }
 }
 
+/// `DELETE /api/runs/{id}/tasks/{taskId}`: the run with its graph, plus the deleted task id.
+struct TaskDeletedResponse: Encodable {
+    let deleted: String
+    let run: Run
+
+    enum Key: String, CodingKey { case deleted }
+
+    func encode(to encoder: Encoder) throws {
+        try RunWithGraph(run: run).encode(to: encoder)
+        var container = encoder.container(keyedBy: Key.self)
+        try container.encode(deleted, forKey: .deleted)
+    }
+}
+
 struct HealthResponse: Encodable {
     let ok: Bool
     let version: String
@@ -254,6 +268,13 @@ public struct API: Sendable {
             let payload = try decode(TaskPatchRequest.self, from: request)
             let run = try store.upsertTask(runID: parts[2], taskID: parts[4], patch: payload.patch)
             return try encode(RunWithGraph(run: run))
+
+        // Answers with the run (graph included) as it stands after the delete, plus
+        // `deleted`: the task id the store actually removed, for the caller to check.
+        case ("DELETE", let parts)
+            where parts.count == 5 && parts[0] == "api" && parts[1] == "runs" && parts[3] == "tasks":
+            let run = try store.deleteTask(runID: parts[2], taskID: parts[4])
+            return try encode(TaskDeletedResponse(deleted: parts[4], run: run))
 
         // Project memory. `project` rides in the query string, not the path: it is
         // "Project path or name" and may well be an absolute path, so it is not a safe path

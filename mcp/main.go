@@ -166,6 +166,23 @@ type runDeleteOutput struct {
 	Deleted string `json:"deleted"`
 }
 
+type deleteTaskInput struct {
+	Run string `json:"run" jsonschema:"Run ID"`
+	ID  string `json:"id" jsonschema:"ID of the task to delete"`
+}
+
+// wireTaskDeleted mirrors DELETE /api/runs/<run>/tasks/<id>'s body: the run as it
+// stands after the delete, graph included, plus the id of the task that went.
+type wireTaskDeleted struct {
+	wireRun
+	Deleted string `json:"deleted"`
+}
+
+type taskDeleteOutput struct {
+	Deleted string    `json:"deleted"`
+	Graph   graphView `json:"graph"`
+}
+
 // memoryView is what a tool call actually hands the agent. source rides along
 // on every read path on purpose: a memory whose provenance the agent cannot
 // see is the exact failure project memory exists to prevent.
@@ -245,7 +262,7 @@ func registerTools(server *mcp.Server, api *board) {
 			body["summary"] = *in.Summary
 		}
 		var run wireRun
-		if err := api.call(ctx, "PATCH", "/api/runs/"+in.Run, body, &run); err != nil {
+		if err := api.call(ctx, "PATCH", "/api/runs/"+url.PathEscape(in.Run), body, &run); err != nil {
 			return nil, runOutput{}, err
 		}
 		return nil, runOutput{Run: summarize(&run), Graph: viewGraph(&run)}, nil
@@ -259,7 +276,7 @@ func registerTools(server *mcp.Server, api *board) {
 			"The board refuses two illegal writes: moving to running while a dependency is unfinished, and taking an exclusive resource an active task already holds.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in setTaskInput) (*mcp.CallToolResult, taskOutput, error) {
 		var run wireRun
-		path := "/api/runs/" + in.Run + "/tasks/" + in.ID
+		path := "/api/runs/" + url.PathEscape(in.Run) + "/tasks/" + url.PathEscape(in.ID)
 		if err := api.call(ctx, "PUT", path, taskBody(in.taskInput), &run); err != nil {
 			return nil, taskOutput{}, err
 		}
@@ -278,7 +295,7 @@ func registerTools(server *mcp.Server, api *board) {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in setTasksInput) (*mcp.CallToolResult, batchOutput, error) {
 		out := batchOutput{Written: []string{}}
 		var run wireRun
-		if err := api.call(ctx, "PUT", "/api/runs/"+in.Run+"/tasks", batchBody(in.Tasks), &run); err != nil {
+		if err := api.call(ctx, "PUT", "/api/runs/"+url.PathEscape(in.Run)+"/tasks", batchBody(in.Tasks), &run); err != nil {
 			// The board applies the batch atomically, so a rejection means nothing
 			// landed: every task in the batch failed, all for the same reason.
 			if len(in.Tasks) == 0 {
@@ -289,7 +306,7 @@ func registerTools(server *mcp.Server, api *board) {
 				out.Failed[task.ID] = err.Error()
 			}
 			// Report the board as it actually stands now — unchanged by this call.
-			if graphErr := api.call(ctx, "GET", "/api/runs/"+in.Run, nil, &run); graphErr != nil {
+			if graphErr := api.call(ctx, "GET", "/api/runs/"+url.PathEscape(in.Run), nil, &run); graphErr != nil {
 				return nil, out, err
 			}
 			out.Graph = viewGraph(&run)
@@ -311,7 +328,7 @@ func registerTools(server *mcp.Server, api *board) {
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runInput) (*mcp.CallToolResult, graphView, error) {
 		var run wireRun
-		if err := api.call(ctx, "GET", "/api/runs/"+in.Run, nil, &run); err != nil {
+		if err := api.call(ctx, "GET", "/api/runs/"+url.PathEscape(in.Run), nil, &run); err != nil {
 			return nil, graphView{}, err
 		}
 		return nil, viewGraph(&run), nil
@@ -324,7 +341,7 @@ func registerTools(server *mcp.Server, api *board) {
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getRunInput) (*mcp.CallToolResult, fullRunOutput, error) {
 		var run wireRun
-		if err := api.call(ctx, "GET", "/api/runs/"+in.Run, nil, &run); err != nil {
+		if err := api.call(ctx, "GET", "/api/runs/"+url.PathEscape(in.Run), nil, &run); err != nil {
 			return nil, fullRunOutput{}, err
 		}
 		out := fullRunOutput{Run: summarize(&run), Tasks: viewTasks(&run), Graph: viewGraph(&run)}
@@ -442,6 +459,26 @@ func registerTools(server *mcp.Server, api *board) {
 			return nil, runDeleteOutput{}, fmt.Errorf("asked the board to delete run %q but it reported deleting %q", in.Run, wire.Deleted)
 		}
 		return nil, runDeleteOutput{Deleted: wire.Deleted}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:  "plan_delete_task",
+		Title: "Delete one task",
+		Description: "Deletes one task from a run by run ID and task ID, and returns the graph projection as it stands afterwards; this cannot be undone. " +
+			"The board refuses three deletions with an error and leaves the task where it is: a task another task still lists in depends_on " +
+			"(the error names every such task, so remove the task from each one's depends_on, or delete them first, and call again), " +
+			"a task whose status is running, and a task whose status is review. Every other status can be deleted. " +
+			"A task ID that does not exist is an error, never silently treated as a success.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteTaskInput) (*mcp.CallToolResult, taskDeleteOutput, error) {
+		var wire wireTaskDeleted
+		path := "/api/runs/" + url.PathEscape(in.Run) + "/tasks/" + url.PathEscape(in.ID)
+		if err := api.call(ctx, "DELETE", path, nil, &wire); err != nil {
+			return nil, taskDeleteOutput{}, err
+		}
+		if wire.Deleted != in.ID {
+			return nil, taskDeleteOutput{}, fmt.Errorf("asked the board to delete task %q but it reported deleting %q", in.ID, wire.Deleted)
+		}
+		return nil, taskDeleteOutput{Deleted: wire.Deleted, Graph: viewGraph(&wire.wireRun)}, nil
 	})
 }
 
