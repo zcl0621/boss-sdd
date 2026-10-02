@@ -273,7 +273,17 @@ transition guards, so the HTTP API gets it too.
 - `depends_on`: [`M1`]
 - `write_scope`: `Sources/BossSDD/Views/`, `Sources/BossSDD/BoardModel.swift`,
   `Resources/en.lproj/Localizable.strings`,
-  `Resources/zh-Hans.lproj/Localizable.strings`
+  `Resources/zh-Hans.lproj/Localizable.strings`,
+  `Resources/en.lproj/Localizable.stringsdict`,
+  `Resources/zh-Hans.lproj/Localizable.stringsdict`
+  - The two `.stringsdict` files were added at round 1. The task shipped a
+    count as `"Kinds 6"` — a noun glued to a number — reasoning that avoiding
+    plural forms avoided needing a stringsdict. The project already has one in
+    both languages, and its own header comment states the rule: *"Only the
+    counted strings whose noun has to agree with the count live here."* The
+    precedent is `inspector.layers`, rendered as a `Pill` in the same pane as
+    the new one. So the count belongs in the dict, and the dict had to be in
+    scope to put it there.
   - `BoardModel.swift` added mid-run, for the `BoardView` enum case only — see
     M1's moved criterion. M1 and M2 both write that file, which is safe because
     they are sequential, the same way D1 and D2 shared `Store.swift` and
