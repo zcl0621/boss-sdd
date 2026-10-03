@@ -172,10 +172,12 @@ reimplement them, and there is no way around them:
 Overlapping `write_scope` and project-level concurrency are not the app's
 business. The orchestrating agent still has to avoid those itself.
 
-Deleting has three refusals of its own, on the same terms: `plan_delete_run` on a
-run whose status is `running`, and `plan_delete_task` on a task whose status is
-`running` or `review`, or that another task lists in `depends_on`. They check
-status and nothing more. They cannot tell whether a status was set honestly, so
+Deleting has four refusals of its own, on the same terms: one on
+`plan_delete_run`, which refuses a run whose status is `running`, and three on
+`plan_delete_task`, which refuses a task whose status is `running`, a task whose
+status is `review`, and a task that another task lists in `depends_on`. They
+check the recorded status and, for a task, the recorded dependencies, nothing
+about the work itself. They cannot tell whether a status was set honestly, so
 when an agent may delete at all is a rule for the agent, in
 [`board.md`](skills/shared/references/board.md#deleting-a-run-or-a-task).
 

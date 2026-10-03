@@ -11,7 +11,11 @@ import Network
 /// way the MCP server's checks depend on, and raise that floor to match.
 /// 0.2.0: DELETE /api/memories answers with the board's normalized
 /// (project, key) pair rather than the caller's raw spelling.
-public let boardKitVersion = "0.2.0"
+/// 0.3.0: DELETE /api/runs/{id} refuses a run whose status is `running`, which
+/// plan_delete_run relies on (a 0.2.0 board deletes it unguarded); and the
+/// memory routes echo the canonical project (trailing slashes stripped, not
+/// just whitespace-trimmed), which the MCP's memory verifiers compare against.
+public let boardKitVersion = "0.3.0"
 
 /// 18866 was long held by the now-retired Python board; moving to another port is
 /// cleaner than fighting it for that one.
