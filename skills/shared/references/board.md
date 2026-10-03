@@ -3,8 +3,9 @@
 The board is an observability layer over the run, not the scheduler. It mirrors
 the plan document's task DAG, derives the topology and the ready queue from the
 structured fields you send, and refuses unsafe writes: two kinds of task write,
-and three cases of delete. It computes things you would otherwise compute
-yourself. It does not decide anything you could not decide without it.
+one delete on `plan_delete_run`, and three on `plan_delete_task`, which is four
+delete refusals across the two tools. It computes things you would otherwise
+compute yourself. It does not decide anything you could not decide without it.
 
 You write to it through the `plan-sdd` MCP tools. Nothing changes state from
 inside the board's own window. Subagents report back to you through whatever
