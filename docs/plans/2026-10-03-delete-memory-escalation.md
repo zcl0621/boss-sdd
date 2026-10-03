@@ -5,6 +5,7 @@ Project memory: on
 Integration branch: plan/2026-10-03-delete-memory-escalation
 Main working tree: /Users/zhang/Project/boss-sdd
 Integration worktree: /Users/zhang/Project/boss-sdd-worktrees/integration
+Pull request: https://github.com/zcl0621/boss-sdd/pull/1
 Updated: 2026-10-03
 
 `Base ref` is the replacement value, not the phase-0 one. Phase 0 recorded
@@ -420,7 +421,12 @@ transition guards, so the HTTP API gets it too.
     `plan_delete_task`, written to the standard `memory.md` sets for
     `plan_memory_delete` — including that a delete is irreversible, that **all
     three** refusals exist and what each means (a `running` run; a `running` or
-    `review` task; a task with dependents), and that in confirm mode this is a
+    `review` task; a task with dependents) — *the "three" here is this
+    document's own grouping, counting `running` and `review` as one case. The
+    shipped prose was later moved to the code's grouping, which counts them
+    separately and so says four across both tools. Left as written because it
+    records what the node was actually asked for; see the Risks entry on the
+    counts*, and that in confirm mode this is a
     stop-and-ask (D5). The earlier wording said "the two refusals", which a
     section documenting only two of the three would have satisfied.
   - `board.md:148`'s *"this node has stopped: three failed rounds"* is corrected
@@ -534,6 +540,89 @@ From recon lane C, with sources.
   `MemoryKind.allCases` would silently reorder the pane with every gate still
   green, and the enum's declaration order being the pane's contract is exactly
   the kind of thing nobody remembers a year later.
+- **The version floor does not run on the call that cold-starts the board.**
+  Found at the pull request, by the adversarial lane, after the floor had
+  already been raised to 0.3.0 — which is what makes it worth writing down: the
+  mechanism this branch strengthens has a hole in exactly the case it is for.
+  `mcp/client.go:176-199` calls `verifyIdentity` first, but
+  `verifyIdentity` returns `nil` and caches nothing when the probe hits a
+  transport error, which is what a board that is not running looks like. So:
+  probe fails, `send` is refused, `launchApp()`, the retry succeeds, the result
+  goes back to the agent, and the version was never checked. One call only; the
+  next one probes. But that one call could be `plan_delete_run` against an
+  unguarded board. Sent back to the node that raised the floor, since the file
+  was already in its write scope.
+- **The floor is one-directional, and `--install` manufactures the direction it
+  does not cover.** It refuses a board older than the binary and never a board
+  newer. After `bundle.sh --install` replaces the bundle, every agent session
+  already running keeps its old MCP *process* alive — the file is unlinked, the
+  process is not — so a 0.2.0 MCP talks to a 0.3.0 board and nothing catches
+  it. Concretely, `origin/main`'s `mcp/main.go:651` compares the board's echo
+  against `strings.TrimSpace(project)` where the new board sends the canonical
+  form, so a memory delete under a trailing-slash project would be reported as
+  touching "a different project" for a delete that succeeded. Low probability
+  today — projects are plain repository paths and `memories` is empty — but it
+  is the reason Delivery step 1 now says to restart agent sessions, not just to
+  install.
+- **The sweep that found the count collision found it by luck, and the next
+  plan should not reuse it as written.** This is the lesson one level up from
+  the entry below, and it was handed to me by the node I sent the sweep to,
+  about my own check. The command is line-based and wants the number and a
+  refusal word within 60 characters *of each other on one line*. In the old
+  `board.md`, "three cases of delete" sat alone on line 6 with no refusal word
+  on it, so that line does not match: the hit I got was line 5, matching on its
+  unrelated *task-write* clause, with the wrong delete count riding along in
+  the context. One word earlier in the hard wrap and the sweep would have
+  printed nothing for that file. Nothing was actually missed — the node
+  verified that by re-running the same pattern over whitespace-flattened file
+  contents, and I re-ran that myself over the whole repository including
+  `docs/`, `Tests/` and `Scripts/` — but the check passed for the wrong reason.
+  **A grep over hard-wrapped prose cannot see a claim that straddles a wrap.
+  Flatten the whitespace first, then match.**
+- **The refusal counts in the prose and in the code count different things.**
+  `README.md:175` and `board.md:5` say deleting has **three** refusals, meaning
+  both tools together, and then `README.md` enumerates four conditions.
+  `Store.swift:256-258` and `mcp/main.go:466` — the latter being what an agent
+  actually reads at the tool boundary — say **three**, meaning `plan_delete_task`
+  alone, counting `running` and `review` separately. Both cannot be right; under
+  the code's convention the prose number is four. This is the fourth time this
+  plan has met the same defect class and the first time it has met it in this
+  shape: S3's grep could not have found it, because S3 normalised the counts
+  across `README.md` and `skills/` against a grouping it chose itself, while the
+  colliding counts live in Swift and Go. **The lesson, stated so the next plan
+  can use it: a count in prose is only checkable against the count the code
+  states, so the check has to span both, and a check scoped to the files being
+  edited cannot see a defect that spans files that are not.**
+- **No migration for existing `memories.project` rows, and the tripwire for when
+  that stops being right.** The pull request asked for one. The mechanism is
+  real: canonicalisation moved from whitespace-trim to trim-plus-strip-trailing-
+  slashes, reopening a database only runs `CREATE TABLE IF NOT EXISTS`, and
+  there is no migration framework in `Sources/BoardKit/` at all. It is refused
+  because there is nothing to migrate: `SELECT count(*) FROM memories` returns
+  0, and `find ~ -name board.sqlite3` returns exactly one file, with
+  `BOSS_SDD_HOME` unset in the environment and in every shell config, so that
+  is the only database. One leg of my first argument was wrong and is recorded
+  as wrong: I said the 0.3.0 floor closes the window in which an old board could
+  write such a row. It does not — the floor lives in the MCP, not in the board,
+  and `API.swift` authenticates nothing, so any local process can `POST
+  /api/memories` to a 0.2.0 board without ever meeting `minBoardVersion`. The
+  decision survives on the zero-rows argument alone, helped by the fact that the
+  pane this branch ships is read-only and creates no new writer. **The tripwire:
+  this decision stops being right the first time `SELECT count(*) FROM memories`
+  is non-zero on a board that has ever run 0.2.0.**
+- **`TaskCard.swift` has the memory row's VoiceOver defect, unfixed.** Same
+  shape: `isSelected` at `:11` consumed only by `strokeBorder` and an overlay,
+  `.buttonStyle(.plain)` at `:59`, no `.isSelected` trait — and its selection
+  drives the same inspector. Deliberately not fixed here: it is in a view this
+  plan's non-goals put out of scope, and widening into it would be adjacency,
+  which is the thing those non-goals exist to refuse. Filed separately.
+- **The live board's rows are stale against this branch.** Run
+  `f53f044f6df2491284fa3d15507b2819` still records `M1` running and `M2`, `S2`,
+  `S3` pending, while all three are merged. Also `996dc61da29940cba89429223edefcb2`
+  has been `running` since 2026-09-26, so after this ships it is undeletable
+  until someone changes its status — that row will probably be the first
+  real-world encounter with the new guard. Board hygiene, not a code defect, but
+  anything reasoning from board state right now is reasoning from stale rows.
 - **D7 resolves the worktree layout this skill no longer tells agents to
   create.** Found by the phase-3 branch review, which is the only level that
   could see it: D7's evidence and the rule that contradicts it sit ~550 lines
@@ -779,7 +868,17 @@ checked out to the integration branch.
 Not DAG nodes — they write outside the repository or act on live data, and they
 need the merged result:
 
-1. Rebuild and reinstall the app: `./Scripts/bundle.sh --install`.
+1. Rebuild and reinstall the app: `./Scripts/bundle.sh --install`. **Then
+   restart every running agent session**, and do not skip that half. The
+   registered MCP is the binary inside the bundle
+   (`~/.claude.json` → `/Applications/BossSDD.app/Contents/Resources/plan-sdd-mcp`),
+   so `--install` moves both halves together and the board never meets an MCP
+   that is too new for it. The hazard runs the other way: `--install` unlinks
+   the file but does not kill the processes, so each session already running
+   keeps a 0.2.0 MCP pointed at a 0.3.0 board, and the version floor only
+   refuses boards that are too *old*. Nothing catches that direction. The
+   script also `pkill`s the app, which interrupts any in-flight run — nothing
+   is lost, the next call relaunches it, but pick a moment.
 2. Sync the local skill install from the merged repository, per
    `skills/claude-code/INSTALL.md` (`rm -rf` + `cp -RL`), then `diff -r` to
    confirm it matches.
