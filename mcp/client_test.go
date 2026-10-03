@@ -81,7 +81,7 @@ func probeAtVersion(version string) probeResult {
 func TestVerdictRejectsABoardBelowTheVersionFloor(t *testing.T) {
 	b := &board{port: 18888}
 	err := b.verdict(probeAtVersion("0.1.0"))
-	mustContain(t, err, "18888", "0.1.0", minBoardVersion, "bundle.sh --install")
+	mustContain(t, err, "18888", "0.1.0", minBoardVersion, "bundle.sh --install", "restart this MCP server")
 }
 
 // A board exactly at the floor is current, not stale: the floor is the
@@ -133,11 +133,22 @@ func TestVersionFloorIsNotAheadOfTheBoardThisRepoShips(t *testing.T) {
 	if cmp < 0 {
 		t.Fatalf("boardKitVersion %q is below minBoardVersion %s: a freshly built app would be rejected as stale", shipped, minBoardVersion)
 	}
-	// And the paired direction: a board one minor behind the shipped one is
-	// what a stale /Applications/BossSDD.app looks like, and must be caught.
+	// And the paired direction: a board below the floor is what a stale
+	// /Applications/BossSDD.app looks like, and must be caught. The oldest
+	// version first, then the one the floor last moved past.
 	b := &board{port: 18888}
 	if err := b.verdict(probeAtVersion("0.1.0")); err == nil {
-		t.Fatalf("the floor accepts 0.1.0, the version every pre-%s board reported; it cannot tell a stale app apart", minBoardVersion)
+		t.Fatalf("the floor accepts 0.1.0, which is below minBoardVersion %s; it cannot tell a stale app apart", minBoardVersion)
+	}
+	// 0.2.0 is the board the floor was raised to 0.3.0 to refuse: its
+	// DELETE /api/runs/{id} has no running-status guard, which plan_delete_run
+	// relies on, and its memory routes echo a whitespace-trimmed project where
+	// this binary's verifiers compare against canonicalProject (trailing
+	// slashes stripped). Driving it deletes a running run, so it must be named
+	// as stale, not accepted. It stays below every later floor, so this
+	// assertion stays true as the floor moves.
+	if err := b.verdict(probeAtVersion("0.2.0")); err == nil {
+		t.Fatalf("the floor accepts 0.2.0, whose run delete is unguarded and whose memory echo is not canonical; it cannot tell that stale app apart")
 	}
 }
 
@@ -436,5 +447,57 @@ func TestNewBoardHonorsPortOverride(t *testing.T) {
 	}
 	if b.base != "http://127.0.0.1:23456" {
 		t.Fatalf("expected overridden base, got %q", b.base)
+	}
+}
+
+// The version floor has to run against the board launchApp actually started,
+// before the call that cold-started it reaches that board. verifyIdentity
+// treats a refused probe as "nothing listening yet" and returns nil, so on a
+// process whose first call finds no board, the floor never ran for that call
+// unless the launch path checks it itself.
+func TestColdStartCallIsRefusedWhenTheLaunchedBoardIsBelowTheFloor(t *testing.T) {
+	// Reserve an address, then free it: the board is "not running".
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := listener.Addr().String()
+	listener.Close()
+
+	var routeHits, launches atomic.Int32
+	realLaunch := launchApp
+	t.Cleanup(func() { launchApp = realLaunch })
+	launchApp = func() error {
+		launches.Add(1)
+		bound, err := net.Listen("tcp", addr)
+		if err != nil {
+			return err
+		}
+		server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Path == "/api/health" {
+				w.Write([]byte(`{"ok":true,"version":"0.2.0","port":18888,"runs":0}`))
+				return
+			}
+			routeHits.Add(1)
+			w.Write([]byte(`{}`))
+		}))
+		server.Listener.Close()
+		server.Listener = bound
+		server.Start()
+		t.Cleanup(server.Close)
+		return nil
+	}
+
+	b := &board{base: "http://" + addr, port: 18888, client: &http.Client{}}
+	var out wireRun
+	err = b.call(context.Background(), "DELETE", "/api/runs/r1", nil, &out)
+
+	if launches.Load() != 1 {
+		t.Fatalf("expected the board to be launched once, got %d", launches.Load())
+	}
+	mustContain(t, err, "0.2.0", minBoardVersion, "bundle.sh --install")
+	if routeHits.Load() != 0 {
+		t.Fatalf("a stale board must be refused before the request goes out; the route was reached %d time(s)", routeHits.Load())
 	}
 }
