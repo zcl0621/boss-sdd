@@ -96,13 +96,17 @@ own worktree prove it works alone and prove nothing about it working alongside
 what merged before it. See [worktree-mode.md](worktree-mode.md).
 
 A valid finding sends the node from `review` back to `running` within the same
-node. Three fix and review rounds maximum. That transition is not a DAG edge and
-must never be drawn as one.
+node. No count decides the tier; the model escalates one rung each time the same
+problem survives a round, per "Model tiers" in [roles.md](../roles.md), and the
+ceiling below is the only bound on a run of all-new rounds. That transition is
+not a DAG edge and must never be drawn as one.
 
-After the third round still has valid findings, give the node the `blocked`
-status, and then **propagate that status to every node downstream of it,
-transitively**. Each one gets the `blocked` status and a reason naming the
-upstream node that stopped it. Everything not downstream of it keeps running.
+When the same problem survives two rounds on the top rung, or the node has had 6
+rework rounds (the ceiling under the escalation rule, whatever the
+classification), give the node the `blocked` status, and then **propagate that
+status to every node downstream of it, transitively**. Each one gets the
+`blocked` status and a reason naming the upstream node that stopped it.
+Everything not downstream of it keeps running.
 
 ### What counts as a blocker
 
@@ -110,7 +114,8 @@ upstream node that stopped it. Everything not downstream of it keeps running.
 "frozen", no "parked", no "waiting on the user" state. Anything that stops a node
 indefinitely uses this status, with a reason saying which of these it is:
 
-- Three fix and review rounds spent with valid findings still standing.
+- The same problem surviving two rounds on the top rung, or 6 fix and review
+  rounds spent with valid findings still standing.
 - An unanswered question the node depends on, parked in the plan's "needs a
   decision from the user" list. In goal mode this is the common one, and the
   reason names the parked question.
@@ -161,7 +166,8 @@ Nothing else makes a task ready. In particular, an upstream whose implementation
 returned but whose review has not finished is not `done`, so nothing downstream
 of it is ready.
 
-With a board, every write returns a read-only projection carrying both results:
+With a board, every write to a run, other than deleting the run itself, returns a
+read-only projection carrying both results:
 `valid`, and `ready_task_ids` computed by the rule above. Use them, and call
 `plan_graph` when you have not just written and need to re-read. Without a board,
 evaluate both yourself against the plan document. That is not guessing. Guessing

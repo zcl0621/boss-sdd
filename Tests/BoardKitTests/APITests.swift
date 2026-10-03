@@ -1036,4 +1036,143 @@ private final class TestServer {
             #expect(try errorMessage(body).contains("review"))
         }
     }
+
+    // MARK: - DELETE /api/runs/{id}
+
+    @Test func deleteRemovesAFinishedRun() async throws {
+        try await withServer { server in
+            let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"收尾"}"#)
+            let runID = try field(created, "id", String.self)
+            _ = try await server.send("PATCH", "/api/runs/\(runID)", json: #"{"status":"done"}"#)
+            let (status, body) = try await server.send("DELETE", "/api/runs/\(runID)", contentType: nil)
+            #expect(status == 200)
+            #expect(try field(body, "deleted", String.self) == runID)
+            let (after, _) = try await server.send("GET", "/api/runs/\(runID)", contentType: nil)
+            #expect(after == 404)
+        }
+    }
+
+    @Test func deleteRefusesARunningRun() async throws {
+        try await withServer { server in
+            let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"进行中"}"#)
+            let runID = try field(created, "id", String.self)
+            _ = try await server.send("PATCH", "/api/runs/\(runID)", json: #"{"status":"running"}"#)
+            let before = try await server.snapshot(runID)
+
+            let (status, body) = try await server.send("DELETE", "/api/runs/\(runID)", contentType: nil)
+            #expect(status == 409)
+            #expect(try errorMessage(body).contains("running"))
+
+            // The refusal wrote nothing: the run is still there and unchanged.
+            #expect(try await server.snapshot(runID) == before)
+        }
+    }
+
+    @Test func deleteOfAnUnknownRunIs404() async throws {
+        try await withServer { server in
+            let (status, _) = try await server.send("DELETE", "/api/runs/no-such-run", contentType: nil)
+            #expect(status == 404)
+        }
+    }
+
+    // MARK: - DELETE /api/runs/{id}/tasks/{taskId}
+
+    /// Creates a run holding `T1` and a `T2` that depends on it, and returns the run id.
+    private func seedChain(_ server: TestServer) async throws -> String {
+        let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"删任务"}"#)
+        let runID = try field(created, "id", String.self)
+        _ = try await server.send("PUT", "/api/runs/\(runID)/tasks/T1", json: #"{"title":"甲","write_scope":["a/"]}"#)
+        _ = try await server.send(
+            "PUT", "/api/runs/\(runID)/tasks/T2",
+            json: #"{"title":"乙","depends_on":["T1"],"write_scope":["b/"]}"#
+        )
+        return runID
+    }
+
+    @Test func deleteTaskRemovesItAndAnswersWithAValidGraphThatForgetsIt() async throws {
+        try await withServer { server in
+            let runID = try await seedChain(server)
+
+            let (status, body) = try await server.send("DELETE", "/api/runs/\(runID)/tasks/T2", contentType: nil)
+            #expect(status == 200)
+            #expect(try field(body, "deleted", String.self) == "T2")
+            let tasks = try field(body, "tasks", [[String: Any]].self)
+            #expect(tasks.compactMap { $0["id"] as? String } == ["T1"])
+
+            let graph = try field(body, "graph", [String: Any].self)
+            #expect(try field(graph, "valid", Bool.self) == true)
+            #expect(try field(graph, "topological_order", [String].self) == ["T1"])
+            #expect(try field(graph, "dependents", [String: [String]].self)["T1"] == [])
+            #expect(try field(graph, "write_scopes", [String: [String]].self)["T2"] == nil)
+
+            // A fresh read agrees: the task is gone from the store, not just from the reply.
+            let (_, reread) = try await server.send("GET", "/api/runs/\(runID)", contentType: nil)
+            #expect(try field(reread, "tasks", [[String: Any]].self).count == 1)
+        }
+    }
+
+    @Test func deleteTaskRefusesATaskWithDependentsAndNamesThemAll() async throws {
+        try await withServer { server in
+            let runID = try await seedChain(server)
+            _ = try await server.send(
+                "PUT", "/api/runs/\(runID)/tasks/T3",
+                json: #"{"title":"丙","depends_on":["T1"],"write_scope":["c/"]}"#
+            )
+            let before = try await server.snapshot(runID)
+
+            let (status, body) = try await server.send("DELETE", "/api/runs/\(runID)/tasks/T1", contentType: nil)
+            #expect(status == 409)
+            let message = try errorMessage(body)
+            #expect(message.contains("T2"))
+            #expect(message.contains("T3"))
+            #expect(try await server.snapshot(runID) == before)
+        }
+    }
+
+    @Test func deleteTaskRefusesRunningAndReviewTasksAndNamesTheStatus() async throws {
+        try await withServer { server in
+            let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"活跃"}"#)
+            let runID = try field(created, "id", String.self)
+            _ = try await server.send("PUT", "/api/runs/\(runID)/tasks/T1", json: #"{"title":"跑","status":"running","write_scope":["a/"]}"#)
+            _ = try await server.send("PUT", "/api/runs/\(runID)/tasks/T2", json: #"{"title":"审","status":"review","write_scope":["b/"]}"#)
+            let before = try await server.snapshot(runID)
+
+            let (runningStatus, runningBody) = try await server.send("DELETE", "/api/runs/\(runID)/tasks/T1", contentType: nil)
+            #expect(runningStatus == 409)
+            #expect(try errorMessage(runningBody).contains("running"))
+
+            let (reviewStatus, reviewBody) = try await server.send("DELETE", "/api/runs/\(runID)/tasks/T2", contentType: nil)
+            #expect(reviewStatus == 409)
+            #expect(try errorMessage(reviewBody).contains("review"))
+
+            #expect(try await server.snapshot(runID) == before)
+        }
+    }
+
+    @Test func deleteTaskOfAnUnknownTaskOrRunIs404() async throws {
+        try await withServer { server in
+            let runID = try await seedChain(server)
+            // Name the task in the assertion: an unrouted request is also a 404, and a
+            // bare status check could not tell "the route says no such task" from "no route".
+            let (unknownTask, taskBody) = try await server.send("DELETE", "/api/runs/\(runID)/tasks/T404", contentType: nil)
+            #expect(unknownTask == 404)
+            #expect(try errorMessage(taskBody).contains("task T404 not found"))
+            let (unknownRun, runBody) = try await server.send("DELETE", "/api/runs/no-such-run/tasks/T1", contentType: nil)
+            #expect(unknownRun == 404)
+            #expect(try errorMessage(runBody).contains("run no-such-run not found"))
+        }
+    }
+
+    @Test func deleteTaskDecodesAPercentEncodedTaskID() async throws {
+        try await withServer { server in
+            let (_, created) = try await server.send("POST", "/api/runs", json: #"{"title":"斜杠"}"#)
+            let runID = try field(created, "id", String.self)
+            _ = try await server.send("PUT", "/api/runs/\(runID)/tasks/a%2Fb", json: #"{"title":"带斜杠","write_scope":["a/"]}"#)
+
+            let (status, body) = try await server.send("DELETE", "/api/runs/\(runID)/tasks/a%2Fb", contentType: nil)
+            #expect(status == 200)
+            #expect(try field(body, "deleted", String.self) == "a/b")
+            #expect(try field(body, "tasks", [[String: Any]].self).isEmpty)
+        }
+    }
 }

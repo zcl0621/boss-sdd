@@ -231,14 +231,82 @@ public final class Store: @unchecked Sendable {
         return result
     }
 
+    /// Removes a run; the schema's `ON DELETE CASCADE` takes its tasks, task lists and events
+    /// with it. A `running` run is refused rather than deleted: an agent is mid-way through
+    /// it, and, like the two task write guards, this one refuses instead of repairing. The
+    /// check sits here and not in the API layer so every caller gets it.
     public func deleteRun(_ id: String) throws {
         try queue.sync {
-            _ = try loadRun(id)
+            // The status read and the delete share one transaction (BEGIN IMMEDIATE), so a
+            // second process cannot flip the run to running between the check and the delete.
             try database.transaction {
+                let run = try loadRun(id)
+                guard run.status != .running else {
+                    throw BoardError.conflict(
+                        "cannot delete run \(id): its status is running, so an agent may still be working on it; "
+                            + "set the run to a status other than running, then call the delete again"
+                    )
+                }
                 try database.run("DELETE FROM runs WHERE id = ?", [.text(id)])
             }
         }
         notify()
+    }
+
+    /// Removes one task from a run and returns the run as it now stands. The schema's
+    /// `ON DELETE CASCADE` takes the task's `task_lists` rows with it. Three refusals, all
+    /// `.conflict`: a task another task still lists in `depends_on` (every such task is
+    /// named, so one retry is enough), a `running` task, and a `review` task. Like
+    /// `deleteRun`, these refuse rather than repair, and they live here so every caller
+    /// gets them.
+    public func deleteTask(runID: String, taskID: String) throws -> Run {
+        let result: Run = try queue.sync {
+            // Reading, checking and deleting share one transaction (BEGIN IMMEDIATE), so a
+            // second process cannot add a `depends_on` edge to this task, or move it to
+            // running or review, between the check and the delete.
+            try database.transaction {
+                let run = try loadRun(runID)
+                guard let task = run.task(taskID) else {
+                    throw BoardError.notFound("task \(taskID) not found in run \(runID)")
+                }
+                guard !task.status.isActive else {
+                    throw BoardError.conflict(
+                        "cannot delete task \(taskID): its status is \(task.status.rawValue), so it is still in "
+                            + "flight; set the task to a status other than \(task.status.rawValue), then try the delete again"
+                    )
+                }
+                let dependents = run.tasks.filter { $0.id != taskID && $0.dependsOn.contains(taskID) }
+                guard dependents.isEmpty else {
+                    let names = dependents.map(\.id).joined(separator: ", ")
+                    throw BoardError.conflict(
+                        "cannot delete task \(taskID): these tasks depend on it: \(names); "
+                            + "remove \(taskID) from their depends_on (or delete them first), then call the delete again"
+                    )
+                }
+                // `position` is written from a task's index in the loaded array, so it has to stay
+                // dense: close the gap this delete leaves, or the next appended task collides
+                // with (or sorts ahead of) an older one.
+                let deletedPosition = try database.query(
+                    "SELECT position FROM tasks WHERE run_id = ? AND id = ?", [.text(runID), .text(taskID)]
+                ).first?.int("position")
+                try database.run(
+                    "DELETE FROM tasks WHERE run_id = ? AND id = ?", [.text(runID), .text(taskID)]
+                )
+                if let deletedPosition {
+                    try database.run(
+                        "UPDATE tasks SET position = position - 1 WHERE run_id = ? AND position > ?",
+                        [.text(runID), .int(Int64(deletedPosition))]
+                    )
+                }
+                try database.run(
+                    "UPDATE runs SET updated_at = ? WHERE id = ?",
+                    [.double(Date().timeIntervalSince1970), .text(runID)]
+                )
+                return try loadRun(runID)
+            }
+        }
+        notify()
+        return result
     }
 
     public func upsertTask(runID: String, taskID: String, patch: TaskPatch) throws -> Run {
@@ -357,11 +425,12 @@ public final class Store: @unchecked Sendable {
     /// Project memory: facts about a project worth carrying between runs, keyed on
     /// `Run.project` so there is no second notion of project identity.
     ///
-    /// These writes deliberately do **not** call `notify()`. Observers exist to
-    /// re-read the board — the runs, their tasks and the derived DAG — and a memory
-    /// changes none of that. Waking every observer to reload a board that did not
-    /// move would be pure churn, and the SwiftUI board has nothing to redraw.
-    /// Only run/task writes are board state, so only they notify.
+    /// Writes here call `notify()` like every other write: the app's one update
+    /// model is store, notify, reload, and the window now shows a memory pane that
+    /// has to re-read when an agent writes over HTTP. `notify()` runs after
+    /// `queue.sync` returns, so a write that throws wakes nobody. A bulk prune of
+    /// N entries wakes observers N times; batching is the fallback if that is ever
+    /// seen to matter.
 
     public func memories(project: String, kind: MemoryKind? = nil) throws -> [Memory] {
         let project = try Self.normalizedProject(project)
@@ -408,7 +477,7 @@ public final class Store: @unchecked Sendable {
             throw BoardError.invalid("source must not be empty: name the file and line, or the command this was read from")
         }
         let now = Date()
-        return try queue.sync {
+        let result: Memory = try queue.sync {
             try database.transaction {
                 // The cap only refuses a write that would add a *new* key: an
                 // agent sitting at the limit must still be able to fix a stale
@@ -467,6 +536,8 @@ public final class Store: @unchecked Sendable {
                 return Self.decodeMemory(row)
             }
         }
+        notify()
+        return result
     }
 
     /// Returns the normalized `(project, key)` the delete actually ran against,
@@ -480,31 +551,110 @@ public final class Store: @unchecked Sendable {
     public func deleteMemory(project: String, key: String) throws -> (project: String, key: String) {
         let project = try Self.normalizedProject(project)
         let key = try Self.normalizedKey(key)
-        return try queue.sync {
-            let rows = try database.query(
-                #"SELECT 1 FROM memories WHERE project = ? AND "key" = ?"#,
-                [.text(project), .text(key)]
-            )
-            guard !rows.isEmpty else {
-                throw BoardError.notFound("memory \(key) not found for project \(project)")
-            }
+        try queue.sync {
+            // The existence check and the delete share one transaction (BEGIN IMMEDIATE),
+            // as in `deleteRun` and `deleteTask`, so a second process cannot remove the
+            // row between the check and the delete.
             try database.transaction {
+                let rows = try database.query(
+                    #"SELECT 1 FROM memories WHERE project = ? AND "key" = ?"#,
+                    [.text(project), .text(key)]
+                )
+                guard !rows.isEmpty else {
+                    throw BoardError.notFound("memory \(key) not found for project \(project)")
+                }
                 try database.run(
                     #"DELETE FROM memories WHERE project = ? AND "key" = ?"#,
                     [.text(project), .text(key)]
                 )
             }
-            return (project: project, key: key)
+        }
+        notify()
+        return (project: project, key: key)
+    }
+
+    /// The one spelling every project path is written, read and compared under:
+    /// trimmed, with trailing slashes dropped (a lone "/" stays). It reaches the
+    /// write path through `normalizedProject` and the pane's read path through
+    /// `repository(ofRunProject:)`, so `/x/repo/` and `/x/repo` are one bucket
+    /// however they arrive.
+    ///
+    /// A fixpoint by construction: a pass is trim-then-strip, and passes repeat
+    /// until one changes nothing, so applying the whole function to its own output
+    /// runs one pass that changes nothing. A single pass is not enough — stripping
+    /// a slash can expose whitespace (`"/x/repo /"` → `"/x/repo "`) that only the
+    /// next pass trims — and with the write path applying one pass and the read
+    /// path two, that was two buckets for one project. The loop is chosen over a
+    /// single pass stripping "whitespace or slash" from the end because that would
+    /// need `Character.isWhitespace` and `CharacterSet.whitespacesAndNewlines` to
+    /// agree on what whitespace is: a second rule inside the one rule. A pass that
+    /// changes the string shortens it, so the loop ends.
+    ///
+    /// Transcribed in `mcp/main.go` (`canonicalProject`): the MCP binary checks
+    /// every memory echo against its own copy of this rule, and the two copies are
+    /// held together by one table of vectors kept in `MemoryTests.swift` and
+    /// `mcp/tools_test.go` (`canonicalProjectVectors`). Change the rule, that
+    /// table and the Go copy together.
+    private static func canonicalPath(_ path: String) -> String {
+        var path = path
+        while true {
+            var next = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            while next.count > 1, next.hasSuffix("/") { next.removeLast() }
+            if next == path { return next }
+            path = next
         }
     }
 
+    /// The repository a run's `project` belongs to. Runs started inside a node's
+    /// worktree record `<repo>/.worktrees/<name>` as their project, but memories are
+    /// filed under the repository, so a trailing `/.worktrees/<name>` (one path
+    /// component) is stripped. Every return path, resolved or not, is canonicalised
+    /// the same way (trimmed, no trailing slash). A worktree segment with nothing
+    /// before it, or with more components after it, is not resolved.
+    public static func repository(ofRunProject runProject: String) -> String {
+        let path = canonicalPath(runProject)
+        guard let range = path.range(of: "/.worktrees/", options: .backwards) else { return path }
+        let name = path[range.upperBound...]
+        let repository = path[..<range.lowerBound]
+        guard !name.isEmpty, !name.contains("/"), !repository.isEmpty else { return path }
+        return String(repository)
+    }
+
+    /// The memories a run's pane shows: those of the repository its `project`
+    /// resolves to, plus the resolved path and whether resolution moved it, so a
+    /// view can say so.
+    public func projectMemories(forRunProject runProject: String) throws -> ProjectMemories {
+        let project = try Self.normalizedProject(runProject)
+        let repository = Self.repository(ofRunProject: project)
+        return ProjectMemories(
+            runProject: project, repository: repository,
+            // Compared against the canonical spelling, not the raw one, so a plain
+            // path that only has a trailing slash is not reported as resolved.
+            differed: repository != Self.canonicalPath(project),
+            memories: try memories(project: repository)
+        )
+    }
+
+    /// The single point where a project string becomes a bucket key. All four
+    /// memory operations — list, get, upsert, delete — pass through here, and
+    /// `projectMemories` resolves on top of it, so reading and writing cannot
+    /// disagree about which bucket `/x/repo/` is. Canonicalising only on the read
+    /// side is the bug this closes: a memory written as `/x/repo/` then sat in a
+    /// bucket the pane for that very run never looked in.
+    ///
+    /// Canonicalisation is whitespace and trailing slashes, nothing else. Projects
+    /// are deliberately **not** case-folded (`projectsAreNotCaseFolded`): unlike a
+    /// key, a project is a filesystem path, and on a case-sensitive filesystem
+    /// `/x/Repo` and `/x/repo` really are two repositories.
+    ///
     /// An empty project would be a bucket every project shares, which is the one
     /// thing the dimension exists to prevent. Refuse it rather than silently
-    /// making a global memory.
+    /// making a global memory. `canonicalPath` keeps a lone "/" intact, so it can
+    /// never turn a non-empty path into an empty one and move this guard.
     private static func normalizedProject(_ project: String) throws -> String {
-        let trimmed = project.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw BoardError.invalid("project must not be empty") }
-        return trimmed
+        let canonical = canonicalPath(project)
+        guard !canonical.isEmpty else { throw BoardError.invalid("project must not be empty") }
+        return canonical
     }
 
     /// Keys are trimmed **and** lower-cased before they ever reach SQL.
@@ -717,4 +867,15 @@ public final class Store: @unchecked Sendable {
             updatedAt: Date(timeIntervalSince1970: runRow.double("updated_at"))
         )
     }
+}
+
+/// What the memory pane shows for one run: the repository's memories, the repository
+/// path they were read under, and the project the run itself recorded.
+public struct ProjectMemories: Equatable, Sendable {
+    public let runProject: String
+    public let repository: String
+    /// True only when resolving the run's project (stripping a worktree segment)
+    /// changed it. A trailing slash alone does not count.
+    public let differed: Bool
+    public let memories: [Memory]
 }

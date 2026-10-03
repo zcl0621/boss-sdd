@@ -102,7 +102,7 @@ at more length.
 
 ## The MCP tools
 
-Eleven tools, registered in `mcp/main.go`. Arguments are structured JSON, so
+Thirteen tools, registered in `mcp/main.go`. Arguments are structured JSON, so
 quotes, `$` and newlines inside a title or a detail need no escaping.
 
 Board:
@@ -116,6 +116,8 @@ Board:
 | `plan_set_tasks` | Write several tasks at once, applied in one transaction: if any one is rejected, none of them lands |
 | `plan_graph` | Read-only graph projection |
 | `plan_get_run` | Every task plus the projection, and optionally the recent activity |
+| `plan_delete_run` | Delete one run with all of its tasks and events; refused while the run is `running` |
+| `plan_delete_task` | Delete one task from a run; refused while it is `running` or `review`, or while another task depends on it |
 
 Project memory:
 
@@ -126,9 +128,10 @@ Project memory:
 | `plan_memory_add` | Upsert on `(project, key)` |
 | `plan_memory_delete` | Remove one, by `project` and `key` |
 
-Every write returns the current graph projection alongside its result
-(`valid`, `ready_task_ids`, `active`, `blocked`), so there is no separate
-validation call to make afterwards.
+Every write to a run, other than deleting the run itself, returns the current
+graph projection alongside its result (`valid`, `ready_task_ids`, `active`,
+`blocked`), so there is no separate validation call to make afterwards.
+`plan_delete_run` returns only the id of the run it deleted.
 
 ## Project memory
 
@@ -157,9 +160,9 @@ keeps that listing readable.
 reference: how a run reads memory in phase 0, which kinds may be acted on before
 a recon lane confirms them, and how to turn the whole thing off.
 
-## The two write guards
+## The write guards
 
-The app refuses these two writes with an explicit error. The MCP layer does not
+The app refuses two task writes with an explicit error. The MCP layer does not
 reimplement them, and there is no way around them:
 
 1. Moving a task to `running` when its dependencies are not done.
@@ -168,6 +171,15 @@ reimplement them, and there is no way around them:
 
 Overlapping `write_scope` and project-level concurrency are not the app's
 business. The orchestrating agent still has to avoid those itself.
+
+Deleting has four refusals of its own, on the same terms: one on
+`plan_delete_run`, which refuses a run whose status is `running`, and three on
+`plan_delete_task`, which refuses a task whose status is `running`, a task whose
+status is `review`, and a task that another task lists in `depends_on`. They
+check the recorded status and, for a task, the recorded dependencies, nothing
+about the work itself. They cannot tell whether a status was set honestly, so
+when an agent may delete at all is a rule for the agent, in
+[`board.md`](skills/shared/references/board.md#deleting-a-run-or-a-task).
 
 ## Port and HTTP
 

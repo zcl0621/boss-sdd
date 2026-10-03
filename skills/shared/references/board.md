@@ -2,9 +2,10 @@
 
 The board is an observability layer over the run, not the scheduler. It mirrors
 the plan document's task DAG, derives the topology and the ready queue from the
-structured fields you send, and refuses two classes of unsafe write. It computes
-things you would otherwise compute yourself. It does not decide anything you
-could not decide without it.
+structured fields you send, and refuses unsafe writes: two kinds of task write,
+one delete on `plan_delete_run`, and three on `plan_delete_task`, which is four
+delete refusals across the two tools. It computes things you would otherwise
+compute yourself. It does not decide anything you could not decide without it.
 
 You write to it through the `plan-sdd` MCP tools. Nothing changes state from
 inside the board's own window. Subagents report back to you through whatever
@@ -75,6 +76,11 @@ nothing outside this machine can see.
 | `plan_set_task` | Create or update one task. |
 | `plan_graph` | Read-only graph projection. |
 | `plan_get_run` | Every task plus the projection, optionally with recent activity. |
+| `plan_delete_run` | Remove one run with its tasks and events. Takes `run`. Irreversible. |
+| `plan_delete_task` | Remove one task from a run. Takes `run` and `id`. Irreversible. |
+
+The two delete tools are not part of the ordinary sequence. See
+[Deleting a run or a task](#deleting-a-run-or-a-task) before calling either.
 
 Every argument is structured JSON and never passes through a shell, so quotes,
 `$`, and newlines inside a title or a `detail` go through exactly as written. Do
@@ -126,8 +132,9 @@ in the dispatch prompt.
 
 ## Validation and scheduling
 
-**Every write returns the latest graph projection along with it, so there is no
-need to validate separately afterwards.** Call `plan_graph` only when you have
+**Every write to a run, other than deleting the run itself, returns the latest
+graph projection along with it, so there is no need to validate separately
+afterwards.** Call `plan_graph` only when you have
 not just written and need to re-read the state.
 
 What the projection gives you for scheduling:
@@ -145,8 +152,9 @@ What the projection gives you for scheduling:
   same name.** It names, for every unfinished node, which upstream task or which
   resource holder it is waiting on, including nodes that are merely `pending`
   behind a dependency and are perfectly healthy. The `blocked` *status* is
-  something you write, and it means this node has stopped: three failed rounds,
-  or a real external blocker, or an upstream that stopped. Throughout this skill,
+  something you write, and it means this node has stopped: a problem that
+  survived two rounds on the top rung, or the ceiling of 6 rework rounds, or a
+  real external blocker, or an upstream that stopped. Throughout this skill,
   "the `blocked` status" is the one you set and "the projection's `blocked`
   group" is the one the board derives. Never read the second as the first.
 
@@ -154,8 +162,8 @@ After a `plan_set_tasks` call, read the result before moving on: confirm each id
 you sent came back written, and confirm `valid` in the returned projection. Fix
 and rewrite anything that was rejected.
 
-The board **rejects** two kinds of write and returns an error explaining why:
-moving a task to `running` while a dependency is unfinished, and taking an
+The board **rejects** two kinds of task write and returns an error explaining
+why: moving a task to `running` while a dependency is unfinished, and taking an
 `exclusive_resource` that an active task already holds. The board does not police
 `write_scope` overlap or the project's own concurrency limits. Those stay your
 job when you choose a batch.
@@ -188,3 +196,67 @@ job when you choose a batch.
 - Never write credentials, private reasoning, or unrelated logs to the board.
   Summaries hold checkable conclusions and paths to evidence. The board has no
   authority to execute, confirm, commit, or deploy anything.
+
+## Deleting a run or a task
+
+`plan_delete_run` removes a run from the board together with its tasks and its
+events. `plan_delete_task` removes one task from a run and returns the graph
+projection as it stands afterwards. Neither can be undone, and neither leaves a
+record that it happened. Every other write to a run can be corrected by the next
+write, and a delete is the one that cannot. A task carrying the wrong status
+is fixed with `plan_set_task`. A task that no longer belongs in the plan is the
+only thing a delete is for.
+
+In confirm mode a delete is a stop-and-ask, never something you do on your own
+judgement. Name the run or the task, say what goes with it (a run takes every
+task and event it holds), and wait for a clear yes. None of these is that yes: a
+run that looks abandoned, a title that resembles the one you are working on, a
+`done` or `blocked` task that is in the way of a tidy graph, a task that is only
+in the way of another delete, or a stale record left by a crashed session. The
+last one is corrected by writing the true status, as the status discipline above
+says, and not by deleting what the status was wrong about. Clearing dependents is
+not a smaller act than the delete it unblocks; each one needs its own yes. Goal
+mode removes the waiting and not the question: park the delete as an open
+question for the user, as [memory.md](memory.md) does for a deletion that is the
+user's to decide, and carry on with what does not depend on it.
+[PLAYBOOK.md](../PLAYBOOK.md) stops a goal-mode run for an irreversible
+*external* action. A board delete is irreversible but local to the board, so it
+is parked rather than stopping the run, and it is still never done unasked.
+
+The delete tools have refusals of their own, separate from the two the board
+applies to task writes. They refuse rather than repair: the run or the task stays
+exactly where it was, and the error says what to change.
+
+- **`plan_delete_run` on a run whose status is `running`.** An agent may still be
+  working in it. The status check and the delete happen in one transaction, so a
+  second process cannot move the run to `running` between them. Set the run to a
+  status other than `running`, then call again. Do that only once you have looked
+  at the tree and know nothing is still working in it. A status you changed just
+  to get the delete through is the thing this refusal cannot catch, which is why
+  the rule is here.
+- **`plan_delete_task` on a task still in flight, or one that others depend on.**
+  A task whose status is `running` or `review` is refused, and the error names the
+  status. It holds its write scope and exclusive resources until it stops, so
+  move it out of those two statuses first. A task that other tasks list in
+  `depends_on` is refused too, and the error names every dependent by id. Send
+  each of them a `depends_on` array without this task in it, since an array
+  replaces the stored one, or delete them first (each of those is a stop-and-ask
+  of its own), then call again. If a task is both in flight and depended on, only
+  the first refusal comes back, because the status is checked before the
+  dependents are. Expect the second after you have cleared the first, rather than
+  reading it as the delete failing a second way.
+
+An id that does not exist is an error too. A call that returned an error deleted
+nothing.
+
+Both deletes cascade to what hangs off the thing deleted. A run takes its tasks
+and its events. A task takes its own `depends_on`, `write_scope` and
+`exclusive_resource` lists. A task delete does not take the run's events, and does
+not add one of its own. Rows already written about a deleted task keep their task
+id, because events belong to a run and not to a task. So `plan_get_run` with
+`include_events` can return rows whose `task` field names nothing on the board.
+That is deliberate. The event log is history, not state: deleting a task does not
+unmake the fact that it ran, and a delete that quietly rewrote a run's history
+would surprise a reader more than an id that points at nothing. For what exists
+now, trust the task list and the graph, and never infer that a task exists from an
+event that names it.

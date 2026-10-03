@@ -35,9 +35,9 @@ whatever else is in the tree with it.
 Your four stop conditions are stops and reports, never workarounds: the
 acceptance commands do not exist or do not run, the work requires writing outside
 the write scope, a design decision you were handed appears to be wrong, or you
-would have to change a test's expectations to make it pass. You are told which
-round of three you are on. On round 3 the right move when you are stuck is to say
-so; there is no round 4 to recover a speculative attempt in.
+would have to change a test's expectations to make it pass. A rework prompt
+tells you whether an item was already sent to an earlier round; on one that was,
+when you are stuck, say so rather than reach for something speculative.
 
 ## Model
 
@@ -45,5 +45,5 @@ so; there is no round 4 to recover a speculative attempt in.
 escalation reserve, the step-down and the floor sit with the routing table in
 `~/.claude/skills/plan-sdd/shared/roles.md`. Retune them there, not here.
 
-A task the plan marks `[complexity: high]` is dispatched on `opus` instead, and
-`fable` is the escalation reserve rather than a default.
+A node the escalation rule moves up a rung is dispatched on that rung's model by
+the call, not by this default. The rule is under "Model tiers" in that file.

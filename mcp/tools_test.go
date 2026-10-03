@@ -530,11 +530,17 @@ func TestVerifyMemoryDeletedRejectsAPaddedKeyEcho(t *testing.T) {
 // 200 (not 201), {"error":{"code","message"}} on failure, and the two
 // distinct 400s for an absent vs. empty `project`. This is a double's output,
 // not the real app's.
-// Mirrors Sources/BoardKit/Store.swift's normalizedProject/normalizedKey:
-// project is trimmed only, key is trimmed and lower-cased. Reproduced here
-// (rather than just lower-casing the key like round 1 did) because that
-// asymmetry is exactly what round 2 of this task found the verifiers missing.
-func doubleNormalizedProject(project string) string { return strings.TrimSpace(project) }
+// Mirrors Sources/BoardKit/Store.swift's normalizedProject/normalizedKey.
+// project goes through canonicalProject — the same function the verifiers
+// use, not a second copy of the rule. A second copy here mirrored the stale
+// trim-only rule on both sides of every assertion, so the suite stayed green
+// while the real board had moved on. The double cannot disagree with the
+// verifier by construction; what pins both to the board is
+// canonicalProjectVectors, the table the Swift suite runs against the real
+// Store. key is trimmed and lower-cased. Reproduced here (rather than just
+// lower-casing the key like round 1 did) because that asymmetry is exactly
+// what round 2 of this task found the verifiers missing.
+func doubleNormalizedProject(project string) string { return canonicalProject(project) }
 func doubleNormalizedKey(key string) string         { return strings.ToLower(strings.TrimSpace(key)) }
 
 // doubleQueryValue reads one query parameter the way the board's own parser
@@ -1228,6 +1234,136 @@ func TestMemoryToolsEndToEndToleratesWhitespacePaddedProject(t *testing.T) {
 	}
 }
 
+// ---- the one rule, pinned to the board ----
+//
+// canonicalProjectVectors is transcribed, entry for entry, from
+// Tests/BoardKitTests/MemoryTests.swift (canonicalProjectVectors), where the
+// same table runs against the real Store on every memory path. It is the only
+// thing holding this binary's canonicalProject to the board's canonicalPath:
+// a drift in either copy fails that copy's own suite. What it cannot catch is
+// the rule and the table both being changed on one side only — the two tables
+// are not read from one file (that would be sharing the rule, not
+// transcribing it, and is a design decision not taken here).
+//
+// An empty canonical means the board refuses the project; canonicalProject
+// returns "" there and leaves the refusal to the board.
+var canonicalProjectVectors = []struct{ input, canonical string }{
+	// Nothing but whitespace: refused.
+	{"", ""},
+	{"  ", ""},
+	{"\t\n", ""},
+	// A lone slash is a path; more slashes collapse onto it.
+	{"/", "/"},
+	{"//", "/"},
+	{"///", "/"},
+	// Whitespace behind a trailing slash: one trim-then-strip pass leaves it exposed.
+	{"/ /", "/"},
+	{"/a/ /", "/a"},
+	{"/x/repo /", "/x/repo"},
+	{"/x/repo/ \n/ ", "/x/repo"},
+	// Trailing slashes and outer whitespace, including a non-breaking space.
+	{"/x/repo/", "/x/repo"},
+	{"  /x/repo/ ", "/x/repo"},
+	{"\u00A0/x/repo/\u00A0", "/x/repo"},
+	// Leading slashes, case and inner whitespace are all kept.
+	{"//a//", "//a"},
+	{"/x/Repo", "/x/Repo"},
+	{"/x/my repo", "/x/my repo"},
+	{"boss-sdd", "boss-sdd"},
+}
+
+func TestCanonicalProjectAgreesWithTheBoardOnEveryVector(t *testing.T) {
+	for _, v := range canonicalProjectVectors {
+		if got := canonicalProject(v.input); got != v.canonical {
+			t.Errorf("canonicalProject(%q) = %q, want %q (the board's spelling)", v.input, got, v.canonical)
+		}
+		if again := canonicalProject(v.canonical); again != v.canonical {
+			t.Errorf("canonicalProject is not a fixpoint: applied to its own output %q it gives %q", v.canonical, again)
+		}
+	}
+}
+
+// The verifiers must reach the rule, not just the rule exist: for every
+// vector the board would store, the board's canonical echo verifies clean
+// through all three, however the caller spelled the project.
+func TestVerifiersAcceptTheBoardsCanonicalEchoOnEveryVector(t *testing.T) {
+	for _, v := range canonicalProjectVectors {
+		if v.canonical == "" {
+			continue
+		}
+		if err := verifyMemoryEcho(v.input, "gate", wireMemory{Project: v.canonical, Key: "gate", Source: "src"}); err != nil {
+			t.Errorf("verifyMemoryEcho(%q): %v", v.input, err)
+		}
+		if err := verifyMemoryDeleted(v.input, "gate", wireMemoryDeleted{Deleted: "gate", Project: v.canonical}); err != nil {
+			t.Errorf("verifyMemoryDeleted(%q): %v", v.input, err)
+		}
+		if err := verifyMemoryList(v.input, "", []wireMemory{{Project: v.canonical, Key: "gate", Source: "src"}}); err != nil {
+			t.Errorf("verifyMemoryList(%q): %v", v.input, err)
+		}
+	}
+}
+
+// Round 3 regression, through the registered handlers: the board now strips
+// trailing slashes from a project before it stores it (Store.canonicalPath,
+// reached through normalizedProject on every memory route), and echoes that
+// stored spelling on every response. A caller passing "/x/repo/" gets
+// "/x/repo" back from a write that genuinely happened; the tool must accept
+// that echo, not hand the agent "the board returned a memory from a
+// different project" for a successful operation.
+func TestToolMemoryToolsAcceptTheBoardsSlashStrippedEcho(t *testing.T) {
+	b := newMemoryContractDouble(t)
+	session := newToolSession(t, b)
+	ctx := context.Background()
+	const slashed = "/x/repo/"
+	const stored = "/x/repo"
+
+	addResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "plan_memory_add",
+		Arguments: map[string]any{
+			"project": slashed, "key": "gate", "value": "v", "kind": "gate", "source": "mcp/tools_test.go:3",
+		},
+	})
+	if err != nil || addResult.IsError {
+		t.Fatalf("add with a slash-suffixed project must succeed: err=%v result=%s", err, resultErrorText(addResult))
+	}
+	if added := decodeStructured[memoryView](t, addResult); added.Project != stored {
+		t.Fatalf("expected the board's stored spelling %q back, got %q", stored, added.Project)
+	}
+
+	getResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "plan_memory_get",
+		Arguments: map[string]any{"project": slashed, "key": "gate"},
+	})
+	if err != nil || getResult.IsError {
+		t.Fatalf("get with a slash-suffixed project must succeed: err=%v result=%s", err, resultErrorText(getResult))
+	}
+	if got := decodeStructured[memoryView](t, getResult); got.Project != stored {
+		t.Fatalf("expected the board's stored spelling %q back, got %q", stored, got.Project)
+	}
+
+	listResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "plan_memory_list",
+		Arguments: map[string]any{"project": slashed},
+	})
+	if err != nil || listResult.IsError {
+		t.Fatalf("list with a slash-suffixed project must succeed: err=%v result=%s", err, resultErrorText(listResult))
+	}
+	if list := decodeStructured[memoryListOutput](t, listResult); len(list.Memories) != 1 || list.Memories[0].Project != stored {
+		t.Fatalf("expected the one record under %q, got %#v", stored, list.Memories)
+	}
+
+	deleteResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "plan_memory_delete",
+		Arguments: map[string]any{"project": slashed, "key": "gate"},
+	})
+	if err != nil || deleteResult.IsError {
+		t.Fatalf("delete with a slash-suffixed project must succeed: err=%v result=%s", err, resultErrorText(deleteResult))
+	}
+	if deleted := decodeStructured[memoryDeleteOutput](t, deleteResult); deleted.Project != stored {
+		t.Fatalf("expected the board's stored spelling %q back, got %q", stored, deleted.Project)
+	}
+}
+
 func TestSummarizeCountsProgress(t *testing.T) {
 	run := &wireRun{
 		ID: "abc", Title: "示例", Status: "running",
@@ -1237,5 +1373,318 @@ func TestSummarizeCountsProgress(t *testing.T) {
 	got := summarize(run)
 	if got.DoneCount != 2 || got.TaskCount != 3 || got.ReadyCount != 1 {
 		t.Fatalf("unexpected counts: %#v", got)
+	}
+}
+
+// ---- plan_delete_run ----
+
+// plan_delete_run must be registered, and must reach the board as exactly one
+// DELETE /api/runs/<id> with the id escaped for a path segment. The id here is
+// deliberately not a legal run id: the board would refuse it, but this test is
+// about what the tool puts on the wire, and a raw "/" or " " would change the
+// route's shape (an extra segment) rather than be carried inside the id.
+func TestToolPlanDeleteRunIssuesDeleteWithEscapedRunID(t *testing.T) {
+	var gotMethod, gotEscapedPath string
+	calls := 0
+	b := newMaliciousBoard(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		gotMethod, gotEscapedPath = r.Method, r.URL.EscapedPath()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		json.NewEncoder(w).Encode(map[string]string{"deleted": "a b/c"})
+	})
+	session := newToolSession(t, b)
+
+	tools, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	registered := false
+	for _, tool := range tools.Tools {
+		if tool.Name == "plan_delete_run" {
+			registered = true
+		}
+	}
+	if !registered {
+		t.Fatalf("plan_delete_run is not among the registered tools")
+	}
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "plan_delete_run",
+		Arguments: map[string]any{"run": "a b/c"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool transport error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error result: %s", resultErrorText(result))
+	}
+	if calls != 1 {
+		t.Fatalf("expected exactly one request to the board, got %d", calls)
+	}
+	if gotMethod != "DELETE" {
+		t.Fatalf("method = %q, want DELETE", gotMethod)
+	}
+	if want := "/api/runs/a%20b%2Fc"; gotEscapedPath != want {
+		t.Fatalf("path = %q, want %q", gotEscapedPath, want)
+	}
+	out := decodeStructured[struct {
+		Deleted string `json:"deleted"`
+	}](t, result)
+	if out.Deleted != "a b/c" {
+		t.Fatalf("deleted = %q, want %q", out.Deleted, "a b/c")
+	}
+}
+
+// A refusal from the board (a running run answers 409) must reach the agent as
+// an error result carrying the board's own message, never as a success.
+func TestToolPlanDeleteRunSurfacesTheBoardsRefusal(t *testing.T) {
+	b := newMaliciousBoard(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(409)
+		json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{
+			"code": "conflict", "message": "cannot delete run r1: it is running",
+		}})
+	})
+	session := newToolSession(t, b)
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "plan_delete_run",
+		Arguments: map[string]any{"run": "r1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool transport error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected an error result for a refused delete, got success: %#v", result.StructuredContent)
+	}
+	if text := resultErrorText(result); !strings.Contains(text, "it is running") {
+		t.Fatalf("expected the board's refusal text to reach the agent, got %q", text)
+	}
+}
+
+// A board that answers 200 but names a different run than the one asked for
+// has not deleted what the agent asked it to; the tool must not report success.
+func TestToolPlanDeleteRunDetectsWrongRunEcho(t *testing.T) {
+	b := newMaliciousBoard(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		json.NewEncoder(w).Encode(map[string]string{"deleted": "other-run"})
+	})
+	session := newToolSession(t, b)
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "plan_delete_run",
+		Arguments: map[string]any{"run": "r1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool transport error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected an error result for a mismatched echo, got success: %#v", result.StructuredContent)
+	}
+}
+
+// ---- plan_delete_task ----
+
+// deletedTaskBody is a wire run with a valid, task-free graph: what the board answers
+// after the last task of a run has been deleted.
+func deletedTaskBody(deleted string) map[string]any {
+	return map[string]any{
+		"id": "r1", "title": "t", "project": "", "status": "running", "summary": "",
+		"tasks": []any{}, "events": []any{},
+		"deleted": deleted,
+		"graph": map[string]any{
+			"valid": true, "errors": []any{}, "ready_task_ids": []any{},
+		},
+	}
+}
+
+// plan_delete_task must be registered, and must reach the board as exactly one
+// DELETE /api/runs/<run>/tasks/<task> with BOTH ids escaped for a path segment.
+// The ids are deliberately not legal run ids: the board would refuse the run id,
+// but this test is about what the tool puts on the wire, and a raw "/" or " "
+// would change the route's shape rather than be carried inside the id.
+func TestToolPlanDeleteTaskIssuesDeleteWithBothIDsEscaped(t *testing.T) {
+	var gotMethod, gotEscapedPath string
+	calls := 0
+	b := newMaliciousBoard(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		gotMethod, gotEscapedPath = r.Method, r.URL.EscapedPath()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		json.NewEncoder(w).Encode(deletedTaskBody("T 1/x"))
+	})
+	session := newToolSession(t, b)
+
+	tools, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	registered := false
+	for _, tool := range tools.Tools {
+		if tool.Name == "plan_delete_task" {
+			registered = true
+		}
+	}
+	if !registered {
+		t.Fatalf("plan_delete_task is not among the registered tools")
+	}
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "plan_delete_task",
+		Arguments: map[string]any{"run": "a b/c", "id": "T 1/x"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool transport error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error result: %s", resultErrorText(result))
+	}
+	if calls != 1 {
+		t.Fatalf("expected exactly one request to the board, got %d", calls)
+	}
+	if gotMethod != "DELETE" {
+		t.Fatalf("method = %q, want DELETE", gotMethod)
+	}
+	if want := "/api/runs/a%20b%2Fc/tasks/T%201%2Fx"; gotEscapedPath != want {
+		t.Fatalf("path = %q, want %q", gotEscapedPath, want)
+	}
+	out := decodeStructured[struct {
+		Deleted string `json:"deleted"`
+		Graph   struct {
+			Valid bool `json:"valid"`
+		} `json:"graph"`
+	}](t, result)
+	if out.Deleted != "T 1/x" {
+		t.Fatalf("deleted = %q, want %q", out.Deleted, "T 1/x")
+	}
+	if !out.Graph.Valid {
+		t.Fatalf("the graph projection from the board must reach the agent, got %s", mustJSON(t, result.StructuredContent))
+	}
+}
+
+// A refusal from the board (a task with dependents answers 409 and names them)
+// must reach the agent as an error result carrying the board's own message.
+func TestToolPlanDeleteTaskSurfacesTheBoardsRefusal(t *testing.T) {
+	b := newMaliciousBoard(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(409)
+		json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{
+			"code": "conflict", "message": "cannot delete task T1: these tasks depend on it: T5, T9",
+		}})
+	})
+	session := newToolSession(t, b)
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "plan_delete_task",
+		Arguments: map[string]any{"run": "r1", "id": "T1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool transport error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected an error result for a refused delete, got success: %#v", result.StructuredContent)
+	}
+	if text := resultErrorText(result); !strings.Contains(text, "T5, T9") {
+		t.Fatalf("expected the board's refusal text to reach the agent, got %q", text)
+	}
+}
+
+// A board that answers 200 but names a different task than the one asked for
+// has not deleted what the agent asked it to; the tool must not report success.
+func TestToolPlanDeleteTaskDetectsWrongTaskEcho(t *testing.T) {
+	b := newMaliciousBoard(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		json.NewEncoder(w).Encode(deletedTaskBody("T2"))
+	})
+	session := newToolSession(t, b)
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "plan_delete_task",
+		Arguments: map[string]any{"run": "r1", "id": "T1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool transport error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected an error result for a mismatched echo, got success: %#v", result.StructuredContent)
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return string(raw)
+}
+
+// ---- every run-scoped tool escapes the run id ----
+
+// An id containing "/" changes the route's shape before the board's own id
+// validation ever runs, so every tool that puts a caller-supplied run id into a
+// path has to escape it. Each tool is driven by name; the double records the
+// escaped path of every request after the identity probe and answers with a run
+// body, except that PUT answers 409 when `failPut` is set so plan_set_tasks
+// takes its follow-up GET path as well.
+func TestEveryRunScopedToolEscapesTheRunID(t *testing.T) {
+	const rawRun = "a b/c"
+	const escapedRun = "/api/runs/a%20b%2Fc"
+	cases := []struct {
+		tool    string
+		args    map[string]any
+		failPut bool
+	}{
+		{"plan_update_run", map[string]any{"run": rawRun, "status": "running"}, false},
+		{"plan_set_task", map[string]any{"run": rawRun, "id": "T1", "title": "t"}, false},
+		{"plan_set_tasks", map[string]any{"run": rawRun, "tasks": []any{map[string]any{"id": "T1", "title": "t"}}}, false},
+		{"plan_set_tasks", map[string]any{"run": rawRun, "tasks": []any{map[string]any{"id": "T1", "title": "t"}}}, true},
+		{"plan_graph", map[string]any{"run": rawRun}, false},
+		{"plan_get_run", map[string]any{"run": rawRun}, false},
+		{"plan_delete_run", map[string]any{"run": rawRun}, false},
+		{"plan_delete_task", map[string]any{"run": rawRun, "id": "T1"}, false},
+	}
+	for _, tc := range cases {
+		name := tc.tool
+		if tc.failPut {
+			name += "/follow-up-get"
+		}
+		t.Run(name, func(t *testing.T) {
+			var paths []string
+			b := newMaliciousBoard(t, func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.Method+" "+r.URL.EscapedPath())
+				w.Header().Set("Content-Type", "application/json")
+				if tc.failPut && r.Method == "PUT" {
+					w.WriteHeader(409)
+					json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "conflict", "message": "no"}})
+					return
+				}
+				w.WriteHeader(200)
+				body := deletedTaskBody("T1")
+				body["deleted"] = rawRun // satisfies plan_delete_run's echo check; harmless elsewhere
+				if tc.tool == "plan_delete_task" {
+					body["deleted"] = "T1"
+				}
+				json.NewEncoder(w).Encode(body)
+			})
+			session := newToolSession(t, b)
+			if _, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: tc.tool, Arguments: tc.args}); err != nil {
+				t.Fatalf("CallTool transport error: %v", err)
+			}
+			if len(paths) == 0 {
+				t.Fatalf("%s never reached the board", tc.tool)
+			}
+			wantRequests := 1
+			if tc.failPut {
+				wantRequests = 2
+			}
+			if len(paths) != wantRequests {
+				t.Fatalf("%s made %d requests %v, want %d", tc.tool, len(paths), paths, wantRequests)
+			}
+			for _, p := range paths {
+				if !strings.Contains(p, " "+escapedRun) {
+					t.Errorf("%s sent %q; the run id must appear as %q", tc.tool, p, escapedRun)
+				}
+			}
+		})
 	}
 }

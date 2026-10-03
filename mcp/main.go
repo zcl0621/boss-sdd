@@ -157,6 +157,32 @@ type wireMemoryDeleted struct {
 	Project string `json:"project"`
 }
 
+// wireRunDeleted mirrors DELETE /api/runs/<id>'s body: just the id that went.
+type wireRunDeleted struct {
+	Deleted string `json:"deleted"`
+}
+
+type runDeleteOutput struct {
+	Deleted string `json:"deleted"`
+}
+
+type deleteTaskInput struct {
+	Run string `json:"run" jsonschema:"Run ID"`
+	ID  string `json:"id" jsonschema:"ID of the task to delete"`
+}
+
+// wireTaskDeleted mirrors DELETE /api/runs/<run>/tasks/<id>'s body: the run as it
+// stands after the delete, graph included, plus the id of the task that went.
+type wireTaskDeleted struct {
+	wireRun
+	Deleted string `json:"deleted"`
+}
+
+type taskDeleteOutput struct {
+	Deleted string    `json:"deleted"`
+	Graph   graphView `json:"graph"`
+}
+
 // memoryView is what a tool call actually hands the agent. source rides along
 // on every read path on purpose: a memory whose provenance the agent cannot
 // see is the exact failure project memory exists to prevent.
@@ -236,7 +262,7 @@ func registerTools(server *mcp.Server, api *board) {
 			body["summary"] = *in.Summary
 		}
 		var run wireRun
-		if err := api.call(ctx, "PATCH", "/api/runs/"+in.Run, body, &run); err != nil {
+		if err := api.call(ctx, "PATCH", "/api/runs/"+url.PathEscape(in.Run), body, &run); err != nil {
 			return nil, runOutput{}, err
 		}
 		return nil, runOutput{Run: summarize(&run), Graph: viewGraph(&run)}, nil
@@ -250,7 +276,7 @@ func registerTools(server *mcp.Server, api *board) {
 			"The board refuses two illegal writes: moving to running while a dependency is unfinished, and taking an exclusive resource an active task already holds.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in setTaskInput) (*mcp.CallToolResult, taskOutput, error) {
 		var run wireRun
-		path := "/api/runs/" + in.Run + "/tasks/" + in.ID
+		path := "/api/runs/" + url.PathEscape(in.Run) + "/tasks/" + url.PathEscape(in.ID)
 		if err := api.call(ctx, "PUT", path, taskBody(in.taskInput), &run); err != nil {
 			return nil, taskOutput{}, err
 		}
@@ -269,7 +295,7 @@ func registerTools(server *mcp.Server, api *board) {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in setTasksInput) (*mcp.CallToolResult, batchOutput, error) {
 		out := batchOutput{Written: []string{}}
 		var run wireRun
-		if err := api.call(ctx, "PUT", "/api/runs/"+in.Run+"/tasks", batchBody(in.Tasks), &run); err != nil {
+		if err := api.call(ctx, "PUT", "/api/runs/"+url.PathEscape(in.Run)+"/tasks", batchBody(in.Tasks), &run); err != nil {
 			// The board applies the batch atomically, so a rejection means nothing
 			// landed: every task in the batch failed, all for the same reason.
 			if len(in.Tasks) == 0 {
@@ -280,7 +306,7 @@ func registerTools(server *mcp.Server, api *board) {
 				out.Failed[task.ID] = err.Error()
 			}
 			// Report the board as it actually stands now — unchanged by this call.
-			if graphErr := api.call(ctx, "GET", "/api/runs/"+in.Run, nil, &run); graphErr != nil {
+			if graphErr := api.call(ctx, "GET", "/api/runs/"+url.PathEscape(in.Run), nil, &run); graphErr != nil {
 				return nil, out, err
 			}
 			out.Graph = viewGraph(&run)
@@ -302,7 +328,7 @@ func registerTools(server *mcp.Server, api *board) {
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runInput) (*mcp.CallToolResult, graphView, error) {
 		var run wireRun
-		if err := api.call(ctx, "GET", "/api/runs/"+in.Run, nil, &run); err != nil {
+		if err := api.call(ctx, "GET", "/api/runs/"+url.PathEscape(in.Run), nil, &run); err != nil {
 			return nil, graphView{}, err
 		}
 		return nil, viewGraph(&run), nil
@@ -315,7 +341,7 @@ func registerTools(server *mcp.Server, api *board) {
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getRunInput) (*mcp.CallToolResult, fullRunOutput, error) {
 		var run wireRun
-		if err := api.call(ctx, "GET", "/api/runs/"+in.Run, nil, &run); err != nil {
+		if err := api.call(ctx, "GET", "/api/runs/"+url.PathEscape(in.Run), nil, &run); err != nil {
 			return nil, fullRunOutput{}, err
 		}
 		out := fullRunOutput{Run: summarize(&run), Tasks: viewTasks(&run), Graph: viewGraph(&run)}
@@ -416,6 +442,43 @@ func registerTools(server *mcp.Server, api *board) {
 			return nil, memoryDeleteOutput{}, err
 		}
 		return nil, memoryDeleteOutput{Deleted: wire.Deleted, Project: wire.Project}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:  "plan_delete_run",
+		Title: "Delete one run",
+		Description: "Deletes one run by ID together with all of its tasks and events; this cannot be undone. " +
+			"A run whose status is running is refused with an error and stays on the board; every other status can be deleted. " +
+			"An ID that does not exist is an error, never silently treated as a success.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runInput) (*mcp.CallToolResult, runDeleteOutput, error) {
+		var wire wireRunDeleted
+		if err := api.call(ctx, "DELETE", "/api/runs/"+url.PathEscape(in.Run), nil, &wire); err != nil {
+			return nil, runDeleteOutput{}, err
+		}
+		if wire.Deleted != in.Run {
+			return nil, runDeleteOutput{}, fmt.Errorf("asked the board to delete run %q but it reported deleting %q", in.Run, wire.Deleted)
+		}
+		return nil, runDeleteOutput{Deleted: wire.Deleted}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:  "plan_delete_task",
+		Title: "Delete one task",
+		Description: "Deletes one task from a run by run ID and task ID, and returns the graph projection as it stands afterwards; this cannot be undone. " +
+			"The board refuses three deletions with an error and leaves the task where it is: a task another task still lists in depends_on " +
+			"(the error names every such task, so remove the task from each one's depends_on, or delete them first, and call again), " +
+			"a task whose status is running, and a task whose status is review. Every other status can be deleted. " +
+			"A task ID that does not exist is an error, never silently treated as a success.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteTaskInput) (*mcp.CallToolResult, taskDeleteOutput, error) {
+		var wire wireTaskDeleted
+		path := "/api/runs/" + url.PathEscape(in.Run) + "/tasks/" + url.PathEscape(in.ID)
+		if err := api.call(ctx, "DELETE", path, nil, &wire); err != nil {
+			return nil, taskDeleteOutput{}, err
+		}
+		if wire.Deleted != in.ID {
+			return nil, taskDeleteOutput{}, fmt.Errorf("asked the board to delete task %q but it reported deleting %q", in.ID, wire.Deleted)
+		}
+		return nil, taskDeleteOutput{Deleted: wire.Deleted, Graph: viewGraph(&wire.wireRun)}, nil
 	})
 }
 
@@ -548,6 +611,40 @@ func toMemoryView(m wireMemory) memoryView {
 	}
 }
 
+// canonicalProject is this binary's transcription of the one rule the board
+// uses to turn a project string into a storage key —
+// Sources/BoardKit/Store.swift's canonicalPath, reached through
+// normalizedProject on every memory route: trim whitespace, drop trailing
+// slashes (a lone "/" stays), and repeat until a pass changes nothing. Every
+// memory response echoes the board's stored spelling, so the three verifiers
+// pass the caller's input through this before comparing; a copy that lags the
+// board turns every slash-suffixed project into a false "different project"
+// report for an operation that succeeded, which is what round 2 left behind.
+//
+// The two copies are held together by one table of vectors, kept entry for
+// entry in Tests/BoardKitTests/MemoryTests.swift and in tools_test.go
+// (canonicalProjectVectors). Change the rule, that table and this function
+// together. The board stays the authority: the raw project goes out on the
+// wire untouched (memoryProjectQuery), and this decides only whether the echo
+// is the one the board would give. The board refuses a project that
+// canonicalises to ""; this returns "" and leaves the refusal to the board.
+//
+// len(next) > 1 counts bytes where the Swift copy counts characters. The
+// guard only decides whether a string ending in "/" is exactly "/", and both
+// answer that the same way.
+func canonicalProject(project string) string {
+	for {
+		next := strings.TrimSpace(project)
+		for len(next) > 1 && strings.HasSuffix(next, "/") {
+			next = next[:len(next)-1]
+		}
+		if next == project {
+			return next
+		}
+		project = next
+	}
+}
+
 // verifyMemoryEcho guards against trusting a successful json.Decode by
 // itself: a wrong-but-well-formed response decodes cleanly into wireMemory
 // with every field zeroed, and would otherwise be reported to the agent as a
@@ -557,15 +654,16 @@ func toMemoryView(m wireMemory) memoryView {
 //
 // GET and POST both echo back the *stored* record, which the board already
 // normalized before it ever reached SQL — mirroring
-// Sources/BoardKit/Store.swift's normalizedProject (trims whitespace) and
-// normalizedKey (trims, then lower-cases). So the comparison here applies the
-// same normalization to the caller's input rather than comparing raw: a
-// project with incidental leading/trailing whitespace round-trips to the same
-// (trimmed) project, and a key differing only in case or whitespace
-// round-trips to the same (trimmed, lower-cased) key. Comparing raw would
-// misreport a whitespace-padded project as "a different project" when nothing
-// happened but a trim — a false accusation that points at the board instead
-// of at the caller's own input.
+// Sources/BoardKit/Store.swift's normalizedProject (canonicalProject here:
+// trims, strips trailing slashes, repeats until stable) and normalizedKey
+// (trims, then lower-cases). So the comparison here applies the same
+// normalization to the caller's input rather than comparing raw: a project
+// with incidental whitespace or a trailing slash round-trips to the same
+// canonical project, and a key differing only in case or whitespace
+// round-trips to the same (trimmed, lower-cased) key. Comparing raw, or
+// merely trimmed, would misreport "/x/repo/" as "a different project" when
+// nothing happened but the board's own canonicalisation — a false accusation
+// that points at the board instead of at the caller's own input.
 //
 // The normalization is applied to the caller's side only; got is compared
 // verbatim, the same asymmetry verifyMemoryDeleted documents at length. That
@@ -588,7 +686,7 @@ func verifyMemoryEcho(project, key string, got wireMemory) error {
 	if got.Key == "" || got.Project == "" {
 		return fmt.Errorf("the board returned a memory with no key/project field; wrong shape: %+v", got)
 	}
-	wantProject := strings.TrimSpace(project)
+	wantProject := canonicalProject(project)
 	if got.Project != wantProject {
 		return fmt.Errorf("the board returned a memory from a different project: requested project=%q, got project=%q", wantProject, got.Project)
 	}
@@ -617,9 +715,10 @@ func verifyMemoryEcho(project, key string, got wireMemory) error {
 // same shape as verifyMemoryEcho's — normalize the caller's input the way the
 // board would, then require the response to match it exactly:
 //
-//   - project is trimmed only. Store.normalizedProject trims and deliberately
-//     does not case-fold (MemoryTests.projectsAreNotCaseFolded pins that), so
-//     folding here would accept a project the board never stored.
+//   - project goes through canonicalProject (trimmed, trailing slashes
+//     stripped, to a fixpoint). Store.normalizedProject deliberately does not
+//     case-fold (MemoryTests.projectsAreNotCaseFolded pins that), so folding
+//     here would accept a project the board never stored.
 //   - key is trimmed and lower-cased, mirroring Store.normalizedKey.
 //
 // The normalization is applied to the caller's side only; got is compared
@@ -648,7 +747,7 @@ func verifyMemoryDeleted(project, key string, got wireMemoryDeleted) error {
 	if got.Deleted == "" || got.Project == "" {
 		return fmt.Errorf("the board's delete result is missing fields; wrong shape: %+v", got)
 	}
-	wantProject := strings.TrimSpace(project)
+	wantProject := canonicalProject(project)
 	if got.Project != wantProject {
 		return fmt.Errorf("the board deleted a memory from a different project: requested project=%q, got project=%q", wantProject, got.Project)
 	}
@@ -663,10 +762,10 @@ func verifyMemoryDeleted(project, key string, got wireMemoryDeleted) error {
 // to the query the caller made, rather than assuming a clean decode of the
 // list means the filtering happened correctly.
 //
-// project is compared trimmed for the same reason verifyMemoryEcho compares
-// it trimmed: store.memories(project:) normalizes project before querying,
-// so every returned row's project is the board's trimmed value, not the
-// caller's raw one. kind is compared trimmed too, matching memoryListQuery's
+// project is compared through canonicalProject for the same reason
+// verifyMemoryEcho compares it that way: store.memories(project:) normalizes
+// project before querying, so every returned row's project is the board's
+// canonical value, not the caller's raw one. kind is compared trimmed, matching memoryListQuery's
 // own trim — comparing raw here while the query builder sends trimmed would
 // silently stop matching the moment a caller passed a padded kind, the exact
 // shape of asymmetry that caused the project bug this function already fixes
@@ -680,7 +779,7 @@ func verifyMemoryDeleted(project, key string, got wireMemoryDeleted) error {
 // close from the response alone; plan_memory_list's tool description warns
 // the agent about it instead (a documentation mitigation, not a code one).
 func verifyMemoryList(project, kind string, memories []wireMemory) error {
-	wantProject := strings.TrimSpace(project)
+	wantProject := canonicalProject(project)
 	wantKind := strings.TrimSpace(kind)
 	for _, m := range memories {
 		if m.Project != wantProject {
