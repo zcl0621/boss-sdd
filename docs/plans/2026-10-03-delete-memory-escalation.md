@@ -1,11 +1,11 @@
-Status: running
+Status: delivering
 Run id: f53f044f6df2491284fa3d15507b2819
 Base ref: 95ac1395eaecec62ef0a83ee233d343bc6659715
 Project memory: on
 Integration branch: plan/2026-10-03-delete-memory-escalation
 Main working tree: /Users/zhang/Project/boss-sdd
 Integration worktree: /Users/zhang/Project/boss-sdd-worktrees/integration
-Pull request: https://github.com/zcl0621/boss-sdd/pull/1
+Pull request: https://github.com/zcl0621/boss-sdd/pull/1 (MERGED 2026-10-03T02:59:21Z, c3a63eb)
 Updated: 2026-10-03
 
 `Base ref` is the replacement value, not the phase-0 one. Phase 0 recorded
@@ -884,3 +884,38 @@ need the merged result:
    confirm it matches.
 3. Refresh this project's `.claude/agents/`.
 4. Delete the two tombstoned runs from the live board, with the user watching.
+
+### What actually happened, 2026-10-03
+
+Steps 1-3 done. Step 4 deliberately not done: it is irreversible and on live
+data, and "with the user watching" is a condition, not a flourish.
+
+- **1. Installed.** `./Scripts/bundle.sh --install` exit 0 from `c3a63eb`.
+  `CFBundleShortVersionString` reads `0.3.0`; the installed binary carries the
+  run-delete guard string and the MCP inside the bundle carries
+  `plan_delete_run`. The app was relaunched afterwards and
+  `GET /api/health` answers `{"runs":15,"port":18888,"ok":true,"version":"0.3.0"}`.
+  **The documented hazard showed itself exactly as written**: the old MCP
+  process survived the install with its binary unlinked, so the restart half of
+  this step is real and is the user's to do.
+- **2. Install synced, and Goal 4 is now discharged.** Before the `rm -rf` I ran
+  the one-directional check this plan's corrected S1 criterion asks for, because
+  the install had carried 99 lines the repository did not. Every one was either
+  text this plan deliberately superseded (`eleven` tools, "the board's seven",
+  "three failed rounds", `sonnet 5.5`, "any number of such rounds") or a
+  restatement S2 deliberately removed under the wrapper contract — the ladder,
+  the fresh-agent rule and the `haiku` exploration tier all moved into the body
+  (`PLAYBOOK.md:371`, `roles.md:393`, `roles.md:499-500`) with the wrappers now
+  naming and linking them. Nothing was lost. The install is backed up under the
+  run's scratch directory. Afterwards `diff -r skills/claude-code/
+  ~/.claude/skills/plan-sdd` exits 0 with no output.
+- **3. `.claude/agents/` refreshed.** Ten role files, `diff -r` exits 0.
+  `implementer.md` and `ui-designer.md` were the two that had drifted.
+- **The board was never touched.** `board.sqlite3` is `mtime=1790933675
+  size=851968` before and after all three steps.
+
+Still outstanding, both needing the user: step 4, and the board-side memory
+tidy-up PLAYBOOK phase 3 asks for. The tidy-up is held deliberately rather than
+forgotten — writing it now would go through the stale MCP process described
+above, which is the one configuration this release's version floor cannot
+refuse. It should run after the session restart, not before.
