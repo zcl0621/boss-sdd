@@ -421,7 +421,12 @@ transition guards, so the HTTP API gets it too.
     `plan_delete_task`, written to the standard `memory.md` sets for
     `plan_memory_delete` — including that a delete is irreversible, that **all
     three** refusals exist and what each means (a `running` run; a `running` or
-    `review` task; a task with dependents), and that in confirm mode this is a
+    `review` task; a task with dependents) — *the "three" here is this
+    document's own grouping, counting `running` and `review` as one case. The
+    shipped prose was later moved to the code's grouping, which counts them
+    separately and so says four across both tools. Left as written because it
+    records what the node was actually asked for; see the Risks entry on the
+    counts*, and that in confirm mode this is a
     stop-and-ask (D5). The earlier wording said "the two refusals", which a
     section documenting only two of the three would have satisfied.
   - `board.md:148`'s *"this node has stopped: three failed rounds"* is corrected
@@ -559,6 +564,21 @@ From recon lane C, with sources.
   today — projects are plain repository paths and `memories` is empty — but it
   is the reason Delivery step 1 now says to restart agent sessions, not just to
   install.
+- **The sweep that found the count collision found it by luck, and the next
+  plan should not reuse it as written.** This is the lesson one level up from
+  the entry below, and it was handed to me by the node I sent the sweep to,
+  about my own check. The command is line-based and wants the number and a
+  refusal word within 60 characters *of each other on one line*. In the old
+  `board.md`, "three cases of delete" sat alone on line 6 with no refusal word
+  on it, so that line does not match: the hit I got was line 5, matching on its
+  unrelated *task-write* clause, with the wrong delete count riding along in
+  the context. One word earlier in the hard wrap and the sweep would have
+  printed nothing for that file. Nothing was actually missed — the node
+  verified that by re-running the same pattern over whitespace-flattened file
+  contents, and I re-ran that myself over the whole repository including
+  `docs/`, `Tests/` and `Scripts/` — but the check passed for the wrong reason.
+  **A grep over hard-wrapped prose cannot see a claim that straddles a wrap.
+  Flatten the whitespace first, then match.**
 - **The refusal counts in the prose and in the code count different things.**
   `README.md:175` and `board.md:5` say deleting has **three** refusals, meaning
   both tools together, and then `README.md` enumerates four conditions.
