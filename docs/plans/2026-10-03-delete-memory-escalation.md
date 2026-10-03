@@ -1,4 +1,4 @@
-Status: delivering
+Status: done
 Run id: f53f044f6df2491284fa3d15507b2819
 Base ref: 95ac1395eaecec62ef0a83ee233d343bc6659715
 Project memory: on
@@ -914,8 +914,23 @@ data, and "with the user watching" is a condition, not a flourish.
 - **The board was never touched.** `board.sqlite3` is `mtime=1790933675
   size=851968` before and after all three steps.
 
-Still outstanding, both needing the user: step 4, and the board-side memory
-tidy-up PLAYBOOK phase 3 asks for. The tidy-up is held deliberately rather than
-forgotten — writing it now would go through the stale MCP process described
-above, which is the one configuration this release's version floor cannot
-refuse. It should run after the session restart, not before.
+- **4. The two tombstones are gone**, after the user restarted their sessions
+  and confirmed the targets. Identified by their shared note rather than from
+  memory — `SELECT ... WHERE summary LIKE '%无删%'` returned exactly the two the
+  Background describes, both `done` with zero tasks. Raw returns:
+  `{"deleted":"8bbf5cf154954997a8ec1fc92c278f2b"}` and
+  `{"deleted":"d20d8cd79bc844b9b965e43ba7a17318"}`. Re-queried rather than
+  inferred from those: both row counts 0, runs 15 → 13, their `events` rows gone
+  with them (deleting a *run* cascades; the "events stay" discipline is about
+  deleting a *task*), no run left carrying the apology note, and the two real
+  runs those tombstones pointed at — `5412339a` with 24 tasks and `996dc61d`
+  with 36 — untouched.
+- **The board-side memory tidy-up ran**, after the restart and not before: six
+  entries under `/Users/zhang/Project/boss-sdd`, each with a file-and-line
+  source — the gate set, the live-board hard rule, the run recipe, the paired
+  version constant, how to check a count in this repository, and the fact that
+  `Sources/BossSDD/` has no tests. Listed back to confirm.
+
+**Closed.** The one thing still waiting on the user is in
+`## Needs a decision from the user`: the 6-round ceiling has no counter. It
+blocks nothing.
