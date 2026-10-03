@@ -39,7 +39,16 @@ const (
 	// /api/memories route answers with the board's normalized (project, key)
 	// pair; verifyMemoryDeleted in main.go requires exactly that, and against
 	// a 0.1.0 board it reports a row name that was never in the table.
-	minBoardVersion = "0.2.0"
+	//
+	// 0.3.0 is the first version whose DELETE /api/runs/{id} refuses a run
+	// that is still `running`; plan_delete_run keeps that protection on the
+	// Swift side only, so against a 0.2.0 board it deletes a running run. It
+	// is also the first whose memory routes echo the canonical project
+	// (trailing slashes stripped), which the memory verifiers in main.go
+	// compare against via canonicalProject; a 0.2.0 board only trims
+	// whitespace and is reported as "a different project" for a write that
+	// succeeded.
+	minBoardVersion = "0.3.0"
 )
 
 // compareBoardVersion orders two dotted-numeric version strings by component,
@@ -181,9 +190,24 @@ func (b *board) call(ctx context.Context, method, path string, body, out any) er
 	deadline := time.Now().Add(12 * time.Second)
 	for {
 		time.Sleep(400 * time.Millisecond)
-		err := b.send(ctx, method, path, body, out)
+		// verifyIdentity above found nothing listening and so judged nothing;
+		// this is the first moment there is a board to judge. Check it before
+		// the request goes out, or the call that cold-starts the board runs
+		// against whatever launchApp started with no version floor at all.
+		probe := b.probeHealth(ctx)
+		if probe.transportErr == nil {
+			verdict := b.verdict(probe)
+			b.cacheIdentity(verdict)
+			if verdict != nil {
+				return verdict
+			}
+		}
+		err := probe.transportErr
 		if err == nil || !isRefused(err) {
-			return b.resolve(ctx, err)
+			err = b.send(ctx, method, path, body, out)
+			if err == nil || !isRefused(err) {
+				return b.resolve(ctx, err)
+			}
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("the board was launched but %s is still not responding: %w", b.base, err)
@@ -312,7 +336,8 @@ func (b *board) verdict(r probeResult) error {
 		return fmt.Errorf(
 			"the board on port %d is too old: health reports version=%q, this MCP needs >= %s. "+
 				"That mismatch comes from BossSDD.app not being rebuilt alongside the MCP; "+
-				"rebuild and reinstall the app (./Scripts/bundle.sh --install), then retry.",
+				"rebuild and reinstall the app (./Scripts/bundle.sh --install), then restart this MCP server, "+
+				"which checks the version once per process, so a bare retry repeats this error.",
 			b.port, *r.probe.Version, minBoardVersion,
 		)
 	}
@@ -369,7 +394,11 @@ func isRefused(err error) bool {
 	return errors.Is(err, syscall.ECONNREFUSED)
 }
 
-func launchApp() error {
+// launchApp is a variable so tests can stand in for it: the real one opens
+// /Applications/BossSDD.app, which a test must never do.
+var launchApp = openBoardApp
+
+func openBoardApp() error {
 	if _, err := os.Stat(appPath); err != nil {
 		return err
 	}

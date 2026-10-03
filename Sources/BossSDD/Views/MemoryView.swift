@@ -189,6 +189,7 @@ private struct MemoryRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .onHover { hovering = $0 }
         .overlay(alignment: .bottom) {
             if showsSeparator && !isSelected {
