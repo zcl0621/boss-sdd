@@ -5,155 +5,129 @@ description: >-
   exclusive resources), then dispatch independent subagents to implement and
   review the nodes in dependency order while tracking every state change on a
   live local board. Use when the requirement is roughly settled and the change
-  spans several steps or several files. Two modes: confirm mode asks when a
-  question would change the outcome; goal mode (user says "run it to the end",
-  "I'm going away", or passes --goal) drives the whole plan to close-out without
+  spans several steps or several files. Every run starts with a short
+  discussion the user confirms. Two modes: confirm mode asks when a question
+  would change the outcome; goal mode (user says "run it to the end", "I'm
+  going away", or passes --goal) drives the whole plan to close-out without
   waiting for replies, parking anything it cannot answer instead of guessing.
   Not for a one-line fix, an explanation, a diagnosis, or a status question.
 argument-hint: "[--goal] <what to build>"
 ---
 
-# Plan SDD, packaged for Claude Code
+# Plan SDD on Claude Code
 
-The method lives in [shared/PLAYBOOK.md](shared/PLAYBOOK.md). Read it now, in
-full, before doing anything else, and follow it. It is the source of truth for
-the phases, the DAG contract, the dispatch prompt, the review protocol, and the
-gate discipline.
+The method lives in [PLAYBOOK.md](PLAYBOOK.md). Read it now, in full, before
+doing anything else, and follow it. It is the source of truth for the phases,
+the DAG contract, the dispatch brief, the review protocol, and the gate
+discipline.
 
-This file is the platform layer and nothing more. It answers the questions the
-portable body deliberately leaves to a wrapper: what "dispatch a subagent" means
-here, where role definitions live, which model identifiers are valid, whether a
-subagent can be resumed, whether nodes can run in their own worktrees, how the
-board's MCP tools get registered, and whether Claude Code's own branch reviewer
-is something you can invoke or something you have to hand to the user.
+This file holds the Claude Code bindings and nothing more: which tool each
+mechanism the playbook names is on this platform, where the role definitions
+live, and what is and is not known about each. **Where this file and the
+playbook disagree on which tool, this file wins; on behaviour, the playbook
+wins.** Nothing here is licence to soften a non-negotiable.
 
-`PLAYBOOK.md` sets the precedence and this file does not change it: **where this
-wrapper and the portable body disagree on a platform detail, this wrapper wins;
-on behaviour, the body wins.** Nothing here is licence to soften a
-non-negotiable.
-
-**Every `shared/...` link in this wrapper resolves in both trees.** In the
-installed skill at `~/.claude/skills/plan-sdd/`, `shared/` is the copied body; in
-the repository it is a symlink to `skills/shared/`, which is why the links open
-from a clone too. Repository files that do not get installed are cited as plain
-paths rather than linked.
+Repository files that do not get installed are cited as plain paths rather than
+linked.
 
 ## The bindings
 
-Every row is from the verified platform-facts table this packaging was built
-against, except the four marked, which say what they rest on instead.
-
-| Where the portable body says | On Claude Code it means |
+| Where the playbook says | On Claude Code it means |
 | --- | --- |
-| "dispatch a subagent" | one `Agent` tool call: `subagent_type` is the role name, `model` is the tier |
+| "dispatch a subagent" | one `Agent` tool call: `subagent_type` is the role name, `model` is the model bound in [roles.md](roles.md), `prompt` is the brief |
 | "issue several such calls in one message" | several `Agent` calls in a single assistant message; they run concurrently |
-| "where role definitions live" | `.claude/agents/<role>.md`, the ten files in [agents/](agents/) |
-| "the model identifiers that are valid for you" | `fable`, `opus`, `sonnet`, `haiku`, routed per role by the Claude Code column of [shared/roles.md](shared/roles.md) |
-| "whether your platform can resume the subagent" ([dispatch.md](shared/references/dispatch.md)) | it can: `SendMessage`, addressed by the agent id the dispatch returned. Whether a rework resumes (Form A) or goes to a fresh subagent (Form B) is the body's rule, keyed on new versus persisting items, not a platform limit |
-| "which of the two worktree cases you are" ([worktree-mode.md](shared/references/worktree-mode.md)) | the second: trees you create with `git worktree add` and name in each node's `<working_directory>` *(the table licenses `isolation: "worktree"` on the `Agent` call and nothing more; the case follows from what it leaves unsaid, below)* |
-| "the `plan-sdd` MCP tools" ([board.md](shared/references/board.md)) | the thirteen `plan_*` tools of the board server, registered per [INSTALL.md](INSTALL.md) *(from `mcp/main.go` and `README.md` in the repository; the table has no MCP row for any platform)* |
-| "check whether your platform exposes an invocable review skill" | [references/native-review.md](references/native-review.md) *(not from the table; it says what it rests on)* |
-| "wait on running nodes through your platform's completion mechanism" ([dag-contract.md](shared/references/dag-contract.md)) | not covered by the verified table. Use whatever your session gives you for awaiting a dispatched agent, and do not poll in a loop. *(unsourced)* |
+| "where role definitions live" | `.claude/agents/<role>.md`, the ten files in [agents/](agents/), loaded as each subagent's system prompt |
+| "the model binding" ([roles.md](roles.md)) | the one table under "Model bindings" in [roles.md](roles.md), which maps each binding to `fable`, `opus`, `sonnet` or `haiku` |
+| "resume the subagent" (Form A in [dispatch.md](references/dispatch.md)) | `SendMessage`, addressed by the agent id the dispatch returned; a resumed agent keeps its model |
+| "act on each return as it arrives" | with `run_in_background` on the `Agent` call (on by default where your build has it), each subagent's completion arrives as its own notification; act on it then. Without it, every call in the message returns before your next step; work through all of them. Either way, do not poll *(observed in this author's tool schema, not from the docs)* |
+| "each node's own worktree" ([worktree-mode.md](references/worktree-mode.md)) | trees you create with `git worktree add` and name in each node's `<working_directory>`; leave the `Agent` call's `isolation` unset |
+| "your platform's todo list" ([PLAYBOOK.md](PLAYBOOK.md), "Todo list") | Claude Code's built-in task tools: `TaskCreate`, `TaskUpdate` and `TaskList` where your build has them, otherwise `TodoWrite`; if neither is in your toolset, skip the todo list |
+| "the goal feature" ([goal-mode.md](references/goal-mode.md)) | Claude Code's built-in `/goal <condition>` command, which the user types; see below |
+| "the prompt-review skill" (the dispatch preflight) | the `prompt-engineer` skill, loaded once per run through the `Skill` tool when it is installed |
+| "the helper skill for messages to the user" (phase P) | the `shuorenhua` skill, loaded once per run through the `Skill` tool when it is installed |
+| phase P explorers and architects | the built-in `Explore` and `Plan` subagent types on the `Agent` call, with the model their binding names |
+| "the `plan-sdd` MCP tools" ([board.md](references/board.md)) | the thirteen `plan_*` tools of the board server, registered per [INSTALL.md](INSTALL.md) *(from `mcp/main.go` and `README.md` in the repository)* |
+| "Claude Code's own branch reviewer" | [references/native-review.md](references/native-review.md) |
 
 ## Dispatching a role
 
 One `Agent` call per subagent. Three fields carry the contract:
 
 - `subagent_type`: the role name, exactly as the file in `.claude/agents/` names
-  it. Never invent a role; the roster is fixed at ten in
-  [shared/roles.md](shared/roles.md).
-- `model`: the tier for that role, from the Claude Code column of the routing
-  table in [shared/roles.md](shared/roles.md). Pass it on every call. The role
-  file also declares a default in frontmatter, but the call is the binding the
-  verified facts confirm, so set it explicitly rather than trusting the default
-  to apply.
-- `prompt`: the whole dispatch prompt, built against
-  [shared/references/dispatch.md](shared/references/dispatch.md). The subagent
-  has none of your context. For `implementer` and `ui-designer` that is every
-  tagged block on that file's list, read off the list rather than off a
-  remembered count, with nothing dropped.
+  it. Never invent a role; the roster is fixed at ten in [roles.md](roles.md).
+- `model`: the model for the dispatch's binding, from the table in
+  [roles.md](roles.md). Pass it on every fresh call. The role file also declares
+  a default in frontmatter, but the call decides, so set it explicitly rather
+  than trusting the default. A `SendMessage` resume carries no model and keeps
+  the one the agent started on, which is why a change of binding is always a
+  fresh dispatch.
+- `prompt`: the brief, built against
+  [references/dispatch.md](references/dispatch.md) and passed through its
+  preflight. Data only: the role's standing rules are its agent file, which
+  Claude Code loads for you. Do not paste them in.
 
 To run a batch in parallel, put every `Agent` call for that batch in one message.
-That is what phase 2 means by dispatching the whole batch at once, and it is what
-the three recon lanes in phase 0 require.
+That is what phase 2 means by dispatching the whole batch at once, what the review
+message after green gates means, and what the three recon lanes in phase 0
+require.
 
-### Rework: resuming works here
-
-Claude Code can resume a subagent with its context intact — a `SendMessage`
-addressed to the agent id its dispatch returned. So keep each node's agent id
-alongside its diff baseline for as long as the node is active.
-
-That is the whole of the platform's answer. Which rework message to send, and
-when you must not resume at all, belong to
-[shared/references/dispatch.md](shared/references/dispatch.md); read them there
-rather than here, because a copy in this file is a copy that goes stale the next
-time that rule moves.
+Keep each node's agent id alongside its diff baseline in the roster for as long
+as the node is active. Which rework message to send, and when you must not
+resume at all, belong to [references/dispatch.md](references/dispatch.md).
 
 ### Read-only roles are read-only by instruction here
 
-The three recon lanes, `reviewer`, `spec-reviewer`, `branch-reviewer`, and
-`adversary` must not write to the tree. The verified facts give Claude Code no
-per-role read-only flag, so on this platform nothing enforces that below the
-prompt: it holds
-because the role file and the dispatch prompt say so. Keep the sentence in both,
-and treat a read-only lane that edited a file as a finding about the run, not as
-a harmless accident.
+The three recon lanes, `reviewer`, `spec-auditor`, `branch-reviewer`, and
+`adversary` must not write to the tree, and their agent files say so. Nothing
+below the prompt enforces it in this packaging: the role files set no `tools`
+allowlist, and even one that left out the edit tools would leave the shell, which
+the reviewers need for `git log -S` and `git blame`. Treat a read-only lane that
+edited a file as a finding about the run, not as a harmless accident; your diff
+read is what catches it.
 
-### `isolation: "worktree"` is not the worktree the body means
+## Goal mode and `/goal`
 
-[shared/references/worktree-mode.md](shared/references/worktree-mode.md) closes
-by asking each wrapper which of two cases its platform is. **Claude Code is the
-second:** trees you create yourself with `git worktree add` and hand to each node
-by filling its `<working_directory>` block with the path. The platform automates
-none of it. Everything else — what the trees cost, the precondition about the
-user's uncommitted changes, the merge lock, the recovery path — is that file's,
-and leaving it there is the point.
+Claude Code's goal feature is the `/goal` command (documented at
+`https://code.claude.com/docs/en/goal`). The user types `/goal <condition>`; after
+each turn a separate model checks whether the condition holds and, until it does,
+starts another turn. `/goal` on its own shows the status and `/goal clear` stops
+it. The checker does not run commands or read files, so the condition is judged
+from what the transcript shows. To run unattended, the user runs it in auto mode,
+and it is unavailable when hooks are disabled.
 
-The `Agent` tool does take `isolation: "worktree"`, which gives one dispatched
-subagent a worktree of its own and cleans it up when it comes back unchanged.
-That is per-subagent containment, and it is not the same thing. Closing a node
-takes the tree's path, its branch name, and the commit it was cut from; the
-verified facts say what the parameter does and say none of those three. A
-subagent working in a tree you cannot name is one whose work you can neither
-review nor gate — and even where your environment hands the path back afterwards,
-that is one of the three, with the branch name and the branch point still
-missing.
-
-So leave `isolation` unset, and work in the tree you created and recorded in the
-plan's Status header.
+You cannot set it, update it, or mark it complete: there is no tool for that.
+So [references/goal-mode.md](references/goal-mode.md) arms goal mode in the plan
+document, and offers the user one `/goal` line to type when none is set. Without
+it, nothing resumes an idle session, which is why goal mode never ends a turn
+while ready work remains.
 
 ## On `allowed-tools`
 
 The frontmatter above deliberately does not set it, though Claude Code supports
 the field. This skill's orchestrator runs every gate itself through the shell,
-dispatches every role through the `Agent` tool, writes the plan document, and
-talks to the board through MCP tools whose exposed names depend on how the server
-was registered. A whitelist that misses one of those does not fail loudly; the
-tool is simply absent, and the most likely casualty is a gate, which the body
-forbids working around. Narrow it if you have a reason to, and then check that
-the gates still run.
+dispatches every role through the `Agent` tool, writes the plan document, uses the
+todo tools and helper skills, and talks to the board through MCP tools whose
+exposed names depend on how the server was registered. A whitelist that misses
+one of those does not fail loudly; the tool is simply absent, and the most likely
+casualty is a gate, which the playbook forbids working around. Narrow it if you
+have a reason to, and then check that the gates still run.
 
 ## The board
 
-[shared/references/board.md](shared/references/board.md) tells you to check once,
-at the start, whether the `plan-sdd` MCP tools are in your toolset, and covers
-both outcomes. That check is the whole procedure here; this wrapper adds only
-where the tools come from, which is [INSTALL.md](INSTALL.md). The board is
-optional. A run without it is a normal run.
-
-## Claude Code's own branch reviewer
-
-Phase 3 tells you to check whether the platform's native reviewer is something
-you can invoke. [references/native-review.md](references/native-review.md) is
-that check for Claude Code. Read it when you reach phase 3, not before.
+[references/board.md](references/board.md) tells you to check once, at the
+start, whether the `plan-sdd` MCP tools are in your toolset, and covers both
+outcomes. That check is the whole procedure here; this file adds only where the
+tools come from, which is [INSTALL.md](INSTALL.md). The board is optional. A run
+without it is a normal run.
 
 ## Files here
 
+- [PLAYBOOK.md](PLAYBOOK.md): the method. Start here when running the skill.
+- [roles.md](roles.md): the ten roles, the model bindings, obstacle episodes.
+- [references/](references/): the playbook's reference files, and
+  [references/native-review.md](references/native-review.md), the Claude Code
+  answer on whether `/code-review` is invocable.
+- [agents/](agents/): the ten role definitions, the subagents' standing rules,
+  which install into a project's `.claude/agents/`.
 - [INSTALL.md](INSTALL.md): install the skill, the role files, and the board's
   MCP server.
-- [agents/](agents/): the ten role definitions, which also install into a
-  project's `.claude/agents/`.
-- [references/native-review.md](references/native-review.md): the Claude Code
-  answer on native review invocability.
-- [shared/](shared/): the portable body. Start at
-  [shared/PLAYBOOK.md](shared/PLAYBOOK.md).

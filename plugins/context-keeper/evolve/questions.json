@@ -1,0 +1,379 @@
+{
+  "_comment": "Recall questions for the synthetic test projects. A fact is a list of spellings; when several appear in the history, the one that appears last is the expected answer (values that changed mid-session). A question is asked only if every fact appears in the history before the compaction. Only facts learned through tools: what sits in AGENTS.md or the system prompt survives compaction anyway. `kind` is what the proposer sees about a failure; it never sees the answers.",
+  "families": {
+    "lab": {
+      "titles": [
+        "zh-repro-",
+        "zh2-",
+        "zh3-"
+      ],
+      "questions": [
+        {
+          "id": "jump",
+          "q": "dev 服务器的完整连接步骤：跳板地址、端口、dev 服务器地址？",
+          "facts": [
+            [
+              "jump.lab.internal"
+            ],
+            [
+              "-p 2222",
+              "-p 2200"
+            ],
+            [
+              "10.9.8.7"
+            ]
+          ],
+          "kind": "connection steps read from a doc early in the session; one value changed later"
+        },
+        {
+          "id": "kubectl",
+          "q": "kubectl 用哪个 context 和 namespace？",
+          "facts": [
+            [
+              "k3s-dev"
+            ],
+            [
+              "trading"
+            ]
+          ],
+          "kind": "command parameters read from a doc"
+        },
+        {
+          "id": "devmark",
+          "q": "DEV_MARK 的值？",
+          "facts": [
+            [
+              "QUOKKA-58"
+            ]
+          ],
+          "kind": "an opaque identifier read from a doc"
+        },
+        {
+          "id": "branch",
+          "q": "bit-452 这个 worktree 的集成分支名？",
+          "facts": [
+            [
+              "feat/bit-452-ratio"
+            ]
+          ],
+          "kind": "the git branch of a worktree"
+        },
+        {
+          "id": "t4",
+          "q": "T4 之前卡在什么问题上？对应的工单号？",
+          "facts": [
+            [
+              "429"
+            ],
+            [
+              "OPS-311"
+            ]
+          ],
+          "kind": "a task's blocker and its ticket id"
+        },
+        {
+          "id": "t5",
+          "q": "T5 的负责人是谁？",
+          "facts": [
+            [
+              "小王"
+            ]
+          ],
+          "kind": "a task owner that appeared mid-session"
+        },
+        {
+          "id": "db",
+          "q": "数据库只读账号的连接串放在哪里？",
+          "facts": [
+            [
+              "lab-dev-pg"
+            ]
+          ],
+          "kind": "where a credential is stored (its location, never the secret)"
+        },
+        {
+          "id": "preflight",
+          "q": "部署前必须先运行什么命令？",
+          "facts": [
+            [
+              "make preflight"
+            ]
+          ],
+          "kind": "a rule from a loaded skill"
+        }
+      ]
+    },
+    "invoice": {
+      "titles": [
+        "exp-"
+      ],
+      "questions": [
+        {
+          "id": "deploy",
+          "q": "The exact staging deploy commands, in order?",
+          "facts": [
+            [
+              "migrate ENV=staging"
+            ],
+            [
+              "deploy@10.20.30.41"
+            ],
+            [
+              "--canary 10"
+            ]
+          ],
+          "kind": "multi-step commands read from a doc"
+        },
+        {
+          "id": "deploymark",
+          "q": "What is DEPLOY_MARK?",
+          "facts": [
+            [
+              "HERON-12"
+            ]
+          ],
+          "kind": "an opaque identifier read from a doc"
+        },
+        {
+          "id": "plan",
+          "q": "The path of the most recent plan document?",
+          "facts": [
+            [
+              "docs/plans/discounts.md",
+              "docs/plans/csv-export.md"
+            ]
+          ],
+          "kind": "the latest of several file paths"
+        },
+        {
+          "id": "friday",
+          "q": "On which weekday must you never deploy?",
+          "facts": [
+            [
+              "Friday"
+            ]
+          ],
+          "kind": "a rule read from a doc"
+        }
+      ]
+    },
+    "orders": {
+      "titles": [
+        "ev3-orders"
+      ],
+      "questions": [
+        {
+          "id": "contact",
+          "q": "支付网关的接口人是谁？",
+          "facts": [
+            [
+              "老周"
+            ]
+          ],
+          "kind": "a contact person named in a doc"
+        },
+        {
+          "id": "bench",
+          "q": "性能基线和当前目标？",
+          "facts": [
+            [
+              "183ms"
+            ],
+            [
+              "120ms",
+              "95ms"
+            ]
+          ],
+          "kind": "a measured baseline and a target that changed mid-session"
+        },
+        {
+          "id": "pin",
+          "q": "依赖版本有什么限制，为什么？",
+          "facts": [
+            [
+              "2.3.x"
+            ],
+            [
+              "#8812"
+            ]
+          ],
+          "kind": "a version constraint and the bug behind it"
+        },
+        {
+          "id": "error",
+          "q": "scripts/check.sh 报错的原文？",
+          "facts": [
+            [
+              "E_LEDGER_SKEW: drift 3.2s > 2s"
+            ]
+          ],
+          "kind": "an exact error string seen once in command output"
+        },
+        {
+          "id": "constraint",
+          "q": "用户说过哪个目录不能动？",
+          "facts": [
+            [
+              "legacy/"
+            ]
+          ],
+          "kind": "a constraint the user mentioned in passing"
+        },
+        {
+          "id": "rootcause",
+          "q": "数值处理问题出在哪个函数？",
+          "facts": [
+            [
+              "roundHalfEven"
+            ]
+          ],
+          "kind": "the function a bug was traced to"
+        },
+        {
+          "id": "flaky",
+          "q": "哪个测试是 flaky？",
+          "facts": [
+            [
+              "TestRefundRace"
+            ]
+          ],
+          "kind": "the name of a flaky test"
+        },
+        {
+          "id": "flag",
+          "q": "staging 的哪个特性开关被提到了？",
+          "facts": [
+            [
+              "FEATURE_SPLIT_PAY"
+            ]
+          ],
+          "kind": "a config flag and its value"
+        },
+        {
+          "id": "lock",
+          "q": "并发控制最后定的方案？",
+          "facts": [
+            [
+              "Redis 分布式锁",
+              "pg advisory lock"
+            ]
+          ],
+          "kind": "a technical decision the user reversed later"
+        }
+      ]
+    },
+    "inventory": {
+      "titles": [
+        "ev3-inventory"
+      ],
+      "questions": [
+        {
+          "id": "contact",
+          "q": "仓储 WMS的接口人是谁？",
+          "facts": [
+            [
+              "阿琳"
+            ]
+          ],
+          "kind": "a contact person named in a doc"
+        },
+        {
+          "id": "bench",
+          "q": "性能基线和当前目标？",
+          "facts": [
+            [
+              "241ms"
+            ],
+            [
+              "150ms",
+              "130ms"
+            ]
+          ],
+          "kind": "a measured baseline and a target that changed mid-session"
+        },
+        {
+          "id": "pin",
+          "q": "依赖版本有什么限制，为什么？",
+          "facts": [
+            [
+              "3.21.x"
+            ],
+            [
+              "#4410"
+            ]
+          ],
+          "kind": "a version constraint and the bug behind it"
+        },
+        {
+          "id": "error",
+          "q": "scripts/check.sh 报错的原文？",
+          "facts": [
+            [
+              "E_STOCK_NEGATIVE: sku=AX-77 qty=-3"
+            ]
+          ],
+          "kind": "an exact error string seen once in command output"
+        },
+        {
+          "id": "constraint",
+          "q": "用户说过哪个目录不能动？",
+          "facts": [
+            [
+              "vendor_patches/"
+            ]
+          ],
+          "kind": "a constraint the user mentioned in passing"
+        },
+        {
+          "id": "rootcause",
+          "q": "数值处理问题出在哪个函数？",
+          "facts": [
+            [
+              "releaseExpiredHolds"
+            ]
+          ],
+          "kind": "the function a bug was traced to"
+        },
+        {
+          "id": "flaky",
+          "q": "哪个测试是 flaky？",
+          "facts": [
+            [
+              "TestConcurrentReserve"
+            ]
+          ],
+          "kind": "the name of a flaky test"
+        },
+        {
+          "id": "flag",
+          "q": "staging 的哪个特性开关被提到了？",
+          "facts": [
+            [
+              "FEATURE_BACKORDER"
+            ]
+          ],
+          "kind": "a config flag and its value"
+        },
+        {
+          "id": "lock",
+          "q": "并发控制最后定的方案？",
+          "facts": [
+            [
+              "乐观锁版本号",
+              "SELECT ... FOR UPDATE 行锁"
+            ]
+          ],
+          "kind": "a technical decision the user reversed later"
+        }
+      ]
+    }
+  },
+  "holdout": [
+    "zh2-base",
+    "exp-kimi2-a",
+    "exp-mimo-c2",
+    "exp-mimo-a2",
+    "ev3-inventory"
+  ],
+  "_comment_holdout": "Sessions (by title prefix) never shown to the proposer and used only to accept or reject a candidate. Both test projects are synthetic and the holdout shares their facts, so it guards against overfitting to particular compaction points, not to a whole project; a third project would be a stronger check."
+}

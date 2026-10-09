@@ -1,15 +1,14 @@
 # Claude Code's native branch reviewer
 
-[The handoff protocol](../shared/references/native-review-handoff.md) says a
-wrapper may state which case its platform is in, and that whatever it says is
-more current than the shared file. This is that statement for Claude Code, and
-nothing else: the procedure for checking, running, handing off and triaging is in
-that file and is not repeated here.
+[The handoff protocol](native-review-handoff.md) says this file records which
+case Claude Code is in, and that it is more current than the protocol itself.
+That statement is all this file holds: the procedure for checking, running,
+handing off and triaging is in that file and is not repeated here.
 
-Claude Code's native reviewer is `/code-review` on the current branch, and
+Claude Code's native reviewer is `/code-review` on the branch checked out where
+it runs (for plan-sdd, the integration worktree; see the protocol), and
 `/code-review ultra <PR#>` for a cloud multi-agent review of a pull request.
-Those two commands are from the verified platform facts. Who may launch them is
-what follows.
+Who may launch them is what follows.
 
 ## `/code-review ultra`: a handoff in this author's environment
 
@@ -35,16 +34,15 @@ fabrication either way.
 
 Both observations are first-hand. Neither generalizes. So run the check in the
 handoff protocol at phase 3 and let it decide, rather than assuming either way.
-The flags are in the same position: seen once, in one roster, not in the verified
-facts. Do not pass a flag you have not seen listed in your own environment.
+The flags are in the same position: seen once, in one roster. Do not pass a flag you have not seen listed in your own environment.
 
 ## Two flags not to reach for, if it turns out to be invocable
 
 - **`--fix`, or anything else that applies the findings for you.** The body's
   first non-negotiable is that you do not write implementation code; a reviewer
   that edits the tree on your behalf breaks that as thoroughly as editing it by
-  hand would, and it also writes outside every node's declared write scope while
-  other nodes may be mid-write. Take the findings as text and send them back
+  hand would, and it also writes outside every node's declared write scope, into
+  a tree that belongs to no node and lands in no merge. Take the findings as text and send them back
   through the fix loop.
 - **`--comment`, or anything that posts to a pull request.** This one is my own
   conservative extension, not something the body already says: its prohibition

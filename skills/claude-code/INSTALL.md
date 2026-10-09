@@ -8,23 +8,24 @@ where.
 
 Steps 1 to 3 give you a working skill. Step 4 adds the board and is optional:
 without it the skill keeps its state in the plan document instead, which
-[the board reference](shared/references/board.md) describes as the normal state
-for anyone who installed the skill without the MCP server.
+[the board reference](references/board.md) describes as the normal state for
+anyone who installed the skill without the MCP server.
 
-Two conventions, so nothing in here misleads you:
-
-- **Every markdown link beginning `shared/` opens in either tree.** In the clone
-  it goes through `skills/claude-code/shared`, a symlink to `skills/shared/`; in
-  the installed skill step 2 replaces that symlink with the body itself. Both
-  spellings are the same file, which is why one set of links serves both.
-- **Repository files that are not installed are cited as plain paths**, never
-  linked: `README.md`, `Scripts/bundle.sh`, `mcp/main.go`.
+`skills/claude-code/` is the whole skill: every link inside it points at another
+file inside it, so the same links open in the clone and in the installed copy.
+Repository files that are not installed are cited as plain paths, never linked:
+`README.md`, `Scripts/bundle.sh`, `mcp/main.go`.
 
 ## What you need
 
 - Claude Code.
 - For step 4 only: an Apple silicon Mac, a Swift toolchain, and Go. The board app
   is Apple silicon only by design; see `README.md` in the repository.
+- Optional: the `prompt-engineer` and `shuorenhua` skills, which the skill
+  loads for the dispatch preflight and for phase P messages when they are
+  installed, and works without. This repository carries both, under
+  `skills/prompt-engineer/` and `skills/shuorenhua/`; install each the way step
+  2 installs this one, into `~/.claude/skills/<name>/`.
 
 ## 1. Where the skill goes
 
@@ -32,61 +33,48 @@ Two conventions, so nothing in here misleads you:
 `name` in the frontmatter of [SKILL.md](SKILL.md); explicit invocation is then
 `/plan-sdd`.
 
-That is the only skill location this packaging uses. The verified platform facts
-it was built against give exactly one skills path for Claude Code,
-`~/.claude/skills/<name>/`, and no project-level equivalent, while listing two
-paths for other platforms. The omission looks deliberate, so this document does
-not invent a project-level install. If your installation does support one, you
-are on your own for it, and note before you try: the ten role files in step 3
-refer to the body by its absolute installed path, so they would all need
-rewriting too.
+That is the only skill location this document covers. A project-level install
+is not described here; if you use one, the role files in step 3 do not depend on
+where the skill lives, since they carry their rules themselves.
 
 ## 2. Install the skill
 
-The installed skill has to stand on its own, so the body goes in as files rather
-than as a link out of the clone. One copy does it, because the wrapper already
-carries the `shared` symlink:
+The installed skill has to stand on its own, so it goes in as files rather than
+as a link out of the clone. One copy does it:
 
 ```bash
 rm -rf ~/.claude/skills/plan-sdd
 mkdir -p ~/.claude/skills/plan-sdd
-cp -RL skills/claude-code/. ~/.claude/skills/plan-sdd/
+cp -R skills/claude-code/. ~/.claude/skills/plan-sdd/
 ```
-
-`-L` is what makes that one command enough: it follows the symlink and writes the
-body's files into `~/.claude/skills/plan-sdd/shared/`. Plain `cp -R` copies the
-link itself, and the installed `shared` is then a dangling pointer to a
-`skills/shared` that does not exist under `~/.claude/skills/`, so every
-`shared/...` link in the installed skill opens nothing.
 
 The `rm -rf` makes a re-install idempotent. Without it `cp` merges into what is
 already there, so a file renamed or dropped from the body upstream stays in your
 installed tree and goes on being read.
 
-Both of those are silent. Step 5's first command is what makes them visible;
-run it after every install rather than trusting either sentence above.
+That is silent. Step 5's first command is what makes it visible; run it after
+every install rather than trusting the sentence above.
 
 What you should have afterwards:
 
 ```text
 ~/.claude/skills/plan-sdd/
-  SKILL.md                      the entry point: frontmatter, and the platform bindings
-  INSTALL.md                    this file
-  agents/                       the ten role definitions, as installed in step 3
-  references/native-review.md   whether /code-review is invocable here
-  shared/PLAYBOOK.md            the portable body: start here when running the skill
-  shared/roles.md               the ten roles and the model routing
-  shared/references/            the body's reference files, copied whole
+  SKILL.md        the entry point: frontmatter, and the Claude Code bindings
+  PLAYBOOK.md     the method: start here when running the skill
+  roles.md        the ten roles, the model bindings, obstacle episodes
+  INSTALL.md      this file
+  agents/         the ten role definitions, as installed in step 3
+  references/     the reference files, native-review.md among them
 ```
 
-The body is copied unmodified, which is what keeps its own internal links
-resolving. Do not rename anything inside `shared/`. To pick up a change to the
-body, re-run the three commands above rather than editing the installed copy; an
-edit made there is lost at the next install and never reaches the repository.
+The skill is copied unmodified, which is what keeps its internal links
+resolving. Do not rename anything inside it. To pick up a change, re-run the
+three commands above rather than editing the installed copy; an edit made there
+is lost at the next install and never reaches the repository.
 
-`shared/PLAYBOOK.md` is not a second skill. It carries no frontmatter and is not
+`PLAYBOOK.md` is not a second skill. It carries no frontmatter and is not
 an entry point, which its own opening paragraph says: nothing discovers it, and
-you reach it only from the wrapper that names the skill and its invocation.
+you reach it only from `SKILL.md`, which names the skill and its invocation.
 Invoke `/plan-sdd`; there is nothing else to confuse it with.
 
 ## 3. Install the ten role files
@@ -100,26 +88,38 @@ cp skills/claude-code/agents/*.md <project>/.claude/agents/
 ```
 
 That is ten files: `recon-rules`, `recon-product`, `recon-code`, `implementer`,
-`ui-designer`, `qa`, `reviewer`, `spec-reviewer`, `branch-reviewer`, `adversary`.
-The roster is fixed. Do not add an eleventh and do not rename one; the body
+`ui-designer`, `qa`, `reviewer`, `spec-auditor`, `branch-reviewer`, `adversary`.
+The roster is fixed. Do not add an eleventh and do not rename one; the playbook
 dispatches these names.
 
-Repeat this step per project. The verified facts name `.claude/agents/<name>.md`
-and no user-level equivalent, so whether a home-directory copy also works is
-something to check against your own installation rather than to assume here.
+Each file is that role's standing rules, which Claude Code loads as the
+subagent's system prompt; the skill's dispatch briefs carry data only and rely on
+them. So an out-of-date role file in a project is an out-of-date rule set for
+every subagent of that role: re-copy all ten whenever you re-install the skill.
 
-Each role file declares its model in frontmatter, and the skill also passes that
-tier as the `model` field of the `Agent` call, so the routing does not depend on
-the frontmatter being read. The routing table is the Claude Code column of
-[shared/roles.md](shared/roles.md).
+**If the project has an older install**, remove the retired file the copy above
+does not overwrite:
 
-**One thing to know before step 5.** The verified facts name the location of
-these files and the two `Agent` fields, but not the frontmatter keys inside them.
-These files use `name`, `description` and `model`. `model` is belt-and-braces, as
-above. `name` is not: if your installation expects a different key, or keys off
-the filename instead, then `subagent_type` may resolve to nothing. Each file's
-`name` is identical to its filename, so either convention finds it, but step 5
-checks it for real rather than trusting that.
+```bash
+rm -f <project>/.claude/agents/spec-reviewer.md
+```
+
+`spec-reviewer` became `spec-auditor`. A leftover `spec-reviewer.md` is never
+dispatched, but it is still offered as an agent type in that project.
+
+Repeat this step per project. This document covers the project's
+`.claude/agents/` only.
+
+Each role file declares a model in frontmatter, and the skill also passes the
+model bound in the "Model bindings" table of [roles.md](roles.md) as the `model`
+field of every fresh `Agent` call, so the routing does not depend on the
+frontmatter being read. To retune models, change that table, not the files.
+
+**One thing to know before step 5.** These files use the frontmatter keys
+`name`, `description` and `model`. `name` matters: if your installation keys off
+something else, `subagent_type` may resolve to nothing. Each file's `name` is
+identical to its filename, so either convention finds it, but step 5 checks it
+for real rather than trusting that.
 
 ## 4. Install and register the board (optional)
 
@@ -141,11 +141,9 @@ claude mcp add --scope user plan-sdd /Applications/BossSDD.app/Contents/Resource
 ```
 
 Source: `README.md` in the repository, which carries that command verbatim; the
-binary path is the one `Scripts/bundle.sh` copies into the bundle. **The verified
-platform table has no MCP row, for Claude Code or for any other platform**, so
-this line rests on this repository's own documentation and not on that table.
-Where your installation registers MCP servers differently, its documentation
-wins over this one.
+binary path is the one `Scripts/bundle.sh` copies into the bundle. Where your
+installation registers MCP servers differently, its documentation wins over this
+one.
 
 That registration exposes thirteen tools, named in `mcp/main.go`:
 
@@ -167,7 +165,7 @@ That registration exposes thirteen tools, named in `mcp/main.go`:
 
 Your client may present them under a namespace of its own. Match on these names.
 
-[The board reference](shared/references/board.md) covers what the skill does when
+[The board reference](references/board.md) covers what the skill does when
 they are present, when the app will not start, and when they are absent
 altogether. All three are handled; none of them stops a run.
 
@@ -186,12 +184,8 @@ re-install; the rest need a live session.
    break you have. `Only in ~/.claude/skills/plan-sdd/...` is a file the clone no
    longer carries, left behind by a re-install without the `rm -rf`. A diff hunk
    on a named file is an edit somebody made to the installed copy, which the next
-   install will discard. `diff: ~/.claude/skills/plan-sdd/shared: No such file or
-   directory` is the dangling symlink you get from `cp -R` without `-L`.
-
-   Read the output, not the exit status. Only the first two of those exit
-   non-zero; the dangling symlink exits 0 and puts its one line on stderr, so a
-   check wired to `$?` alone reports the broken install as clean.
+   install will discard. `Only in skills/claude-code/...` is a file the install
+   is missing.
 2. Start Claude Code in the project from step 3 and confirm `/plan-sdd` is
    offered.
 3. **Dispatch one role and confirm it runs.** In that project, ask for exactly

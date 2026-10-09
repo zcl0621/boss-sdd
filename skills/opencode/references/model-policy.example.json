@@ -1,0 +1,33 @@
+{
+  "policy_version": 1,
+  "profiles": {
+    "fast": {
+      "purpose": "Reading, scanning and routine implementation",
+      "level": "L1",
+      "model": "kimi-code-plan-cn/kimi-for-coding-highspeed"
+    },
+    "strong": {
+      "purpose": "Recon, review, spec audit and high-complexity implementation",
+      "level": "L2",
+      "model": "kimi-code-plan-cn/k3"
+    },
+    "max": {
+      "purpose": "Escalated repairs and explicit user requests",
+      "level": "L3",
+      "model": "openai/gpt-5.6#high"
+    }
+  },
+  "bindings": {
+    "explore.research": "fast",
+    "general.architect": "strong",
+    "explore.post_commit_scan": "fast",
+    "recon.default": "strong",
+    "implementer.default": "fast",
+    "implementer.high_complexity": "strong",
+    "implementer.obstacle_escalation": "max",
+    "qa.default": "fast",
+    "reviewer.default": "strong",
+    "spec_auditor.default": "strong",
+    "human.max": "max"
+  }
+}

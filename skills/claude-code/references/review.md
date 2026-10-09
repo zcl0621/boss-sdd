@@ -1,0 +1,379 @@
+# Review
+
+Every reviewer is a subagent that did not write the code it is reviewing, and it
+works from the actual diff, the actual tests, and the actual running system.
+Reviewers report actionable problems, ordered by impact, with the evidence for
+each. "Looks fine" is not a review result; what was checked and what was found
+is.
+
+Two levels of review exist. Task review runs inside every node in phase 2. Branch
+review runs once over the whole change in phase 3. Both end with an adversarial
+pass, because a review whose findings nobody argued against produces a fix queue
+full of things that were never wrong.
+
+## Task review
+
+Task review runs only on a node whose gates you ran and saw green (step 4 of the
+node loop); for a `[verify]` node, "green" means its named tests red for the
+reported reason and everything else passing, as [gates.md](gates.md) defines. On a red gate dispatch nothing from this section: no static review,
+no spec audit, no walkthrough, no adversary. Send the raw output back to the
+implementer instead. Review is for a change that already passed the commands.
+
+After green gates, dispatch the static review, the post-repair spec audit, and,
+for a marked task, the walkthrough, in one message so they run in parallel. They
+are separate subagents with separate briefs. When all of them have returned, one
+`adversary` takes every finding they produced and the spec verdict together.
+
+The spec audit also runs once earlier, on its own, in `red-test` mode: after the
+implementer has written the failing test and before any runtime code changes.
+That is step 2 of the node loop, and its section is below.
+
+**Static review, `reviewer`, mandatory for every task regardless of its role.**
+Give it, each in its own tagged block: the task's text from the plan, the plan
+path, the hard rules, the working directory, and the diff command. Those last two
+go together: **this node's worktree**, and
+`git -C <node worktree> diff <branch point>`, unrestricted. Nothing else is
+writing in that tree, so the whole diff is this task's, and leaving it
+unrestricted is what also reveals writes outside the declared scope. Do not
+substitute the repository root — it holds the user's pre-run state, not the
+change under review.
+
+Getting this wrong does not degrade the review, it empties it:
+a reviewer pointed at the repository root sees none of the node's work and
+reports that the task was never implemented.
+
+The static reviewer checks:
+
+- Whether the tests cover the behaviour the acceptance criteria promise. A gap
+  here is a quality finding; the spec-match verdict itself is the
+  `spec-auditor`'s, not this lane's.
+- Whether anything was written outside the write scope, whether the user's
+  existing changes were disturbed, and whether any project hard rule was broken.
+- The happy path, the error paths, the boundary conditions, and compatibility.
+- Data consistency, permissions, security, concurrency, resource release, and
+  observability.
+- Whether the tests cover the behaviour or merely the implementation details.
+- Unnecessary complexity, duplicated logic, and hand-edited generated files.
+
+**Spec audit, `spec-auditor`, mandatory for every task, dispatched in the
+same message.** The `reviewer` reads the diff against the task text; this lane
+reads it against the spec -- the goals, non-goals, and settled design decisions
+in the plan document, which the task text descends from but does not repeat --
+and against the task's acceptance criteria. Give it, each in its own tagged
+block: `<audit_mode>post-repair</audit_mode>`, the plan document's path, the
+task's text with its acceptance criteria, the hard rules, the working directory,
+and the diff command, the last two being the same pair the static reviewer gets
+above -- **this node's worktree** and `git -C <node worktree> diff <branch
+point>`, unrestricted. Both lanes get the same diff for the same reason the
+adversary does: a lane looking at a different change is arguing about a
+different change.
+
+It returns a row per acceptance criterion (`met`, `missing` or `off-target`,
+with the `file:line` in the diff), every difference from the spec in three
+shapes -- `deviation`, `addition`, `omission` -- each with the spec line quoted
+on one side and the code or test quoted on the other, and one overall verdict:
+`match` only when every row is `met`, otherwise `missing`, `off-target`, or
+`unclear`. What it is not for: code quality. A diff that is well-written, green,
+and exactly meets its task text still fails this lane if it is not what the spec
+said would be built.
+
+The adversary covers the verdict and every difference, the same as it covers a
+lane-6 `done`: a `match` is a claim that something is right. A `missing` or
+`off-target` that survives is a send-back. `unclear` you judge yourself; it is
+not a pass. A difference that stands is a send-back too unless you adopt it as a
+deliberate plan change, which means updating the plan document and the board.
+Do not mark the node `done` without a `match` that survived the adversary, and
+on a fix round run this lane again on the new diff: a clean static review of the
+fix does not waive it.
+
+**Red-test audit, `spec-auditor`, once per task, before runtime code.** After the
+node's implementer returns from `<stage>red-test</stage>` with a test that
+demonstrably fails, dispatch this lane on its own, with
+`<audit_mode>red-test</audit_mode>`, the plan path, the task text with its
+acceptance criteria, the hard rules, the working directory and diff command as
+above, and the failing command's output. It checks the test, not an
+implementation: whether the trigger it exercises is one the spec supports,
+whether the outcome it asserts is observable behaviour the spec promises,
+whether it leaves documented lifecycle and status semantics alone, and whether
+it pins implementation structure instead of behaviour. Runtime source must
+still be untouched; a runtime change at this point is itself a finding.
+
+Its verdict does not go to the adversary, except on a `[verify]` node, below. A
+`match` lets the implementer go on to `<stage>repair</stage>`. Anything else
+goes back to it as a red-test send-back, with the audit quoted, and counts as a
+rework round; that is not permission to start implementing. A task marked
+`[no-red-test]` skips this audit, and its post-repair audit checks that the
+stated reason holds.
+
+**A red-test chain moves this audit.** A `[verify]` node gets it, with one
+question added: whether each named test fails *for the behaviour the task
+reports*. The acceptance quotes the reported behaviour and the failure each
+named test must show; the auditor compares that with the failing command's
+output. A test that fails on a setup error, a missing import, or an assertion
+about something else has not reproduced the bug, and a test that would still
+fail once the reported behaviour is corrected is asking for the wrong thing.
+Either is not a `match`. A `[fix: <id>]` node does not get this audit for the
+named tests, which the verify node's audit already covered. It gets the
+ordinary audit only for new tests its acceptance lists beyond the named tests,
+before its repair.
+
+**Task review on a `[verify]` node** is shorter, because there is no repair to
+review. Dispatch the `reviewer` alone, on the test diff, with the same inputs as
+above; any production change in that diff is a finding. Then one `adversary`
+takes the reviewer's findings and the red-test audit's verdict together, since
+that `match` is the only spec verdict the node gets and it closes the node. No
+post-repair audit and no walkthrough. On a `[fix: <id>]` node, task review is
+the full set; the `reviewer` and the post-repair `spec-auditor` both treat any
+change to the named tests as a finding.
+
+**Runtime walkthrough, `qa`, when the task carries `ui-designer` or `qa`.** The
+marker on the task is what decides this, and every task carrying either one gets
+the walkthrough. The kinds of change that earn a task one of those markers in
+phase 1 are a UI, a CLI interaction, a deployment script, a service integration,
+or anything else a person interacts with; that is a planning criterion, not a
+second condition to re-test here. A marked task whose change looks undramatic to
+you still gets the lane.
+
+Give it, each in its own tagged block:
+
+- the task's text from the plan, including its acceptance criteria
+- the working directory to start the application in: **this node's worktree**.
+  The application it must exercise is the one in that tree, not the one at the
+  repository root, which does not contain the change at all.
+- **the run recipe from recon lane C, verbatim**: the start command, the port or
+  URL, the seed or fixture step, the test accounts or credentials, and the
+  services that must already be running. This lane cannot start the application
+  without it, and it must not invent a start command. If the recipe is missing,
+  do not dispatch this lane; get the recipe first.
+- the scope of what changed, so it knows which screens or endpoints to exercise
+- the four visual-direction statements, when a `ui-designer` produced them
+- the limits on what it may touch: the project's own fixtures and test accounts
+  only, and no production data beyond what the user authorized
+- `<scratch_dir>`, the node's scratch subdirectory, and
+  `<runtime_authorization>`: the services and URLs it may use, the fixture and
+  test-account state, where its artifacts go under `<scratch_dir>`, what it must
+  clean up, and the screenshot method or the observation fallback it may use. It
+  edits no tracked file.
+
+It covers the main user flows, the failure feedback, refresh and retry, loading
+states, and empty states. For a UI it additionally checks layout, readability,
+interaction feedback, responsive behaviour, and console errors. When a
+`ui-designer` was involved, it checks the four visual-direction statements
+against what is actually on the screen.
+
+### What a walkthrough means
+
+For a change with a user interface: open every affected screen in the application
+actually running, and record three things per screen. A screenshot. The step you
+performed. What you saw, described as a phenomenon. Words like "correct", "fine",
+and "as expected" are conclusions, not observations, and they are not acceptable
+in this record.
+
+For a change with no interface, such as a backend endpoint, a CLI, or a library:
+record two things. The exact request or command issued, and the raw response
+echoed back.
+
+Reading `git diff`, reading the component source, and running the automated test
+suite are each useful and none of them is a walkthrough.
+
+### The adversarial pass
+
+Send every finding from all of the node's review lanes -- the static review, the
+post-repair spec audit's verdict and differences, and the walkthrough when there
+was one -- to **one** `adversary` subagent, which tries to
+knock each one down: is it actually reachable, is it actually wrong, is it
+already handled somewhere the reviewer did not look, was it already there before
+this change.
+
+It cannot answer any of those from the finding text alone, so give it:
+
+- the claims themselves, one per tagged block so it can answer them individually,
+  each carrying whatever location the producing lane cited
+- the working directory it should read and run in, and permission to read
+  anything in it, since "already handled somewhere the reviewer did not look"
+  means going and looking. This is the same directory the lane it is challenging
+  worked in: the node's worktree for a task-review claim, the integration
+  worktree for a branch-review one.
+- **the same diff the lane that produced the claim was looking at.** In task
+  review that is `git -C <node worktree> diff <branch point>`. In branch review
+  it is `git diff <baseRef>..<headRef>`, read in the integration worktree.
+  Neither is path restricted. Sending the wrong one makes the adversary argue
+  about a different change than the one under challenge.
+- the baseline ref, so it can run `git log -S` or `git blame` to test whether a
+  line predates this work
+- the acceptance criteria and the project's hard rules, which decide whether a
+  thing is a defect or merely a preference. In task review, that task's criteria.
+  In branch review, the plan document, since a claim may span tasks.
+
+It returns, per claim, one of the three verdicts below and the evidence it rested
+on. An adversary that returns a verdict with no evidence has not done the job;
+send that claim back or judge it yourself.
+
+The word "finding" fits lanes 1 through 5 and all of the task-review lanes:
+something is
+wrong, here is where. Lane 6 of branch review sends something different, a `done`
+verdict, which is a claim that something is right. Challenge it the same way with
+the question inverted: does the cited code and test actually satisfy the stated
+acceptance criteria, or does it only look like it does. Its "location" is whatever
+the audit named as satisfying the criteria, and a `dismissed` verdict there means
+the audit's `done` did not hold, which makes it a `missing` or `off-target` result
+for that task.
+
+Classify the result:
+
+- `confirmed`. The finding survived the challenge. It goes into the node's fix
+  round.
+- `dismissed`. The challenge held. Record a one-line reason and close it.
+  Findings dismissed as pre-existing get the extra check described below.
+- `unsure`. The reviewer or the adversary said it could not tell. **You judge
+  every one of these yourself, one at a time.** An `unsure` finding is not a
+  pass. Treating "could not verify" as "no problem" is how a real defect ships.
+
+If a lane produces nothing at all, dispatch that one lane again rather than
+re-running the whole review. This applies wherever lanes fan out in this file,
+task review and branch review alike: re-dispatch the missing lane on its own. A
+lane returning "no problems found" with its reasoning is a result and needs no
+re-dispatch; a lane returning nothing is a lane that did not run.
+
+If a lane fails twice, say so in the close-out and name which check therefore did
+not happen. Do not treat a lane that never ran as a lane that found nothing, and
+do not cover for it by judging its dimension yourself. In branch review, a lane 6
+that will not run leaves you with no per-task verdicts, and the completion
+conditions in [PLAYBOOK.md](../PLAYBOOK.md) cannot be met; that is a partial close-out,
+not a clean one.
+
+### Re-review after a fix
+
+Give the reviewer the diff from the new starting point, not from where the task
+originally began. Reviewing the accumulated diff again buries the change you
+actually need looked at under everything already reviewed, makes it harder to
+tell whether the same obstacle episode is still there, and spends rounds while
+nobody is looking at the fix. Run the spec audit again too.
+
+## Branch review
+
+Once every task's status is `done` or `blocked`, set the plan to `review` and
+check the whole change. `baseRef` is whatever the plan document's Status header
+records as `Base ref`, which is the commit from phase 0 unless the
+uncommitted-changes precondition in
+[worktree-mode.md](worktree-mode.md) replaced it; read the header rather than
+remembering phase 0. `headRef` is the tip of the integration branch — that branch
+is what every completed node merged into, and the individual node worktrees hold
+nothing phase 3 needs. Give every lane, each in its own tagged block: the plan
+document's path, the hard rules, the diff range `git diff <baseRef>..<headRef>`,
+its lane's question, and the working directory to read and run in, which is **the
+integration worktree**. Unlike task review, this diff is not path restricted: the
+whole point is to see the change as one thing.
+
+The working directory is not made redundant by the diff range. Refs are
+repo-global, so the range itself resolves from any worktree, but lanes 1 through 5
+read source files and lane 6 goes looking for the code and tests that satisfy each
+task's acceptance criteria. A lane given no directory reads the main working tree,
+which sits at the baseline and holds none of the run's work, so
+coverage and the task audit report as `missing` what is present on the integration
+branch. Nothing else supplies this: branch-review lanes get the short per-lane
+list described here rather than the context bundle from
+[dispatch.md](dispatch.md), whose `<working_directory>` block covers implementers
+only. It is the same directory the adversary is already told to use for a
+branch-review claim, below; the five lanes it challenges get it here.
+
+Fan out six `branch-reviewer` subagents in parallel. Five look for problems along
+one dimension each:
+
+1. **Coverage.** Did every task land in code and in tests? Any half-finished path
+   left behind?
+2. **Decisions.** Were the defaults chosen reasonable and reversible? Is the
+   decision queue complete?
+3. **Tests.** Do they cover combinations that cross task boundaries, regression
+   points, failure modes, and real edges?
+4. **Integration.** Are the interfaces, names, data contracts, migrations, and
+   ordering between tasks consistent with each other?
+5. **Correctness.** Does the final diff introduce logic, security, performance, or
+   maintainability problems?
+
+The sixth asks a different question, and so gets its own lane rather than riding
+along on one of the five:
+
+6. **Task audit.** For each task in the plan, in order: read its stated
+   acceptance criteria, find the code and tests in the branch diff that are
+   supposed to satisfy them, and return one verdict with the evidence it rested
+   on.
+
+   - `done`. The criteria are met, and here is what meets them.
+   - `missing`. Nothing in the diff satisfies these criteria.
+   - `off-target`. Something was built, but it does not satisfy what the task
+     said it would.
+   - `unclear`. The criteria cannot be checked against the diff, with the reason.
+
+   It returns a verdict for every task including the blocked ones, and it does
+   not skip a task because another lane already mentioned it. A `[verify]`
+   task is judged on whether its named tests are on the branch and test the
+   reported behaviour; by close-out they pass, because the fix landed, and that
+   is not a reason to call the verify task `off-target`. This is the lane
+   that produces the per-task verdicts the completion conditions in
+   [PLAYBOOK.md](../PLAYBOOK.md) require. You must not write those verdicts yourself:
+   you are the one who ran the tasks, and a completion audit performed by the
+   party being audited is not an audit.
+
+Then run `adversary` over every finding from lanes 1 through 5, and over every
+`done` verdict from lane 6, the same as in task review. A `done` verdict is a
+claim like any other and benefits from being argued with.
+
+Sort the surviving findings into the groups below. One rule comes first: a
+finding of wrong behaviour in work that has already landed on the integration
+branch is a bug fix, whichever task it belongs to. It becomes a new verify/fix
+pair, inserted by the dynamic-insertion rules in
+[dag-contract.md](dag-contract.md), and does not reopen the task that landed
+it. The groups below cover every other finding.
+
+- `byTask`. Findings that belong to a specific task. Send each back into that
+  task's fix loop, classified into one of its existing obstacle episodes or a new
+  one. The round count continues from what that task already used, and so do the
+  episodes' repair counts; neither restarts.
+
+  A task whose status is already `blocked` has stopped, whatever stopped it, so
+  nothing routes into it. Record the finding against that task in the partial
+  close-out instead, alongside the reason it blocked, and leave it blocked. Do
+  not open another round, and do not undo whatever blocked it to buy one. A
+  blocked task is already a thing the user has to look at.
+- `unassigned`. Findings that belong to no single task: a task that was never
+  done, two tasks contradicting each other, the same thing implemented twice in
+  different places. Do not fix these yourself. Add each as a new task to the
+  plan's Tasks section, follow the dynamic-insertion rules in
+  [dag-contract.md](dag-contract.md), and dispatch an implementer from round one.
+- `dismissed`. For anything dismissed as pre-existing, verify it yourself with
+  `git log -S` or `git blame`. If you cannot establish that the line predates this
+  work, treat the dismissal as failed and handle the finding as `byTask`. Skim the
+  titles of the rest.
+- The lane 6 verdicts. These are what you mark each task pass or fail with at the
+  end.
+
+  For a task whose status is `done`, a `missing` or `off-target` verdict is a
+  `byTask` finding against it and goes back into its fix loop with the round count
+  carried forward. For a task already `blocked`, it does not: record the verdict in
+  the partial close-out as further detail on a task the user already has to look
+  at. The audit still runs over blocked tasks, because what a blocked task did or
+  did not manage to land is worth knowing; it just has nowhere to route.
+
+  Resolve every `unclear` yourself against the plan and the diff, and record how
+  you resolved it. Recording an `unclear` as done is how a task that was never
+  finished reaches the delivery report as complete.
+
+Findings a lane marked as unverified because it ran out of budget: read the
+high-severity ones yourself and decide. The medium and low ones can be listed in
+the final report as a line each.
+
+Claude Code's own branch reviewer runs alongside this one. Check first whether
+you can invoke it yourself ([native-review.md](native-review.md)); if not, it is
+a handoff to the user. See [native-review-handoff.md](native-review-handoff.md).
+
+## Your adjudication
+
+You check every finding against its evidence. Valid ones go into a fix round.
+False positives get a short recorded reason and get closed. Time pressure and
+round pressure are not reasons to wave through a high-impact problem; if the
+node's escalated obstacle episode survived its escalated repair, or the node has
+reached the 6-round ceiling, it is `blocked` and the problem goes to the user,
+not into the delivery report as resolved.
+
+When you cannot decide whether something counts as a failure, it counts.
