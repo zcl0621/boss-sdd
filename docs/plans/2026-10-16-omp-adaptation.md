@@ -114,7 +114,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T2 omp-sidebar: Pins shows context_notes
-- Status: pending
+- Status: done (merged 0debc3e; integration gates install exit 0, bun test exit 0, 40 pass)
 - depends_on: [T1, T10]
 - write_scope: plugins/omp-sidebar/state.ts, plugins/omp-sidebar/state.test.ts, plugins/omp-sidebar/context-notes.ts, plugins/omp-sidebar/context-notes.test.ts, plugins/omp-sidebar/README.md
 - exclusive_resources: []
