@@ -39,14 +39,24 @@ Recon is detected from the `task` tool's `agent` (or `tasks[].agent`) starting w
 ## State
 
 Per-session JSON files (`omp-plan-memory-<session>.json`) under `$XDG_STATE_HOME/omp-plan-memory/` (default `~/.local/state/omp-plan-memory/`).
-Set `OMP_PLAN_MEMORY_STATE_DIR` to use another directory. At start, this plugin's own files (`omp-plan-memory-*.json` and `omp-plan-memory-*.json.<pid>.tmp`) older than 30 days are removed; other files in the directory are left alone.
+Saving is best-effort: with an unwritable state directory the reminder state lives only for the omp process (it is kept in memory per session; a failed save is logged once per session through omp's extension logger). Set `OMP_PLAN_MEMORY_STATE_DIR` to use another directory. At start, this plugin's own files (`omp-plan-memory-*.json` and `omp-plan-memory-*.json.<pid>.tmp`) older than 30 days are removed; other files in the directory are left alone.
 
 Note: omp's `/btw` side turns and dumps also run the `context` event on the same session, but the write reminder counts only `turn_start`, so a bare conversion does not use up its showings (whether a `/btw` turn itself emits `turn_start` was not checked).
 
 ## Install and test
 
-Point omp at this directory (`package.json` has `"omp": { "extensions": ["./index.ts"] }`).
+Install into `~/.omp/agent/extensions/omp-plan-memory/` (or a project's `.omp/extensions/omp-plan-memory/`). Run from the repository root; this is the same command as in the root README:
+
+```bash
+mkdir -p ~/.omp/agent/extensions/omp-plan-memory
+rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-plan-memory/ ~/.omp/agent/extensions/omp-plan-memory/
+```
+
+The copy leaves out `node_modules`, `bun.lock`, `.gitignore` and the tests. Run over an existing install it overwrites files in place; files that no longer exist upstream remain.
+`package.json` has `"omp": { "extensions": ["./index.ts"] }`, so omp loads `index.ts` from that directory.
 The package has no runtime dependency on `@oh-my-pi/*` (type import only).
+
+Test:
 
 ```
 bun test

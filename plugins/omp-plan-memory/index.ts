@@ -166,27 +166,71 @@ export function insertReminder(messages: any[], text: string): any[] | null {
 
 export default function planMemory(pi: ExtensionAPI): void {
   pruneOld()
+  // Per-session state is read from disk once, then kept here: a failed save (unwritable state dir) must not lose a
+  // transition. Saving is best-effort; the disk copy only lets a restarted omp pick the session up again.
+  const sessions = new Map<string, State>()
+  const stateOf = (sid: string): State => {
+    let state = sessions.get(sid)
+    if (!state) sessions.set(sid, (state = load(sid)))
+    return state
+  }
+  // Failures are logged through omp's extension logger, once per session per kind. Logging itself never throws.
+  const logged = new Set<string>()
+  const logOnce = (kind: "handler" | "save", sid: string, error: unknown) => {
+    try {
+      const key = `${kind}:${sid}`
+      if (logged.has(key)) return
+      logged.add(key)
+      pi.logger?.warn(kind === "save" ? "omp-plan-memory: state not saved" : "omp-plan-memory: handler failed", { error: String(error) })
+    } catch {}
+  }
+  const sidOf = (ctx: any): string => {
+    try {
+      return String(ctx.sessionManager.getSessionId())
+    } catch {
+      return "?"
+    }
+  }
+  const trySave = (sid: string, state: State) => {
+    try {
+      save(sid, state)
+    } catch (error) {
+      logOnce("save", sid, error)
+    }
+  }
   pi.on("tool_result", async (event: any, ctx: any) => {
-    if (event.isError) return
-    const sid = ctx.sessionManager.getSessionId()
-    const state = load(sid)
-    if (observe(state, event.toolName, event.input)) save(sid, state)
+    try {
+      if (event.isError) return
+      const sid = ctx.sessionManager.getSessionId()
+      const state = stateOf(sid)
+      if (observe(state, event.toolName, event.input)) trySave(sid, state)
+    } catch (error) {
+      logOnce("handler", sidOf(ctx), error)
+    }
   })
   pi.on("context", async (event: any, ctx: any) => {
-    const sid = ctx.sessionManager.getSessionId()
-    const state = load(sid)
-    if (!state.run) return
-    const text = reminder(state)
-    if (!text) return
-    const messages = insertReminder(event.messages, text)
-    return messages ? { messages } : undefined
+    try {
+      const state = stateOf(ctx.sessionManager.getSessionId())
+      if (!state.run) return
+      const text = reminder(state)
+      if (!text) return
+      const messages = insertReminder(event.messages, text)
+      return messages ? { messages } : undefined
+    } catch (error) {
+      logOnce("handler", sidOf(ctx), error)
+      return undefined
+    }
   })
   // One agent turn. Counts the write reminder's turns, only while that reminder is due.
   pi.on("turn_start", async (_event: any, ctx: any) => {
-    const sid = ctx.sessionManager.getSessionId()
-    const state = load(sid)
-    if (!writeDue(state) || state.writeShows >= LIMITS.writeShows) return
-    state.writeShows++
-    save(sid, state)
+    try {
+      const sid = ctx.sessionManager.getSessionId()
+      const state = stateOf(sid)
+      if (!writeDue(state) || state.writeShows >= LIMITS.writeShows) return
+      state.writeShows++
+      trySave(sid, state)
+    } catch (error) {
+      logOnce("handler", sidOf(ctx), error)
+    }
   })
 }
