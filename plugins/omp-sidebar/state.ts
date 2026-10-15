@@ -22,6 +22,7 @@ import {
   type SidebarServicesSnapshot,
 } from "./services";
 import { computeContextParts } from "./context-breakdown";
+import { getContextNotes } from "./context-notes";
 import type { SidebarInspection, SidebarRow, SidebarSection, SidebarSnapshot } from "./types";
 import { SidebarWorkspace } from "./workspace";
 import type { SidebarWorkspaceChange } from "./workspace";
@@ -667,31 +668,14 @@ export class SidebarState {
     );
 
     const pins: SidebarRow[] = [];
-    const pinEntry = branch.findLast(
-      (entry) => entry.type === "custom" && entry.customType === "context-pin-state",
-    );
-    if (
-      pinEntry?.type === "custom" &&
-      typeof pinEntry.data === "object" &&
-      pinEntry.data !== null &&
-      "pins" in pinEntry.data
-    ) {
-      const values = pinEntry.data.pins;
-      if (typeof values === "object" && values !== null && !Array.isArray(values))
-        for (const [key, value] of Object.entries(values as Record<string, unknown>)) {
-          if (
-            !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,60}$/.test(key) ||
-            typeof value !== "object" ||
-            value === null ||
-            !("value" in value) ||
-            typeof value.value !== "string" ||
-            !value.value.trim()
-          )
-            continue;
-          pins.push(
-            row(`pin:${key}`, `${key}: ${value.value}`, inspection(`Pin · ${key}`, value.value)),
-          );
-        }
+    const notes = getContextNotes(branch)?.text ?? "";
+    const seen = new Map<string, number>();
+    for (const line of notes.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      const text = line.trim().slice(0, 40);
+      const n = seen.get(text) ?? 0;
+      seen.set(text, n + 1);
+      pins.push(row(`pin:${n}:${text}`, line, inspection("Pins · context notes", notes)));
     }
     add("pins", "Pins", pins, pins.length ? String(pins.length) : "None");
 
