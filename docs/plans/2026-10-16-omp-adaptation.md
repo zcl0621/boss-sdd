@@ -257,6 +257,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
   4. A `context_notes` write shows up in the sidebar Pins section (tmux capture).
   5. The plan-memory reminder appears after a board run is opened and disappears after `plan_memory_list`.
   6. evolve runs over the walkthrough's session journals and reports install / no install with its scores.
+  8. Sidebar regression (user request, 2026-10-16): the sidebar's automatic Git / Worktree / Directory projection still works with every extension of this run loaded. After the agent edits a file inside a second worktree of the /tmp repo, the Git / Worktree section switches to that checkout and shows its branch and unstaged diff without any manual step (tmux capture before and after).
   7. Measurement for the staged-clearing decision: context usage before and after omp's own pruning across the run, and whether old tool output stays in context.
 - Gates: none runnable; the orchestrator reads the report and the raw captures.
 - Risk / rollback: Kimi quota; findings of wrong behaviour in landed work become verify/fix pairs.
