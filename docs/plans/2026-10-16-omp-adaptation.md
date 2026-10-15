@@ -304,7 +304,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - exclusive_resources: []
 - role: implementer
 - Acceptance:
-  1. Every handler catches its own errors (as the OpenCode `plan-memory.js` does); an unwritable state dir leaves the reminder logic working in memory and throws nothing. Test with a read-only state dir.
+  1. Every handler catches its own errors; an unwritable state dir leaves the reminder logic working in memory (state kept per session in memory, so a failed save does not lose a transition) and throws nothing. Test with a read-only state dir, including one read-only from the first event. *(Amended at T13 red-test audit: the OpenCode `plan-memory.js` does not in fact wrap its handlers.)*
   2. README gives the install path `~/.omp/agent/extensions/omp-plan-memory/` (or a project's `.omp/extensions/`) and the copy command used in the root README.
 - Gates: `(cwd plugins/omp-plan-memory) bun test`
 - Risk / rollback: none beyond revert.
