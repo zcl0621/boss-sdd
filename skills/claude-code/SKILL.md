@@ -45,6 +45,7 @@ linked.
 | "the goal feature" ([goal-mode.md](references/goal-mode.md)) | Claude Code's built-in `/goal <condition>` command, which the user types; see below |
 | "the prompt-review skill" (the dispatch preflight) | the `prompt-engineer` skill, loaded once per run through the `Skill` tool when it is installed |
 | "the helper skill for messages to the user" (phase P) | the `shuorenhua` skill, loaded once per run through the `Skill` tool when it is installed |
+| phase P renders (P1 before/after, P4 options) | the `show-me` skill, loaded once per run through the `Skill` tool when it is installed; [greenfield-prelude.md](references/greenfield-prelude.md) wins where the two disagree |
 | phase P explorers and architects | the built-in `Explore` and `Plan` subagent types on the `Agent` call, with the model their binding names |
 | "the `plan-sdd` MCP tools" ([board.md](references/board.md)) | the thirteen `plan_*` tools of the board server, registered per [INSTALL.md](INSTALL.md) *(from `mcp/main.go` and `README.md` in the repository)* |
 | "Claude Code's own branch reviewer" | [references/native-review.md](references/native-review.md) |

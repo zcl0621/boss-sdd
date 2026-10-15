@@ -26,6 +26,10 @@ Repository files that are not installed are cited as plain paths, never linked:
   installed, and works without. This repository carries both, under
   `skills/prompt-engineer/` and `skills/shuorenhua/`; install each the way step
   2 installs this one, into `~/.claude/skills/<name>/`.
+- Optional: the `show-me` skill, which phase P uses to render the P1
+  before/after and the P4 options when it is installed, and works without. It
+  is not carried here; copy `skills/show-me/SKILL.md` from
+  https://github.com/charlie947/show-me into `~/.claude/skills/show-me/`.
 
 ## 1. Where the skill goes
 
