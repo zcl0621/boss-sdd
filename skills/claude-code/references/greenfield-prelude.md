@@ -15,7 +15,11 @@ tool and use it at two points, and only there:
 
 - **P1**, when the change has a before/after shape (a flow, a screen, a data
   path, a set of modules that moves): render "today" and "after this change"
-  side by side, next to the written restatement. Its SHOW mode.
+  side by side, next to the written restatement. Its SHOW mode. The "today"
+  half is a claim about the code, so it is drawn from what you read, not from
+  the request: under Full, wait for the P2 explorers and check what you draw
+  against the files they named; under Light, read the files the change touches
+  yourself first.
 - **P4**, when the architects came back with real options: put them on one page,
   each with what it changes and what it costs, and your pick marked. Its PICK
   mode.
@@ -36,6 +40,22 @@ Where `show-me` and this file disagree, this file wins. Three places they do:
    an inline diagram tool), use that instead. Its other rules (self-contained
    HTML, look at it yourself before showing it, say "not verified" for anything
    unchecked) stand.
+
+**Checking a render you cannot see.** `show-me` says to look at the render
+before you speak about it. An inline diagram tool usually hands back no image,
+so that look has to happen another way, in this order:
+
+1. Check the content. Every number, path, name and count in the render traces to
+   a tool result from this run (an explorer's report you checked, a query you
+   ran). Anything that does not is cut, or marked "not verified" in the render.
+2. Check how it looks. Where the session has a browser you can screenshot (a
+   built-in browser pane, the Chrome tools), write the same render as a
+   self-contained HTML file, open it there, take a screenshot, and read it:
+   nothing cut off, nothing overlapping, the text readable in light and dark.
+   Fix what is wrong, then show it the way rule 3 says.
+3. No way to screenshot at all: show it anyway, and say in the text message
+   that you could not see the render yourself, so the user knows to say if it
+   came out broken.
 
 The `shuorenhua` rules apply to the words in the render too. Not installed:
 write P1 and P4 as text, as below.
@@ -66,6 +86,11 @@ and project memory. Say it as an assumption.
 
 If the change has a before/after shape and `show-me` is installed, render it
 alongside this text (see "Showing instead of describing" above).
+
+Under Full, hold P1 until P2 is back, and send P1 and the P3 questions in one
+message: the restatement and the render then rest on the code rather than on
+the request, and the user answers both in one reply. Under Light, P1 goes out
+on its own, after you have read the files the change touches.
 
 ## P2 Look at the code (Full only)
 

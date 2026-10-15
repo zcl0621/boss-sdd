@@ -186,7 +186,8 @@ start until the user has explicitly confirmed a written Discussion outcome.
 1. Pick the depth, Light when the user already gave a clear change list with no
    real choice between designs, Full otherwise, and say which in one sentence.
 2. Say what you understood, with the assumptions you made, each one a sentence
-   the user can answer "right" or "wrong" to.
+   the user can answer "right" or "wrong" to. Under Full this waits for the
+   explorers in step 3 and goes out together with the first round of questions.
 3. Full only: look at the code with two or three explorers in one message, ask
    at most five questions a round for at most two rounds, each carrying your
    recommended answer, and when there are two or more real ways to build it, put
