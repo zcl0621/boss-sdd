@@ -275,6 +275,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
   6. evolve runs over the walkthrough's session journals and reports install / no install with its scores.
   7. Measurement for the staged-clearing decision: context usage before and after omp's own pruning across the run, and whether old tool output stays in context.
   8. Sidebar regression (user request, 2026-10-16): the sidebar's automatic Git / Worktree / Directory projection still works with every extension of this run loaded. After the agent edits a file inside a second worktree of the /tmp repo, the Git / Worktree section switches to that checkout and shows its branch and unstaged diff without any manual step (tmux capture before and after).
+  9. Sidebar mouse (user request, 2026-10-16): with `tui.mouse: true` set in the run's project-local `.omp/config.yml` (never `~/.omp`), an SGR wheel event inside the sidebar scrolls it, and an SGR left click on an actionable row runs that row's action (e.g. expands or collapses a section, or opens a running child agent's transcript); a click outside the sidebar is not consumed. Sent via tmux `send-keys` of raw SGR sequences, tmux capture before and after. With `tui.mouse` off, record whether clicks reach the sidebar at all.
 - Gates: none runnable; the orchestrator reads the report and the raw captures.
 - Risk / rollback: Kimi quota; findings of wrong behaviour in landed work become verify/fix pairs.
 - Obstacle ledger: empty. Rounds: 0.
