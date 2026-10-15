@@ -298,7 +298,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T13 omp-plan-memory: never throw into omp; README install path  [fix: phase 3 review C5, D6]
-- Status: pending
+- Status: done (merged; integration gate exit 0, 45 pass; red-test audit x2, review, post-repair audit)
 - depends_on: [T6, T11]
 - write_scope: plugins/omp-plan-memory/index.ts, plugins/omp-plan-memory/index.test.ts, plugins/omp-plan-memory/README.md
 - exclusive_resources: []
