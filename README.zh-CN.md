@@ -18,6 +18,7 @@
   - `sidebar`：TUI 侧边栏，显示上下文用量、goal、todo、正在跑的子 agent、git 状态。
 - **看板**：一个 macOS 菜单栏 app（Swift），把任务图存进 SQLite；再加一个 Go 写的 MCP server，agent 通过它读写看板和项目记忆。两套包装都能接，不接也能跑。
 - **两个辅助 skill**：`skills/shuorenhua/`（中文去 AI 味改写，Phase P 跟用户说话时用）和 `skills/prompt-engineer/`（派活前检查派活指令）。两个版本都会用，没装也能跑。
+- **Phase P 可选的第三方 skill（只有 Claude Code 版用）**：[`show-me`](https://github.com/charlie947/show-me)，不在本仓库里。装了的话，Phase P 复述理解时把改前改后画出来，选方案时把架构师给的几种做法摆成一页让人挑。算数的仍然是文字版 Discussion outcome 和用户明确的确认，点页面只算挑了哪个方案。没装就照旧用文字。
 
 ## 为什么 Claude Code 只要一个 skill，OpenCode 还要一个插件
 
@@ -260,6 +261,8 @@ mkdir -p ~/.claude/skills/plan-sdd
 cp -R skills/claude-code/. ~/.claude/skills/plan-sdd/
 cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
 ```
+
+想让 Phase P 出图的话，再把 [charlie947/show-me](https://github.com/charlie947/show-me) 里的 `skills/show-me/SKILL.md` 拷到 `~/.claude/skills/show-me/`，这一步可选。
 
 10 个角色文件拷到目标项目的 `.claude/agents/`。旧版装过 `spec-reviewer.md` 的要删掉，它改名成了 `spec-auditor.md`。每个用途用哪个模型，写在 `skills/claude-code/roles.md` 的 "Model bindings" 表里；额度不够时不会自动换模型。看板是可选的第 4 步。
 
