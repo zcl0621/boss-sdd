@@ -37,7 +37,8 @@ modelRoles:
 # model for EVERY dispatch of that agent while it is set. Put it only in
 # <project>/.omp/config.yml, dispatch that implementer alone, keep the line until
 # that subagent has FINISHED (its result collected: the `wait` result, or the
-# synchronous task result when async is off; async spawns pick their model
+# synchronous task result when async is off; a `wait` snapshot after its
+# 30-minute cap is not the result; async spawns pick their model
 # after `task` returns), and only then remove it. Uncomment only what you need, and keep
 # it one `task:` block:
 # task:
@@ -49,7 +50,7 @@ modelRoles:
 
 compaction:
   # Cap a long plan-sdd run at 500k tokens: compaction.modelThresholds keys a
-  # model id to a fixed trigger "f500000" (docs/settings.md, compaction.modelThresholds;
+  # model id to a fixed trigger "f500000" (omp's docs/settings.md, compaction.modelThresholds;
   # a bare number is a base the policy scales, not a cap), or set thresholdTokens
   # for every model.
   # modelThresholds:
@@ -57,5 +58,6 @@ compaction:
   #   anthropic/opus-5.5: "f500000"
   # thresholdTokens: 500000
   #
-  # Recommended for long runs:
+  # Recommended for long runs. It trades summary guidance on automatic
+  # compaction for Pins (context_notes); see plugins/omp-context/README.md.
   experimentalContextManagement: true

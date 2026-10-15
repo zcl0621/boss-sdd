@@ -27,7 +27,7 @@ the six branch-review lanes, and the verdict vocabulary are in
 **The `reviewer` role is dispatched as the agent `plan-reviewer` on omp.** omp
 bundles an agent named `reviewer` (`task/agents.ts:44-73`; the bundled set is
 `scout`, `reviewer`, `security-reviewer`, `task`, `sonic`), and a user or project
-agent of the same name would silently shadow it (`docs/task-agent-discovery.md`,
+agent of the same name would silently shadow it (omp's `docs/task-agent-discovery.md`,
 bundled agents are only added "if still unseen"). So the file is
 `agents/plan-reviewer.md`, and every mention of the `reviewer` role below means
 that agent. The other nine roles keep their names; none collides with a bundled
@@ -481,7 +481,7 @@ and `taskSchema` in `task/types.ts`), and the only override is per agent name,
 `task.agentModelOverrides` (`task/settings.ts:479`, applied in
 `task/structured-subagent.ts:391-409`). That override outranks the agent's own
 `model:` (`model-resolver.ts:1282-1290`), and omp re-reads settings and agents on
-every dispatch (`docs/task-agent-discovery.md:76`), so while it is set it
+every dispatch (omp's `docs/task-agent-discovery.md:76`), so while it is set it
 applies to every dispatch of that agent: concurrent batch members and other
 sessions included. The rows `implementer.high_complexity` and
 `implementer.obstacle_escalation` are therefore served by a config change made
@@ -496,7 +496,8 @@ around one dispatch, never by a field on the call, under this procedure:
   override is removed.
 - Keep the override in place until that subagent has finished: its result has
   been collected (the `wait` result, or the synchronous `task` result when
-  `async.enabled` is off). Only then remove it. `async.enabled` defaults to true
+  `async.enabled` is off). A `wait` snapshot taken after its 30-minute cap is
+  not the result (omp's `docs/tools/wait.md:16`). Only then remove it. `async.enabled` defaults to true
   (`tools/settings.ts:892-896`), so `task` returns "Spawned agent" at once
   (`task/index.ts:1126-1170`), and the model is chosen later: `#runSpawn` calls
   `runStructuredSubagent` (`task/index.ts:1654`), which calls

@@ -151,12 +151,18 @@ replace it. Exactly:
    `modelRoles:` block. If it has one, add the `sdd-*` lines from the example
    under it at the same indentation, one key each. A key that already exists
    (for example `sdd-recon`) stays as you have it.
-3. The `task:` block in the example is commented out; leave it out unless you want
-   it, and if you do, merge its `agentModelOverrides` under an existing `task:`
-   key rather than adding a second `task:`. In the `compaction:` block only
-   `experimentalContextManagement: true` is live, and it is the one to keep:
+3. The `task:` block in the example is commented out and does not belong in
+   `~/.omp/agent/config.yml`: any `task.agentModelOverrides` entry (the
+   implementer's, or phase P's `scout`) outranks the agent's own model for
+   every dispatch while it is set, so the whole block goes in the project's
+   `<project>/.omp/config.yml` only, per dispatch, as `config.example.yml` and
+   [roles.md](roles.md) say. In
+   the `compaction:` block only `experimentalContextManagement: true` is live;
    merge it under an existing `compaction:` key, or append the block; the
-   threshold lines stay commented out unless you want a cap.
+   threshold lines stay commented out unless you want a cap. Keeping it trades
+   summary guidance on automatic compaction for Pins (see
+   `plugins/omp-context/README.md`); delete the line if you want the guidance
+   more than Pins.
 4. Check that every `@sdd-*` alias the agent files use is defined; omp passes an
    undefined alias on as a literal model pattern instead of failing, and the
    dispatch then runs on whatever that matches:
@@ -170,7 +176,7 @@ done
 No output means every alias is defined. Under a named profile (`omp --profile
 <name>`) the user config lives in `~/.omp/profiles/<name>/agent/`, not in
 `~/.omp/agent/`, for `config.yml`, `mcp.json` and the agent directory alike
-(`https://github.com/can1357/oh-my-pi/blob/main/docs/mcp-config.md`, "Profiles"); use that directory in
+(`https://github.com/can1357/oh-my-pi/blob/9d81cd1/docs/config-usage.md`, "Profiles", line 78); use that directory in
 steps 2, 3 and 5 for a profile you run the skill under.
 
 ## 4. Check that omp sees the agents

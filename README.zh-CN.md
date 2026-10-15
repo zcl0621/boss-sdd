@@ -388,7 +388,7 @@ cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
      experimentalContextManagement: true
    ```
 
-   `modelThresholds` 里带 `f` 前缀的是固定触发值，500k 上限就是这么设的。`experimentalContextManagement: true` 打开 omp 的 `context_notes`（侧栏 Pins 区读的就是它），但有代价：打开后每次自动 compact 都是 rollover，rollover 不调用摘要器，所以摘要要求（以及 evolve 装上的内容）在自动 compact 时用不上。不带说明文字的 `/compact` 也是 rollover；只有 `/compact <说明文字>` 会走摘要器。也就是在 Pins 和自动 compact 时的摘要要求之间二选一。`omp-context` 的恢复块两种情况下都有效。别名没定义时 omp 不报错，而是当成字面的模型匹配串往下传，所以要跑 `INSTALL.md` 第 3 步的别名检查。
+   `modelThresholds` 里带 `f` 前缀的是固定触发值，500k 上限就是这么设的。`experimentalContextManagement: true` 打开 omp 的 `context_notes`（侧栏 Pins 区读的就是它），但有代价：打开后每次自动 compact 都是 rollover，rollover 不调用摘要器，所以摘要要求（以及 evolve 装上的内容）在自动 compact 时用不上。打开后不带说明文字的 `/compact` 也是 rollover；`/compact <说明文字>` 和 `/compact soft|remote` 会走摘要器（`snapcompact` 没有摘要器）。也就是在 Pins 和自动 compact 时的摘要要求之间二选一。rollover 还要求会话的工具集里同时有 `context_notes`、`new_context`、`read`、`grep`，缺一个 omp 就留在旧的 compact 模式（omp `docs/compaction.md:184-186`）。`omp-context` 的恢复块两种情况下都有效。别名没定义时 omp 不报错，而是当成字面的模型匹配串往下传，所以要跑 `INSTALL.md` 第 3 步的别名检查。
 
 3. 扩展，都是可选的。每个都是一个目录，`package.json` 里有 `"omp": { "extensions": ["./index.ts"] }`：
 
@@ -414,7 +414,7 @@ cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
 
    去掉 `--dry-run` 才会写文件。`opus-5.5` 这种短别名，evolve 自己认不出是 Anthropic 模型，要加 `--dialect anthropic`。默认写到 `~/.omp/agent/extensions/omp-context/guidance.md`，用 `--target` 可以写到别处。每次调模型会在 `~/.omp/logs/` 留一个日志，在 `~/.omp/agent/custom-session-files/` 留一个指针文件，可以删。
 
-   guidance 只对走摘要器的 compact 生效：`soft` 和 `remote`（含 Anthropic 原生 compact）；`handoff`、`snapcompact`、`shake` 和 rollover 都不用它。`experimentalContextManagement` 打开时，每次自动 compact 和不带说明文字的 `/compact` 都是 rollover（omp `session-maintenance.ts:4680-4681`），所以只有 `/compact <说明文字>` 用得上 guidance，evolve 也只能从这些里找用例；这种用例少，"什么都没装"是预期结果。omp 默认的 `compaction.methodOrder` 是 `remote, snapcompact, handoff, shake, soft`，所以在没有原生 `remote` compact 的线路上，`handoff` 排在 `soft` 前面。把 `soft` 放到 `handoff` 前面，只在 `experimentalContextManagement` 关着时才有意义。恢复块不依赖这些。详见 `omp-context` README 的 Evolve 一节。
+   guidance 只对走摘要器的 compact 生效：`soft` 和 `remote`（含 Anthropic 原生 compact）；`handoff`、`snapcompact`、`shake` 和 rollover 都不用它。`experimentalContextManagement` 打开时，每次自动 compact 和不带说明文字的 `/compact` 都是 rollover（omp `session-maintenance.ts:4680-4681`），所以只有 `/compact <说明文字>` 和 `/compact soft|remote` 用得上 guidance，evolve 也只能从这几种里找用例；这种用例少，"什么都没装"是预期结果。omp 默认的 `compaction.methodOrder` 是 `remote, snapcompact, handoff, shake, soft`，所以在没有原生 `remote` compact 的线路上，`handoff` 排在 `soft` 前面。把 `soft` 放到 `handoff` 前面，只在 `experimentalContextManagement` 关着时才有意义。恢复块不依赖这些。详见 `omp-context` README 的 Evolve 一节。
 
 4. 看板 MCP（可选）。先装看板 app（见下文），再把 server 加到 `~/.omp/agent/mcp.json` 的 `mcpServers` 下，key 必须是 `plan-sdd`：
 
