@@ -247,7 +247,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T8 README (EN + ZH) for omp  [no-red-test: documentation only]
-- Status: pending
+- Status: done (merged; paths checked with ls; review x2, rsync/diff commands scratch-tested; mouse claim verified by T9 item 9)
 - depends_on: [T1, T2, T3, T5, T6, T7]
 - write_scope: README.md, README.zh-CN.md, plugins/omp-context/README.md (one paragraph: the experimentalContextManagement trade-off; added at T8 review)
 - exclusive_resources: []
