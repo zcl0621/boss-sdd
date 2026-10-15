@@ -360,7 +360,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T17 skills/omp docs: threshold floor; how to call board tools  [fix: T9 F4, F5]  [no-red-test: documentation only]
-- Status: pending
+- Status: done (merged; skill.test/roles.test exit 0; skill:// verified in omp source by orchestrator)
 - depends_on: [T14]
 - write_scope: skills/omp/SKILL.md, skills/omp/INSTALL.md, skills/omp/config.example.yml
 - exclusive_resources: []
