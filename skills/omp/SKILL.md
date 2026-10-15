@@ -32,6 +32,17 @@ such as `task/types.ts` are under `packages/coding-agent/src/` there, and were
 read at omp 18.11.1. Repository files of this project that do not get installed
 are cited as plain paths rather than linked.
 
+Paths in this skill and its references (`PLAYBOOK.md`, `references/...`,
+`roles.md`) are relative to the skill directory, `~/.omp/agent/skills/plan-sdd/`
+(or `<project>/.omp/skills/plan-sdd/`), not to the project you are working in.
+Read them as `read skill://plan-sdd/PLAYBOOK.md` and
+`read skill://plan-sdd/references/<file>`: omp resolves `skill://<name>/<path>`
+against the skill's own directory (`internal-urls/skill-protocol.ts:4-9,85-93`;
+omp's `docs/skills.md:6,131`), and its compaction never prunes `read` results of
+`skill://` paths (omp's `docs/compaction.md:236`), so the playbook stays in
+context. A bare `PLAYBOOK.md` fails with `Path 'PLAYBOOK.md' not found`; the
+fallback is the absolute path `~/.omp/agent/skills/plan-sdd/PLAYBOOK.md`.
+
 Load this skill with `/skill:plan-sdd`, or let omp pick it by its description.
 omp discovers skills under `~/.omp/agent/skills/<name>/` and
 `<project>/.omp/skills/<name>/`, one level below `skills/` (omp's
@@ -55,7 +66,7 @@ in the first.
 | "the helper skill for messages to the user" (phase P) | the `shuorenhua` skill, loaded once per run with `read skill://shuorenhua` when it is installed (omp's `docs/skills.md`, "`skill://` URL behavior") |
 | phase P renders (P1 before/after, P4 options) | the `show-me` skill, loaded once per run with `read skill://show-me` when it is installed (omp's `docs/skills.md`, "`skill://` URL behavior"); [greenfield-prelude.md](references/greenfield-prelude.md) wins where the two disagree. Not verified on omp: that the page it opens reaches the user's browser from an omp session |
 | phase P explorers and architects | explorers: the bundled `scout` agent on a `task` call, with the model `task.agentModelOverrides.scout` names; `scout` is read-only with no `bash` (`tools: read, find, grep, glob, web_search`, `prompts/agents/scout.md`), so it cannot run `git`. Architects: you make the design call yourself, or dispatch the bundled `task` agent, which has full write capability (`task/agents.ts:48-56`). The task item's `tools` field does not restrict it: it only names tools already defined in the parent's eval kernel (omp's `docs/tools/task.md`, "Inputs"). So architects are read-only by instruction only, in their brief and in [greenfield-architect.md](references/greenfield-architect.md); a read of the working tree after P4 catches a write. Two or three architects in one batch share the one binding `general.architect` and one override on `task`, which is fine: the "alone until finished" rule in [roles.md](roles.md) is about dispatching a different binding of the same agent while an override is set |
-| "the `plan-sdd` MCP tools" ([board.md](references/board.md)) | the thirteen `plan_*` tools of the board server, registered under the key `plan-sdd` in `~/.omp/agent/mcp.json` per [INSTALL.md](INSTALL.md). omp mints their names as `mcp__plan_sdd_plan_board_status` and so on (`mcp/tool-bridge.ts:416-429`), and mounts them behind `write` as `xd://` devices by default (`tools.xdev`, omp's `docs/settings.md`; omp's `docs/mcp-runtime-lifecycle.md`, "Connected manager tools"), so the check "are the tools in my toolset" is `read xd://` for the list and `read xd://mcp__plan_sdd_plan_board_status` for the schema; you then call a tool with `write` on that URI and one JSON object as `content` (omp's `docs/tools/write.md`). When the top-level function list shows them directly, call them as functions |
+| "the `plan-sdd` MCP tools" ([board.md](references/board.md)) | the thirteen `plan_*` tools of the board server, registered under the key `plan-sdd` in `~/.omp/agent/mcp.json` per [INSTALL.md](INSTALL.md). omp mints their names as `mcp__plan_sdd_plan_board_status` and so on (`mcp/tool-bridge.ts:416-429`), and mounts them behind `write` as `xd://` devices by default (`tools.xdev`, omp's `docs/settings.md`; omp's `docs/mcp-runtime-lifecycle.md`, "Connected manager tools"), so the check "are the tools in my toolset" is `read xd://` for the list and `read xd://mcp__plan_sdd_plan_board_status` for the schema; you then call a tool with `write` on that URI and one JSON object as `content` (omp's `docs/tools/write.md`). When the top-level function list shows them directly, call them as functions. Never call a board tool through `bash` (`bash plan_board_status` is not a command and fails); it is `write xd://mcp__plan_sdd_<tool>` or the name `read xd://` lists |
 | "branch reviewer" (omp's own, phase 3) | omp's `/review` and `/annotate code-review` are slash commands typed by the user, so for you they are a handoff (`extensibility/custom-commands/bundled/review/index.ts:379-384`); the bundled `reviewer` agent can be dispatched with `task` (`task/agents.ts:44-73`). Both are covered, with their caveats, in [references/native-review.md](references/native-review.md) |
 
 ## Dispatching a role
