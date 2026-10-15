@@ -99,7 +99,7 @@ Plan file location: docs/plans/2026-10-16-omp-adaptation.md
 Status vocabulary: pending, running, review, blocked, done. Gates for each task are listed in its entry; `(cwd X)` means run from that directory.
 
 ### T1 omp-sidebar: tests runnable from the repo  [no-red-test: dependency/lockfile configuration only, no runtime behaviour]
-- Status: pending
+- Status: done (merged f46715e)
 - depends_on: []
 - write_scope: plugins/omp-sidebar/package.json, plugins/omp-sidebar/bun.lock, plugins/omp-sidebar/.gitignore
 - exclusive_resources: []
@@ -131,7 +131,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T10 omp-sidebar: make the spinner animation test deterministic  [no-red-test: test-only change; no runtime behaviour changes]
-- Status: pending
+- Status: done (merged 6151f12)
 - depends_on: [T1]
 - write_scope: plugins/omp-sidebar/sidebar-view.test.ts
 - exclusive_resources: []
@@ -221,7 +221,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - exclusive_resources: []
 - role: implementer
 - Acceptance:
-  1. The `context` handler inserts its `<memory>` block right after a leading `compactionSummary` message, else at index 0; never at the tail. Cited: omp `session/agent-session.ts:2380-2403` (`buildLiveProviderContext` cuts the transformed history at `len(convert(history))`, so tail insertions misalign the async-compaction summarizer request).
+  1. The `context` handler inserts its `<memory>` block right after a leading `compactionSummary` message, else right after the first non-synthetic user message, else nowhere; never at index 0 and never at the tail. *(Amended at phase 3 spec audit to the rule built and reviewed in T11, matching T5's placement: index 0 disturbs omp's date anchor and the Anthropic merge.)* Cited: omp `session/agent-session.ts:2380-2403` (`buildLiveProviderContext` cuts the transformed history at `len(convert(history))`, so tail insertions misalign the async-compaction summarizer request).
   2. A test simulates that cut: for a history and retained tail, the first `len(handler(history))` messages of `handler(history + retained)` equal `handler(history)`.
   3. The reminder text is stable across requests while the state is unchanged (no per-request varying bytes). The input array is never mutated.
   4. Earlier tests still pass; README states the placement and why.
@@ -276,6 +276,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
   7. Measurement for the staged-clearing decision: context usage before and after omp's own pruning across the run, and whether old tool output stays in context.
   8. Sidebar regression (user request, 2026-10-16): the sidebar's automatic Git / Worktree / Directory projection still works with every extension of this run loaded. After the agent edits a file inside a second worktree of the /tmp repo, the Git / Worktree section switches to that checkout and shows its branch and unstaged diff without any manual step (tmux capture before and after).
   9. Sidebar mouse (user request, 2026-10-16): with `tui.mouse: true` set in the run's project-local `.omp/config.yml` (never `~/.omp`), an SGR wheel event inside the sidebar scrolls it, and an SGR left click on an actionable row runs that row's action (e.g. expands or collapses a section, or opens a running child agent's transcript); a click outside the sidebar is not consumed. Sent via tmux `send-keys` of raw SGR sequences, tmux capture before and after. With `tui.mouse` off, record whether clicks reach the sidebar at all.
+  10. Pins survive compaction (user goal, plan Goals 'verify after compact'): a `context_notes` note written before a manual `/compact <focus>` and before a rollover is still shown in the sidebar Pins section and still present in the model's context afterwards (tmux capture plus the model quoting it back). *(Added at phase 3 spec audit.)*
 - Gates: none runnable; the orchestrator reads the report and the raw captures.
 - Risk / rollback: Kimi quota; findings of wrong behaviour in landed work become verify/fix pairs.
 - Obstacle ledger: empty. Rounds: 0.
