@@ -199,7 +199,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T6 omp-plan-memory extension
-- Status: pending
+- Status: done (merged 69fee75; integration gate exit 0, 27 pass)
 - depends_on: []
 - write_scope: plugins/omp-plan-memory/
 - exclusive_resources: []
