@@ -1,0 +1,15 @@
+{
+  "name": "omp-plan-memory-local",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reminders to read, write and tidy plan-sdd board memory, for the ordinary OMP CLI",
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "omp": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
