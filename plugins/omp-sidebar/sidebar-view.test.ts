@@ -27,12 +27,17 @@ function fixture() {
 }
 const plain = (view: SidebarView, rows = 12) => view.render(40, rows).map(Bun.stripANSI);
 
+// Bun treats setSystemTime(new Date(0)) as "reset to the real clock", so a zero
+// base makes the first render use wall time. Use a non-zero, frame-aligned base.
+const T0 = 8000;
+const FRAME_MS = 80;
+
 describe("running activity indicators", () => {
   test("visible running entries animate without a data refresh", () => {
     const { view } = fixture();
-    setSystemTime(new Date(0));
+    setSystemTime(new Date(T0));
     const first = plain(view).find((line) => line.includes("Worker"));
-    setSystemTime(new Date(80));
+    setSystemTime(new Date(T0 + FRAME_MS));
     const next = plain(view).find((line) => line.includes("Worker"));
     expect(first).toContain("Worker · running");
     expect(next).toContain("Worker · running");
@@ -44,9 +49,9 @@ describe("running activity indicators", () => {
     const { snapshot, view } = fixture();
     plain(view);
     snapshot.sections = [{ id: "agents", title: "Agents", rows: [] }];
-    setSystemTime(new Date(0));
+    setSystemTime(new Date(T0));
     const first = plain(view);
-    setSystemTime(new Date(80));
+    setSystemTime(new Date(T0 + FRAME_MS));
     expect(plain(view)).toEqual(first);
     expect(view.hasRunningRows).toBe(false);
     expect(first.join("\n")).not.toContain("Worker");
