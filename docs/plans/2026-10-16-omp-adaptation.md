@@ -165,7 +165,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T3 skills/omp core: SKILL.md bindings, PLAYBOOK, references, INSTALL  [complexity: high]
-- Status: pending
+- Status: done (merged a0a3942; integration gates skill.test exit 0 / 78 pass, roles.test exit 0 / 46 pass)
 - depends_on: [T4]
 - write_scope: skills/omp/SKILL.md, skills/omp/PLAYBOOK.md, skills/omp/references/, skills/omp/INSTALL.md, skills/omp/test/skill.test.ts
 - exclusive_resources: []
