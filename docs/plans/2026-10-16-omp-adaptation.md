@@ -83,7 +83,7 @@ Plan file location: docs/plans/2026-10-16-omp-adaptation.md
 ## Design decisions already made
 
 1. **`skills/omp/` follows `skills/claude-code/`'s layout** (SKILL.md bindings table + PLAYBOOK.md + roles.md + agents/ + references/ + INSTALL.md), not `skills/opencode/`'s. Reason: its role-per-file layout and single "Model bindings" table map one-to-one onto omp agent files and `@role` + `modelRoles` (lane C). PLAYBOOK.md and the references are carried over with platform wording changed only where a binding differs.
-2. **Ten roles, same names as `skills/claude-code/agents/`**, installed to `~/.omp/agent/agents/` (or `<project>/.omp/agents/`), never `.claude/agents` (omp skips it, `task-agent-discovery.md:148`). Each agent file sets `model: "@<alias>"`; aliases are defined by roles.md's binding table and an example `modelRoles` in `skills/omp/config.example.yml`. Names must not collide with omp's bundled agents.
+2. **Ten roles, same names as `skills/claude-code/agents/`**, installed to `~/.omp/agent/agents/` (or `<project>/.omp/agents/`), never `.claude/agents` (omp skips it, `task-agent-discovery.md:148`). Each agent file sets `model: "@<alias>"`; aliases are defined by roles.md's binding table and an example `modelRoles` in `skills/omp/config.example.yml`. Names must not collide with omp's bundled agents. omp bundles `reviewer` (omp `task/agents.ts:44-48`; bundled set {scout, reviewer, security-reviewer, task, sonic}) and a user/project agent of the same name silently shadows it (`task-agent-discovery.md:172`), so the reviewer role's agent file is `plan-reviewer`; the other nine keep their role names. Added 2026-10-16 after T4's red-test stop.
 3. **Read-only roles are read-only by instruction**, as on Claude Code: they need `bash` for `git log -S`/`git blame`, and omp's read-only policy does not gate writes (`task/read-only-policy.ts`). Their `tools` allowlist leaves out `edit`/`write`.
 4. **Worktrees are created by the orchestrator** with `git worktree add` under `<repo>-worktrees/`; omp's `isolated` task option is not used.
 5. **Todo mapping respects the one-`in_progress` rule**: the skill must not tell the orchestrator to mark several items `in_progress`; how a parallel batch is shown is the skill's mapping (T3), stated with the omp citation.
@@ -107,7 +107,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Acceptance:
   1. `package.json` keeps its `peerDependencies` and gains `devDependencies` pinning exactly `18.11.1` for `@oh-my-pi/pi-coding-agent`, `@oh-my-pi/pi-tui`, `@oh-my-pi/pi-utils`, `@oh-my-pi/pi-natives`.
   2. A `bun.lock` is committed; `node_modules/` is ignored by `plugins/omp-sidebar/.gitignore`.
-  3. `(cwd plugins/omp-sidebar) bun install --frozen-lockfile` exits 0, then `(cwd plugins/omp-sidebar) bun test` exits 0 with 31 pass, 0 fail.
+  3. `(cwd plugins/omp-sidebar) bun install --frozen-lockfile` exits 0, then `(cwd plugins/omp-sidebar) bun test` runs all 31 tests and every test passes except, at most, the pre-existing nondeterministic test `running activity indicators > visible running entries animate without a data refresh` (`sidebar-view.test.ts:31`), which T10 makes deterministic. (Amended 2026-10-16: the orchestrator's gate run showed that test failing 1 in 6 runs on code unchanged since dfe5aaa.)
   4. No `.ts` file changes.
 - Gates: `(cwd plugins/omp-sidebar) bun install --frozen-lockfile`; `(cwd plugins/omp-sidebar) bun test`
 - Risk / rollback: a postinstall blocked by bun; rollback = revert the three files.
@@ -115,7 +115,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 
 ### T2 omp-sidebar: Pins shows context_notes
 - Status: pending
-- depends_on: [T1]
+- depends_on: [T1, T10]
 - write_scope: plugins/omp-sidebar/state.ts, plugins/omp-sidebar/state.test.ts, plugins/omp-sidebar/context-notes.ts, plugins/omp-sidebar/context-notes.test.ts, plugins/omp-sidebar/README.md
 - exclusive_resources: []
 - role: implementer
@@ -130,6 +130,22 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Risk / rollback: omp changes the entry shape in a later release; rollback = revert the node's merge.
 - Obstacle ledger: empty. Rounds: 0.
 
+### T10 omp-sidebar: make the spinner animation test deterministic  [no-red-test: test-only change; no runtime behaviour changes]
+- Status: pending
+- depends_on: [T1]
+- write_scope: plugins/omp-sidebar/sidebar-view.test.ts
+- exclusive_resources: []
+- role: implementer
+- Why no red test and no verify/fix pair: the defect is in test code (the product renders correctly); no test can fail first on a runtime behaviour change because there is none. Recorded in the decision queue for the user to overturn.
+- Acceptance:
+  1. The cause of the intermittent failure of `running activity indicators > visible running entries animate without a data refresh` is stated with evidence (a command and its output), not guessed.
+  2. The test still asserts that a running row's spinner frame changes between two renders 80 ms apart without a data refresh, and no longer depends on the wall clock.
+  3. `(cwd plugins/omp-sidebar) bun test sidebar-view.test.ts` exits 0 in 50 consecutive runs (the orchestrator runs this loop at the gate), and the full `bun test` exits 0.
+  4. No file other than `sidebar-view.test.ts` changes.
+- Gates: `(cwd plugins/omp-sidebar) bun install --frozen-lockfile`; `(cwd plugins/omp-sidebar) bun test`; 50 × `(cwd plugins/omp-sidebar) bun test sidebar-view.test.ts`, each exit code recorded
+- Risk / rollback: none beyond the test; rollback = revert merge.
+- Obstacle ledger: empty. Rounds: 0.
+
 ### T4 skills/omp roles: agent files, binding table, example config  [complexity: high]
 - Status: pending
 - depends_on: []
@@ -137,7 +153,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - exclusive_resources: []
 - role: implementer
 - Acceptance:
-  1. `skills/omp/agents/` holds exactly ten files named after the ten roles in `skills/claude-code/agents/` (adversary, branch-reviewer, implementer, qa, recon-code, recon-product, recon-rules, reviewer, spec-auditor, ui-designer).
+  1. `skills/omp/agents/` holds exactly ten files, one per role in `skills/claude-code/agents/`: adversary, branch-reviewer, implementer, qa, recon-code, recon-product, recon-rules, plan-reviewer (the reviewer role, renamed because omp bundles `reviewer`), spec-auditor, ui-designer.
   2. Each file has omp agent frontmatter (`docs/task-agent-discovery.md:25-49`): `name` equal to the file stem, a `description`, a `tools` allowlist, and `model: "@<alias>"`. The seven read-only roles (the three recon lanes, reviewer, spec-auditor, branch-reviewer, adversary) list no `edit` or `write` tool but do list `bash`. Tool names are omp's real tool names, cited.
   3. Each body carries the standing rules of the matching `skills/claude-code/agents/<role>.md`, changed only where a Claude Code mechanism has an omp binding (e.g. `Agent` tool → `task`, `.claude/agents` → `~/.omp/agent/agents`).
   4. `skills/omp/roles.md` is `skills/claude-code/roles.md` with its "Model bindings" table rewritten to map each binding to one omp alias, and the text explaining that the alias resolves through `modelRoles` in `~/.omp/agent/config.yml` (or `<project>/.omp/config.yml`).
@@ -278,6 +294,8 @@ returned the subagent's reply (`PONG kimi-code/kimi-for-coding-highspeed`), exit
 1. Committed the omp-sidebar baseline to main (dfe5aaa) before the run: user said "5 可以 你自己决定".
 2. e2e isolation by project-local `.omp/` + `--session-dir` instead of a named profile, because a profile has no credentials and copying them is a secrets action.
 3. `skills/omp` split into T4 (roles) then T3 (core), serial, so T3's link check sees the role files.
+4. The reviewer role's omp agent is named `plan-reviewer`, because omp bundles `reviewer` and a same-named agent silently shadows it for the user's everyday omp use (T4 found it at `task/agents.ts:44-48`). The other option was to keep `reviewer` and accept the shadowing.
+5. T1's gate showed a pre-existing flaky sidebar test (1 failure in 6 runs, code unchanged since dfe5aaa). Treated as a test-only defect: T1's acceptance item 3 was amended to exclude that one test, and T10 makes it deterministic as a `[no-red-test]` task rather than a verify/fix pair, since no runtime behaviour is wrong. T2 waits for T10 so its gates are reliable.
 
 ## Needs a decision from the user
 
