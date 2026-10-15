@@ -249,7 +249,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 ### T8 README (EN + ZH) for omp  [no-red-test: documentation only]
 - Status: pending
 - depends_on: [T1, T2, T3, T5, T6, T7]
-- write_scope: README.md, README.zh-CN.md
+- write_scope: README.md, README.zh-CN.md, plugins/omp-context/README.md (one paragraph: the experimentalContextManagement trade-off; added at T8 review)
 - exclusive_resources: []
 - role: implementer
 - Acceptance:
@@ -315,7 +315,7 @@ returned the subagent's reply (`PONG kimi-code/kimi-for-coding-highspeed`), exit
 3. `skills/omp` split into T4 (roles) then T3 (core), serial, so T3's link check sees the role files.
 4. The reviewer role's omp agent is named `plan-reviewer`, because omp bundles `reviewer` and a same-named agent silently shadows it for the user's everyday omp use (T4 found it at `task/agents.ts:44-48`). The other option was to keep `reviewer` and accept the shadowing.
 5. T1's gate showed a pre-existing flaky sidebar test (1 failure in 6 runs, code unchanged since dfe5aaa). Treated as a test-only defect: T1's acceptance item 3 was amended to exclude that one test, and T10 makes it deterministic as a `[no-red-test]` task rather than a verify/fix pair, since no runtime behaviour is wrong. T2 waits for T10 so its gates are reliable.
-6. Summary guidance (omp-context `session.compacting`) reaches omp's summarizer paths (`soft` and `remote`, including Anthropic native compaction); `handoff`, snapcompact, shake and rollover ignore it. Manual `/compact` follows the same method choice, and with `experimentalContextManagement` on (needed for Pins) `/compact` without focus text is a rollover, so it ignores the guidance. With the user's models remote runs first, so it applies; on routes without native compaction the default order reaches `handoff` before `soft`. Decided: keep the guidance and evolve, limit evolve's replay to summarizer compactions, and document `compaction.methodOrder` for users who want it applied. The restore block is method-independent and carries the main value. Other option: drop guidance/evolve on omp.
+6. Summary guidance (omp-context `session.compacting`) reaches omp's summarizer paths (`soft` and `remote`, including Anthropic native compaction); `handoff`, snapcompact, shake and rollover ignore it. Manual `/compact` follows the same method choice. With `experimentalContextManagement` on (needed for Pins), every automatic compaction is a rollover before `methodOrder` is consulted (omp `session-maintenance.ts:4680-4681`), and so is `/compact` without focus text; only `/compact <focus>` reaches a summarizer. So on the user's config the guidance, and anything evolve installs, applies only to `/compact <focus>`, and evolve finds summarizer cases only from those. Trade-off for the user: Pins (context_notes) vs. summary guidance on automatic compaction. *(Corrected at T8 review.)* With the user's models remote runs first, so it applies; on routes without native compaction the default order reaches `handoff` before `soft`. Decided: keep the guidance and evolve, limit evolve's replay to summarizer compactions, and document `compaction.methodOrder` for users who want it applied. The restore block is method-independent and carries the main value. Other option: drop guidance/evolve on omp.
 
 ## Needs a decision from the user
 
