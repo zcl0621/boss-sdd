@@ -1,12 +1,21 @@
 // omp-plan-memory: reminders for the plan-sdd board's project memory (plan_memory_* tools), for omp.
 //
 // Port of plugins/plan-memory/plan-memory.js. The skill already says when to read, write and tidy project memory;
-// this only reminds. It watches finished board calls and, while a reminder is due, adds a short <memory> block as
-// the last message of each provider request. The `context` event returns {messages} per request without touching
-// the stored history (docs/extensions.md "context"; types.ts ContextEventResult), so the cached prefix is unaffected.
+// this only reminds. It watches finished board calls and, while a reminder is due, adds a short <memory> block to
+// each provider request: at index 1 when messages[0] is a compactionSummary, else right after the first non-synthetic
+// user message, else none. Never at the tail or index 0. Reasons: omp's compact() builds the summarizer request with
+// buildLiveProviderContext (session/agent-session.ts:2380-2403), which runs history and history+retained through this
+// handler and cuts the second result at len(first); a tail block shifts that cut and can split a tool_use/tool_result
+// pair, while this rule keeps the first len(first) messages identical (no user message in history and no summary: the
+// block lands in the retained part, after the cut). Index 0 is the date/cwd reminder root (date-cwd-reminder.ts:66).
+// Known cost: index 1 after an Anthropic native summary stops its merge with the next assistant turn (anthropic.ts:6190-6208).
+// The `context` event returns {messages} per request without touching the stored history (docs/extensions.md
+// "context"; types.ts ContextEventResult). Presence and text depend only on state; the timestamp is constant 0.
+//
 //   - read:  a run is open and plan_memory_list has not been called since the previous run finished;
 //   - write: recon was dispatched and the task graph written, and nothing was filed with plan_memory_add;
-//            shown for a few requests only, since recon may have found nothing new;
+//            counted in agent turns (turn_start while due), shown while the count is < 3 (3 turns, counting the one in which it became due), since recon may have
+//            found nothing new;
 //   - tidy:  five tasks reached done/blocked since memory was last listed, or the run moved to review (close-out).
 //
 // Board calls are recognised by the registered tool name in `tool_result` events: plain `plan_*`, or the name omp
@@ -24,7 +33,7 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent"
 
 export const LIMITS = {
   tidyEvery: 5, // tasks reaching done/blocked between tidy-ups (the skill's rule)
-  writeShows: 3, // requests that carry the write reminder before it is dropped
+  writeShows: 3, // agent turns (turn_start) that count toward the write reminder before it is dropped
   keepDays: 30,
 }
 export const BLOCK = "<memory>"
@@ -123,18 +132,36 @@ export function observe(state: State, tool: unknown, input: any): boolean {
   return changed
 }
 
-// The reminder for this request, or "" when none is due. Counts the write reminder's showings.
+const writeDue = (s: State) => s.run && s.recon && s.graph && s.added === 0
+
+// The reminder for this request, or "" when none is due. A pure function of the state: the `context` event fires once
+// per conversion (compaction converts twice, /btw and dumps convert too), so nothing may be counted here.
 export function reminder(state: State): string {
   const lines: string[] = []
   if (state.run && !state.listed)
     lines.push("Project memory has not been read for this run: call plan_memory_list for the project and hand the entries to recon (references/memory.md, phase 0).")
-  if (state.run && state.recon && state.graph && state.added === 0 && state.writeShows < LIMITS.writeShows) {
-    state.writeShows++
+  if (writeDue(state) && state.writeShows < LIMITS.writeShows) {
     lines.push("Recon has reported and the task graph is written, but nothing was filed in project memory. If recon confirmed a gate command, run recipe, hard rule or exclusive resource that memory lacks or has wrong, file it with plan_memory_add (with its source); if there is nothing new, carry on.")
   }
   if (state.tidyDue)
     lines.push(`A project memory tidy-up is due (${state.closed >= LIMITS.tidyEvery ? `${state.closed} tasks reached done/blocked since memory was last listed` : "the run is closing out"}): run it as references/memory.md describes, starting with plan_memory_list.`)
   return lines.length ? `${BLOCK}${lines.join("\n")}</memory>` : ""
+}
+
+// Where the block goes: index 1 when messages[0] is a compactionSummary; else immediately after the first user
+// message that is not synthetic; else nowhere (null). Not the tail (see the header). Why not "user only": after a
+// compaction the retained part may hold no user message and the reminder would vanish; a summary-only fallback taken
+// when no user message exists would misalign the cut. This rule gives the same position for history and
+// history+retained in every case. Cost: an Anthropic native summary followed by an assistant turn is no longer merged
+// (ai providers/anthropic.ts:6190-6208); role alternation stays valid. Index 0 is omp's date/cwd reminder root.
+// Returns a new array; the input is never mutated. timestamp is constant: Date.now() would make otherwise identical
+// requests differ.
+export function insertReminder(messages: any[], text: string): any[] | null {
+  const anchor =
+    messages[0]?.role === "compactionSummary" ? 0 : messages.findIndex((m) => m?.role === "user" && m.synthetic !== true)
+  if (anchor < 0) return null
+  const block = { role: "user", content: [{ type: "text", text }], synthetic: true, timestamp: 0 }
+  return [...messages.slice(0, anchor + 1), block, ...messages.slice(anchor + 1)]
 }
 
 export default function planMemory(pi: ExtensionAPI): void {
@@ -149,15 +176,17 @@ export default function planMemory(pi: ExtensionAPI): void {
     const sid = ctx.sessionManager.getSessionId()
     const state = load(sid)
     if (!state.run) return
-    const before = state.writeShows
     const text = reminder(state)
-    if (state.writeShows !== before) save(sid, state)
     if (!text) return
-    return {
-      messages: [
-        ...event.messages,
-        { role: "user", content: [{ type: "text", text }], synthetic: true, timestamp: Date.now() },
-      ],
-    }
+    const messages = insertReminder(event.messages, text)
+    return messages ? { messages } : undefined
+  })
+  // One agent turn. Counts the write reminder's turns, only while that reminder is due.
+  pi.on("turn_start", async (_event: any, ctx: any) => {
+    const sid = ctx.sessionManager.getSessionId()
+    const state = load(sid)
+    if (!writeDue(state) || state.writeShows >= LIMITS.writeShows) return
+    state.writeShows++
+    save(sid, state)
   })
 }

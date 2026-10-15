@@ -47,9 +47,10 @@ function boot(sessionId: string) {
     const out = result?.messages ?? messages
     if (out.length === 1) return ""
     expect(out.length).toBe(2)
-    const last = out.at(-1)
-    expect(last.role).toBe("user")
-    const text = typeof last.content === "string" ? last.content : last.content[0].text
+    const blk = out[1] // inserted immediately after the first (non-synthetic) user message
+    expect(blk.role).toBe("user")
+    expect(blk.synthetic).toBe(true)
+    const text = typeof blk.content === "string" ? blk.content : blk.content[0].text
     return text as string
   }
   return { fire, ran, mcp, note, handlers }
@@ -64,6 +65,7 @@ describe("registration", () => {
     const { handlers } = fresh()
     expect(handlers.tool_result?.length).toBe(1)
     expect(handlers.context?.length).toBe(1)
+    expect(handlers.turn_start?.length).toBe(1)
   })
   test("limits and block match the OpenCode plugin", () => {
     expect(LIMITS.tidyEvery).toBe(5)
@@ -138,7 +140,8 @@ describe("board tool name forms", () => {
 
 describe("reminders (ported scenarios)", () => {
   test("whole flow through the omp-minted MCP names", async () => {
-    const { ran, mcp, note } = fresh()
+    const { ran, mcp, note, fire } = fresh()
+    const turn = () => fire("turn_start", { type: "turn_start", turnIndex: 0, timestamp: 0 })
     // no run on the board yet: nothing
     expect(await note()).toBe("")
 
@@ -151,7 +154,15 @@ describe("reminders (ported scenarios)", () => {
     // write: recon + graph + nothing filed -> shown writeShows times, then dropped
     await ran("task", { agent: "recon-code", task: "recon", solutionSpace: "x" })
     await mcp("plan_set_tasks", { run: "r", tasks: [{ id: "T1", status: "pending" }, { id: "T2", status: "pending" }] })
-    for (let i = 0; i < LIMITS.writeShows; i++) expect(await note()).toMatch(/nothing was filed in project memory/)
+    // counted per agent turn (turn_start), not per context call: repeated requests inside one turn do not use it up
+    expect(await note()).toMatch(/nothing was filed in project memory/)
+    expect(await note()).toMatch(/nothing was filed in project memory/)
+    // exactly LIMITS.writeShows turns carry it, counting the turn in which it became due
+    for (let i = 0; i < LIMITS.writeShows - 1; i++) {
+      await turn()
+      expect(await note()).toMatch(/nothing was filed in project memory/)
+    }
+    await turn()
     expect(await note()).toBe("")
 
     // filing something also clears it (fresh run)
@@ -219,7 +230,8 @@ describe("reminders (ported scenarios)", () => {
     const messages = [{ role: "user", content: [{ type: "text", text: "go" }] }]
     const r1 = await fire("context", { type: "context", messages })
     expect(r1.messages.length).toBe(2)
-    expect(r1.messages.at(-1).synthetic).toBe(true)
+    expect(r1.messages[1].synthetic).toBe(true)
+    expect(r1.messages[0]).toBe(messages[0])
     // the handler gets a copy of history per request; a second request still has a single message
     expect(messages.length).toBe(1)
     const r2 = await fire("context", { type: "context", messages })
@@ -313,5 +325,125 @@ describe("pruning old state files", () => {
       delete process.env.OMP_PLAN_MEMORY_STATE_DIR
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+// omp compact() builds the summarizer request with buildLiveProviderContext (session/agent-session.ts:2380-2403):
+// it converts history (-> prefixLength) and history+retained through the `context` handler, then cuts the second
+// result at prefixLength. The block's presence must be the same in both conversions and its position fixed.
+describe("placement: index 1 after a summary, else after the first real user message", () => {
+  const user = (text: string) => ({ role: "user", content: [{ type: "text", text }] })
+  const asst = (text: string) => ({ role: "assistant", content: [{ type: "text", text }] })
+  const synthetic = { role: "user", content: [{ type: "text", text: "date/cwd" }], synthetic: true }
+  const summary = { role: "compactionSummary", summary: "earlier work", tokensBefore: 10 }
+  const textOf = (m: any) => (typeof m.content === "string" ? m.content : m.content?.[0]?.text)
+  const isBlock = (m: any) => m?.synthetic === true && String(textOf(m)).startsWith(BLOCK)
+
+  const setup = async () => {
+    const b = fresh()
+    await b.mcp("plan_create_run", {}) // read reminder due: text depends only on state
+    const handler = async (messages: any[]) => (await b.fire("context", { type: "context", messages }))?.messages ?? messages
+    return { handler, ...b }
+  }
+
+  const shape = (out: any[]) => out.map((m: any) => (isBlock(m) ? "BLOCK" : m.role === "user" ? textOf(m) : m.role))
+
+  test("summary-led history: block at index 1, even when a user message follows later", async () => {
+    const { handler } = await setup()
+    const out = await handler([summary, asst("x"), user("a"), asst("y"), user("b")])
+    expect(shape(out)).toEqual(["compactionSummary", "BLOCK", "assistant", "a", "assistant", "b"])
+    expect(out[1].timestamp).toBe(0)
+  })
+
+  test("otherwise right after the first non-synthetic user message", async () => {
+    const { handler } = await setup()
+    const out = await handler([asst("x"), user("a"), asst("y"), user("b")])
+    expect(shape(out)).toEqual(["assistant", "a", "BLOCK", "assistant", "b"])
+  })
+
+  test("summary-led history with only assistant/tool turns retained still gets the block", async () => {
+    const { handler } = await setup()
+    const tool = { role: "toolResult", toolCallId: "c1", content: [{ type: "text", text: "ok" }] }
+    const out = await handler([summary, asst("x"), tool, asst("y")])
+    expect(shape(out)).toEqual(["compactionSummary", "BLOCK", "assistant", "toolResult", "assistant"])
+  })
+
+  test("synthetic user messages are skipped when finding the anchor", async () => {
+    const { handler } = await setup()
+    const out = await handler([synthetic, user("a"), user("b")])
+    expect(out[0]).toBe(synthetic)
+    expect(textOf(out[1])).toBe("a")
+    expect(isBlock(out[2])).toBe(true)
+  })
+
+  test("no user message: nothing is inserted", async () => {
+    const { handler, fire } = await setup()
+    const messages = [asst("x"), synthetic]
+    const r = await fire("context", { type: "context", messages })
+    expect(r?.messages ?? messages).toEqual(messages)
+    expect((await handler(messages)).some(isBlock)).toBe(false)
+  })
+
+  test("simulated buildLiveProviderContext cut: prefix of handler(history+retained) equals handler(history)", async () => {
+    const cases: [string, any[]][] = [
+      ["user in history", [user("h1"), asst("h2")]],
+      ["summary then user", [summary, user("h1"), asst("h2")]],
+      ["no user in history", [asst("h1"), asst("h2")]],
+      ["summary then assistant turns", [summary, asst("h1"), asst("h2")]],
+      ["summary only", [summary]],
+    ]
+    for (const [name, history] of cases) {
+      const { handler } = await setup()
+      const retained = [user("r1"), asst("r2")]
+      const prefix = await handler(history)
+      const full = await handler([...history, ...retained])
+      expect(full.slice(0, prefix.length), name).toEqual(prefix)
+      expect(full.slice(prefix.length).filter((m: any) => !isBlock(m)).map(textOf), name).toEqual(["r1", "r2"])
+      expect(full.filter(isBlock).length, name).toBe(1)
+    }
+  })
+
+  test("reminder text is identical across requests while state is unchanged; input never mutated", async () => {
+    const { handler } = await setup()
+    const messages = [summary, user("a")]
+    const snapshot = JSON.stringify(messages)
+    const first = (await handler(messages)).find(isBlock)
+    const second = (await handler([...messages, user("more")])).find(isBlock)
+    expect(first).toEqual(second)
+    expect(JSON.stringify(messages)).toBe(snapshot)
+    expect(messages.length).toBe(2)
+  })
+})
+
+describe("write reminder is a pure function of state inside `context`", () => {
+  test("consecutive context calls with no turn_start in between agree, at every count including the limit", async () => {
+    const { ran, mcp, fire } = fresh()
+    await mcp("plan_create_run", {})
+    await mcp("plan_memory_list", {})
+    await ran("task", { agent: "recon-code", task: "r" })
+    await mcp("plan_set_tasks", { tasks: [{ id: "T1", status: "pending" }] })
+    const messages = [{ role: "user", content: [{ type: "text", text: "go" }] }]
+    const ask = async () => (await fire("context", { type: "context", messages }))?.messages ?? messages
+    await ask() // an earlier conversion (e.g. /btw or a dump) must not shift where the limit falls
+    for (let turn = 0; turn <= LIMITS.writeShows + 1; turn++) {
+      const a = await ask()
+      const b = await ask() // history conversion, then history+retained conversion
+      const c = await ask()
+      expect(b).toEqual(a)
+      expect(c).toEqual(a)
+      await fire("turn_start", { type: "turn_start", turnIndex: turn, timestamp: 0 })
+    }
+  })
+
+  test("turn_start does not count while the write reminder is not due", async () => {
+    const { ran, mcp, fire } = fresh()
+    await mcp("plan_create_run", {})
+    await mcp("plan_memory_list", {})
+    for (let i = 0; i < 10; i++) await fire("turn_start", { type: "turn_start", turnIndex: i, timestamp: 0 })
+    await ran("task", { agent: "recon-code", task: "r" })
+    await mcp("plan_set_tasks", { tasks: [{ id: "T1", status: "pending" }] })
+    const messages = [{ role: "user", content: [{ type: "text", text: "go" }] }]
+    const out = (await fire("context", { type: "context", messages }))?.messages ?? messages
+    expect(out.length).toBe(2)
   })
 })
