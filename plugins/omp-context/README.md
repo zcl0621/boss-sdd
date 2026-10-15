@@ -39,8 +39,47 @@ Copy this directory to `~/.omp/agent/extensions/omp-context/` (or a project's `.
 - `compaction.experimentalContextManagement`, `compaction.thresholdPercent`, `compaction.thresholdTokens`, `compaction.modelThresholds`: omp's own settings; the extension only reads them.
 - `OMP_CONTEXT_NUDGE_FRACTION` (environment variable): fraction of the threshold at which to nudge. Accepted only when it parses to a number with 0 < f < 1; anything else uses the default 0.85. A `nudgeFraction` passed to the factory beats the env.
 - Session state is kept for the 32 most recently used sessions.
-- `guidance.md` next to `index.ts` (so `~/.omp/agent/extensions/omp-context/guidance.md` once installed): the summary requirements text. When missing, empty or unreadable, a built-in default is used. The `evolve/` tooling replaces this file.
+- `guidance.md` next to `index.ts` (so `~/.omp/agent/extensions/omp-context/guidance.md` once installed): the summary requirements text. When missing, empty or unreadable, a built-in default is used. The `evolve/` tooling replaces this file (see Evolve).
+
+## Evolve (tuning `guidance.md`)
+
+`evolve/evolve.ts` replays compactions found in omp session journals offline and keeps a new `guidance.md` only when it measurably helps.
+
+```
+bun plugins/omp-context/evolve/evolve.ts --sessions <dir> --bank <questions.json> --model <id> \
+    [--target <dir>] [--rounds 3] [--samples 1] [--margin 1] [--dialect anthropic|generic] \
+    [--baseline-file <file>] [--dry-run]
+```
+
+- `--sessions`: a directory searched for `**/*.jsonl` omp session journals. Each file is copied to a temp dir and the copy is parsed; the temp copies are removed when the run ends, on every path.
+- `--bank`: recall questions (format and an example in `evolve/questions.example.json`). A fact counts as kept when its exact text, case-insensitively, appears in the new summary. A session is holdout when a `holdout` entry of the bank is a substring of its title or its file name.
+- `--model`: generates both the candidate summaries and the candidate guidance, one request at a time, through `omp -p --no-tools --no-extensions --no-skills --no-rules --no-title --no-lsp --thinking high --system-prompt <file> --model <id> --session-dir <temp dir> @<prompt file> "<task>"` with stdin closed and the working directory a fresh empty temp dir. The prompt goes in the `@` file, which omp inlines into the message (omp skips files over 5 MiB, so a prompt over 4,000,000 bytes is left out of the run and reported). `--system-prompt` is omp's own summarization system prompt, passed as a file path. Evolve removes the temp files and directories it creates (its prompt files, session dir, working dir), also on SIGINT/SIGTERM/SIGHUP (the CLI kills the omp child, removes its temp dirs and exits 130/143/129 for SIGINT/SIGTERM/SIGHUP, after printing one line to stderr). What evolve does not touch: omp itself keeps one log under `~/.omp/logs/` and one session pointer file under `~/.omp/agent/custom-session-files/` per generator call, outside `--session-dir`; those accumulate in `~/.omp` and you may delete them.
+- `--dialect`: `anthropic` drops thinking from the replayed conversation, as omp does for Anthropic models; `generic` keeps it. Default: `anthropic` when the model id matches omp's own rule for its anthropic class: `anthropic` or `claude` at the start of the part after the last `/` (followed by the end, `-`, `_`, `.`, `:` or a digit), or `anthropic` as a namespace part. So `claude4`, `claude-opus-5-5`, `x/claude4.5` and `anthropic/…` are anthropic; `my-claude-x`, `foo.claude-3`, `opus-5.5` and `kimi-code/…` are not. omp's per-provider overrides and tie-breaking between model classes are not mirrored. A short alias such as `opus-5.5`: pass `--dialect anthropic`.
+- `--target`: where `guidance.md` is written (atomically: temp file in that directory, then rename). Default `~/.omp/agent/extensions/omp-context/` (from `$HOME`). Tests always pass a temp dir and a temp `HOME`.
+- `--rounds`, `--samples`, `--margin`: integers of at least 1 (a bad value exits 2 with a message and does no work). `--samples` repeats each request and averages the score. Unknown flags, repeated flags, empty values and values starting with `-` also exit 2, as does a bank with an empty spelling or no `questions` array.
+- `--dry-run`: run everything and report, write nothing.
+
+A candidate is installed only when it keeps at least `--margin` more facts on the train conversations and no fewer on the holdout ones; otherwise nothing is written and the reason is printed. It refuses to run when either split has no cases, or when dropping failed cases empties one. A case whose prompt is oversize, or whose request fails at baseline, is dropped and reported; the run goes on. A candidate that fails on a case that passed baseline scores 0 on that case. A quota error, or a failing proposal request, stops the run with nothing installed. A candidate containing any answer from the bank is discarded unscored, and the next proposal is told only that a candidate was discarded for leaking, not what it said. Candidates over 2000 characters or containing `<` or `>` are discarded unscored. With few compactions in your journals, "nothing installed" is the honest result.
+
+**Which compactions use the guidance.** The guidance reaches the summarizer through `session.compacting`. These compactions use it:
+- `soft`;
+- `remote`, including Anthropic native compaction, which formats the additional context into its instructions (`agent/src/compaction/compaction.ts:2116-2122`); non-native remote sends it too (`:1000`, `:1012-1016`).
+
+A manual `/compact` is not a method of its own: it walks `compaction.methodOrder` like an automatic compaction (`session/session-maintenance.ts:1203-1228`): `remote` where the model can use it, then `snapcompact` only on an image-capable model when there is no focus text, then `soft`. So it uses the guidance when it ends on `soft` or `remote`. With `compaction.experimentalContextManagement` on, `/compact` without focus text is a rollover with no summarizer (`:1183-1194`) and uses nothing. (Pins, the sidebar section fed by `context_notes`, needs that setting.)
+
+These do not use it: `handoff` (auto handoff writes its document without the context), `snapcompact`, `shake`, and a rollover. Evolve builds cases only from compactions with no `method`, `soft` or `remote`, and skips and counts (by method) `handoff`, `snapcompact`, `shake`, rollovers, and extension-supplied compactions (`fromExtension`, which omp stores without a method).
+
+omp's default `compaction.methodOrder` is `remote, snapcompact, handoff, shake, soft`. On an image-capable model `snapcompact` therefore comes before `handoff`, and on a route without provider-native `remote` compaction an automatic compaction reaches `handoff` before `soft`: the guidance is not applied. To use it, put `soft` before `handoff` in `compaction.methodOrder`.
+
+**What the replay approximates.** Each case is the input omp's summarizer saw: the messages from the previous compaction's `firstKeptEntryId` (else the start) up to, but excluding, this compaction's `firstKeptEntryId`, with the previous compaction's summary (any method) as `<previous-summary>`, the guidance inside `<additional-context>`, then omp's own summarization prompt (copied into `evolve/omp-prompts.ts`). Known differences, so a score is an estimate of omp's behaviour, not a reproduction:
+- the transcript uses plain role labels (`[Thinking]`, not omp's `[Think]`), not the per-model dialect renderer omp uses; tool results over 2000 characters are cut as in omp, but omp's filtering of contextually useless tool results (`agent/src/compaction/utils.ts:240-250`) is not reproduced;
+- omp splits a long conversation into windows and clamps them to the model's budget (`compaction.ts:907-970`); evolve sends one request per compaction, and an oversize prompt is dropped instead;
+- the request reaches omp as a `<file name="...">` wrapper around the prompt plus a short task message in the user turn, not as a bare user message; a literal `</file>` in a transcript is escaped so it cannot close the wrapper;
+- omp's summarizer request has no tools and uses omp's summarization system prompt; the replay passes that prompt with `--system-prompt`, but omp still appends its own `<project-context>` block (workstation lines, context files, workspace tree) to a custom system prompt (`coding-agent/src/system-prompt.ts:1028-1036`), kept minimal here by the empty working directory; user-level context files omp loads from your home, and a global `APPEND_SYSTEM.md` that omp appends even with a custom prompt (`coding-agent/src/main.ts:1338`), are not suppressed by this tool;
+- the start of the summarized window after a previous remote or V2 compaction is computed differently in omp (`compaction.ts:1356-1366`, `:1405-1416`); evolve always restarts at the previous `firstKeptEntryId`;
+- when a turn is split, omp summarizes its prefix in a separate request (`:1462`); evolve inlines it;
+- text other extensions add (`hookContext`, `promptOverride`) and the focus text of `/compact <focus>` are not reproduced.
 
 ## Tests
 
-`bun test` drives a fake `pi`/`ctx` and temp directories; it never touches `~/.omp`.
+`bun test` (in this directory) drives a fake `pi`/`ctx` and temp directories; it never touches `~/.omp`. It also runs `evolve/evolve.test.ts`, which uses fixture journals under `evolve/fixtures/`, a fake generator and a fake `exec`; it never spawns `omp`.
