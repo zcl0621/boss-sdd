@@ -147,7 +147,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T4 skills/omp roles: agent files, binding table, example config  [complexity: high]
-- Status: pending
+- Status: done (merged 21bf290; integration gate exit 0, 46 pass)
 - depends_on: []
 - write_scope: skills/omp/roles.md, skills/omp/agents/, skills/omp/config.example.yml, skills/omp/test/roles.test.ts
 - exclusive_resources: []
