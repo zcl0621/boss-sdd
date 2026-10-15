@@ -181,7 +181,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T5 omp-context extension  [complexity: high]
-- Status: pending
+- Status: done (merged 462fc6d; integration gate exit 0, 105 pass; 5 rework rounds, real-omp QA x4)
 - depends_on: []
 - write_scope: plugins/omp-context/ (excluding plugins/omp-context/evolve/)
 - exclusive_resources: []
@@ -215,7 +215,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T11 omp-plan-memory: insert the reminder after the compaction summary, not at the tail  [fix: found by T5 adversary C7]
-- Status: pending
+- Status: done (merged ddec267; integration gate exit 0, 36 pass)
 - depends_on: [T6]
 - write_scope: plugins/omp-plan-memory/
 - exclusive_resources: []
