@@ -230,7 +230,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T7 evolve for omp
-- Status: pending
+- Status: done (merged e405dc2; integration gate exit 0, 243 pass; 3 red-test + 4 rework rounds, real-omp QA x2, adversary)
 - depends_on: [T5]
 - write_scope: plugins/omp-context/evolve/, plugins/omp-context/README.md
 - exclusive_resources: []
