@@ -301,6 +301,7 @@ returned the subagent's reply (`PONG kimi-code/kimi-for-coding-highspeed`), exit
 
 - Deep imports from the omp release binary are not guaranteed (launch/* proven missing). Mitigated by decision 9.
 - `session.compacting` is last-one-wins across extensions.
+- `context`-event blocks (omp-context, omp-plan-memory) sit at index 1 after a leading summary, else right after the first real user message. Residuals from the T5/T11 adversary, not observed in QA: old sessions persisted with legacy Anthropic native compaction get their file metadata emitted before the block; a `tool_result` or `turn_start` between the two conversions of one async-compaction cut can still flip plan-memory's block; a retained tail starting with a `toolResult` was not checked. T9 watches for compaction errors.
 - Per-request `context` blocks may cost prompt-cache hits; T9 observes.
 - Real models gpt-6.1-sol / opus-5.5 are not available on this machine; only Kimi is exercised.
 - The reference clone (commit 9d81cd1, package 18.11.1) is not proven identical to the binary.
