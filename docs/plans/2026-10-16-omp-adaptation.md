@@ -261,7 +261,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T9 end-to-end walkthrough on omp  [no-red-test: evidence report only]
-- Status: pending
+- Status: done (report merged; items 1,2,4-8,10 observed; 3 partial (F1,F3); 9 not met (F2); fixes T15-T17, re-check T18)
 - depends_on: [T2, T3, T5, T6, T7]
 - write_scope: docs/e2e/2026-10-16-omp-e2e.md
 - exclusive_resources: [kimi-quota-and-tmux]
@@ -327,6 +327,60 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
   8. `bun test skills/omp/test/skill.test.ts` and `roles.test.ts` still pass; EN and ZH say the same.
 - Gates: `bun test skills/omp/test/skill.test.ts`; `bun test skills/omp/test/roles.test.ts`
 - Risk / rollback: revert merge.
+- Obstacle ledger: empty. Rounds: 0.
+
+### T15 omp-context + omp-plan-memory: anchor after a rollover; the skill task counts as user words  [fix: T9 F1, F3]  [complexity: high]
+- Status: pending
+- depends_on: [T12, T13]
+- write_scope: plugins/omp-context/index.ts, plugins/omp-context/index.test.ts, plugins/omp-context/README.md, plugins/omp-plan-memory/index.ts, plugins/omp-plan-memory/index.test.ts, plugins/omp-plan-memory/README.md
+- exclusive_resources: []
+- role: implementer
+- Acceptance:
+  1. (F1) Both extensions find their anchor in the request shape omp builds after a rollover: leading `custom` messages (the `<experimental-context-notes>` notebook, skill prompt, reminders) before and after the `compactionSummary`, and no `user` role anywhere (T9 report item 3a, the four leading roles quoted there). The block is inserted right after the `compactionSummary` wherever it sits among the leading non-conversational messages; with no summary, the existing first-non-synthetic-user rule applies, then (new) right after the first message that came from the user's own invocation (the skill-prompt `custom` entry), else nowhere. The rule is cited against omp's rollover context assembly (file:line) and stays aligned with the async-compaction cut (`agent-session.ts:2380-2403`): the cut-simulation test from T11 passes for the new shapes.
+  2. (F3) The user's own task text from a `/skill:<name> <args>` invocation is recorded as user words (verbatim args, not the skill body); other slash commands stay unrecorded. Cited against how omp stores the skill invocation (custom type / details).
+  3. Tests use the exact role sequence from the T9 capture. All earlier tests in both packages pass.
+  4. READMEs of both extensions state the anchor rule as built.
+- Gates: `(cwd plugins/omp-context) bun test`; `(cwd plugins/omp-plan-memory) bun test`
+- Risk / rollback: revert merge.
+- Obstacle ledger: empty. Rounds: 0.
+
+### T16 omp-sidebar: a mouse path that works in real omp; click does not trap the keyboard  [fix: T9 F2]  [complexity: high]
+- Status: pending
+- depends_on: [T2]
+- write_scope: plugins/omp-sidebar/index.ts, plugins/omp-sidebar/sidebar-view.ts, plugins/omp-sidebar/compositor.ts, plugins/omp-sidebar/*.test.ts, plugins/omp-sidebar/README.md
+- exclusive_resources: []
+- role: implementer
+- Acceptance:
+  1. Established from omp source (cited): why SGR reports never reach extensions with `tui.mouse: true` (`input-controller.ts` `#handleInlineMouse`), and whether omp offers any extension hook that runs before it. Recorded in the README.
+  2. A mouse path that works in a real terminal: either through an omp hook that sees mouse reports first, or an opt-in `/sidebar mouse on|off` that turns on SGR mouse reporting itself while `tui.mouse` is off, consumes reports inside the sidebar, does not let any report leak into the editor as text, turns reporting off again on `/sidebar mouse off`, `/sidebar off`, session switch and exit, and is off by default. The README states the side effect (native text selection needs the terminal's modifier, as with `tui.mouse`).
+  3. Clicking a row does not trap the keyboard: after a click, printable keys and Enter go to the editor unless the user explicitly focused the sidebar with Alt+Shift+S; Esc, Ctrl+C and `/exit` always work. Tests for both.
+  4. All earlier sidebar tests pass; the automatic Git/Worktree/diff projection is untouched.
+- Gates: `(cwd plugins/omp-sidebar) bun install --frozen-lockfile`; `(cwd plugins/omp-sidebar) bun test`
+- Risk / rollback: terminal left in mouse-reporting mode after a crash; rollback = revert merge.
+- Obstacle ledger: empty. Rounds: 0.
+
+### T17 skills/omp docs: threshold floor; how to call board tools  [fix: T9 F4, F5]  [no-red-test: documentation only]
+- Status: pending
+- depends_on: [T14]
+- write_scope: skills/omp/SKILL.md, skills/omp/INSTALL.md, skills/omp/config.example.yml
+- exclusive_resources: []
+- role: implementer
+- Acceptance:
+  1. (F4) config.example.yml and INSTALL say the compaction threshold must stay well above what the skill reads at start (PLAYBOOK plus references, about 40K tokens measured in T9), else omp loops on compaction and pauses maintenance; give the measured number and how it was measured.
+  2. (F5) SKILL.md's board binding says plainly that board tools are called through `write xd://mcp__plan_sdd_<tool>` (or the discovered name), never through `bash`; and that skill reference paths are relative to the skill directory (`~/.omp/agent/skills/plan-sdd/`).
+  3. skill.test and roles.test still pass.
+- Gates: `bun test skills/omp/test/skill.test.ts`; `bun test skills/omp/test/roles.test.ts`
+- Risk / rollback: revert merge.
+- Obstacle ledger: empty. Rounds: 0.
+
+### T18 re-check in real omp after the fixes  [no-red-test: evidence report only]
+- Status: pending
+- depends_on: [T12, T13, T15, T16, T17]
+- write_scope: docs/e2e/2026-10-16-omp-e2e-recheck.md
+- exclusive_resources: [kimi-quota-and-tmux]
+- role: qa
+- Acceptance: T9 items 3 (incl. automatic rollover with the notebook present and a `/skill:` task), 5, 9 (with the T16 mouse path) and 10 re-run on the integration branch, same recipe as T9; each with command and raw capture.
+- Gates: none runnable; the orchestrator reads the report.
 - Obstacle ledger: empty. Rounds: 0.
 
 ## Run recipe
