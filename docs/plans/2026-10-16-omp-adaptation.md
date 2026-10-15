@@ -214,6 +214,21 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Risk / rollback: omp reports MCP tool calls under a name not anticipated; T9 checks in a real omp. Rollback = revert merge.
 - Obstacle ledger: empty. Rounds: 0.
 
+### T11 omp-plan-memory: insert the reminder after the compaction summary, not at the tail  [fix: found by T5 adversary C7]
+- Status: pending
+- depends_on: [T6]
+- write_scope: plugins/omp-plan-memory/
+- exclusive_resources: []
+- role: implementer
+- Acceptance:
+  1. The `context` handler inserts its `<memory>` block right after a leading `compactionSummary` message, else at index 0; never at the tail. Cited: omp `session/agent-session.ts:2380-2403` (`buildLiveProviderContext` cuts the transformed history at `len(convert(history))`, so tail insertions misalign the async-compaction summarizer request).
+  2. A test simulates that cut: for a history and retained tail, the first `len(handler(history))` messages of `handler(history + retained)` equal `handler(history)`.
+  3. The reminder text is stable across requests while the state is unchanged (no per-request varying bytes). The input array is never mutated.
+  4. Earlier tests still pass; README states the placement and why.
+- Gates: `(cwd plugins/omp-plan-memory) bun test`
+- Risk / rollback: revert the node's merge.
+- Obstacle ledger: empty. Rounds: 0.
+
 ### T7 evolve for omp
 - Status: pending
 - depends_on: [T5]
