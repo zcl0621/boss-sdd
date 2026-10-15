@@ -1,0 +1,11 @@
+{
+  "_comment": "Recall questions for the sessions you replay. A fact is a list of spellings; when several appear in the history, the one that appears last is the expected answer (values that changed mid-session). A question is asked only if every fact appears in the summarized range or the previous summary. `kind` is a short label the proposer sees about a failure; it never sees the answers. A session is holdout when a `holdout` entry is a substring of its title or its file name.",
+  "holdout": ["holdout-"],
+  "questions": [
+    {
+      "id": "jump",
+      "kind": "connection steps read from a doc early in the session",
+      "facts": [["jump.example.internal"], ["-p 2222", "-p 2200"], ["10.9.8.7"]]
+    }
+  ]
+}
