@@ -159,7 +159,17 @@ replace it. Exactly:
    [roles.md](roles.md) say. In
    the `compaction:` block only `experimentalContextManagement: true` is live;
    merge it under an existing `compaction:` key, or append the block; the
-   threshold lines stay commented out unless you want a cap. Keeping it trades
+   threshold lines stay commented out unless you want a cap. If you set one,
+   keep it well above what the skill reads at start: `PLAYBOOK.md` plus the
+   references it sends the orchestrator to before and during recon came to about
+   40K tokens in the T9 walkthrough (docs/e2e/2026-10-16-omp-e2e.md, F4, observed). Re-measured
+   as bytes / 4: `PLAYBOOK.md` alone is 56751 bytes, about 14K; with `board`,
+   `memory`, `goal-mode`, `recon`, `plan-spec` and `dag-contract` it is 130389
+   bytes, about 32.6K. The rest of T9's figure is not itemised (likely system
+   prompt, tools and `SKILL.md`; not verified).
+   `thresholdTokens: 30000` made omp roll over 18 times in 2m10s and print its
+   "pausing automatic maintenance" warning; 70000 did not loop, so use 70000 or
+   more. Keeping it trades
    summary guidance on automatic compaction for Pins (see
    `plugins/omp-context/README.md`); delete the line if you want the guidance
    more than Pins.

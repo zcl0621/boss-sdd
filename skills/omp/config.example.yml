@@ -49,6 +49,14 @@ modelRoles:
 #     # implementer: "@sdd-escalation"       # implementer.obstacle_escalation
 
 compaction:
+  # Floor: keep any threshold well above what the skill reads at start. PLAYBOOK.md
+  # plus the references it points to at the start came to about 40K tokens in the
+  # T9 walkthrough (observed there). Re-measured as bytes / 4: PLAYBOOK.md alone is
+  # 56751 bytes, about 14K; with board, memory, goal-mode, recon, plan-spec and
+  # dag-contract it is 130389 bytes, about 32.6K. The rest of T9's figure is not
+  # itemised (likely system prompt, tools and SKILL.md; not verified). thresholdTokens: 30000 made omp roll over 18 times in 2m10s and pause
+  # automatic maintenance; 70000 did not loop. Use 70000 or more.
+  #
   # Cap a long plan-sdd run at 500k tokens: compaction.modelThresholds keys a
   # model id to a fixed trigger "f500000" (omp's docs/settings.md, compaction.modelThresholds;
   # a bare number is a base the policy scales, not a cap), or set thresholdTokens
