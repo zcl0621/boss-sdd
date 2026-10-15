@@ -17,6 +17,7 @@ boss-sdd uses agents to carry a multi-step change through to the end. It surveys
   - `sidebar`: a TUI sidebar showing context usage, the goal, todos, running subagents, and git status.
 - **The board**: a macOS menu bar app (Swift) that stores the task graph in SQLite, plus an MCP server written in Go that agents use to read and write the board and project memory. Both packagings can connect to it, and both run without it.
 - **Two helper skills**: `skills/shuorenhua/` (rewrites Chinese text to remove AI tone, used when talking to the user in Phase P) and `skills/prompt-engineer/` (checks dispatch instructions before work is handed out). Both versions use them, and both run without them.
+- **An optional third-party skill for Phase P (Claude Code only)**: [`show-me`](https://github.com/charlie947/show-me), not carried in this repo. When it is installed, Phase P draws the change as before/after when restating it, and lays the architects' options out on one page to pick from. The written Discussion outcome and the user's explicit confirmation are still what count; a click on the page only picks an option. Without it, Phase P stays text.
 
 ## Why Claude Code needs only a skill and OpenCode also needs a plugin
 
@@ -259,6 +260,8 @@ mkdir -p ~/.claude/skills/plan-sdd
 cp -R skills/claude-code/. ~/.claude/skills/plan-sdd/
 cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
 ```
+
+Optionally, for the Phase P renders, copy `skills/show-me/SKILL.md` from [charlie947/show-me](https://github.com/charlie947/show-me) into `~/.claude/skills/show-me/`.
 
 Copy the 10 role files into the target project's `.claude/agents/`. If an older install put `spec-reviewer.md` there, delete it; it was renamed to `spec-auditor.md`. Which model each purpose uses is set in the "Model bindings" table in `skills/claude-code/roles.md`. It doesn't switch models automatically when quota runs short. The board is an optional step 4.
 

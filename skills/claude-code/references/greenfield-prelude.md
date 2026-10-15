@@ -8,6 +8,58 @@ How to talk to the user in this phase is in
 message the user will read in Phase P is checked with the `shuorenhua` skill
 (when installed) before it is sent.
 
+## Showing instead of describing: `show-me`
+
+When the `show-me` skill is installed, load it once per run through the `Skill`
+tool and use it at two points, and only there:
+
+- **P1**, when the change has a before/after shape (a flow, a screen, a data
+  path, a set of modules that moves): render "today" and "after this change"
+  side by side, next to the written restatement. Its SHOW mode. The "today"
+  half is a claim about the code, so it is drawn from what you read, not from
+  the request: under Full, wait for the P2 explorers and check what you draw
+  against the files they named; under Light, read the files the change touches
+  yourself first.
+- **P4**, when the architects came back with real options: put them on one page,
+  each with what it changes and what it costs, and your pick marked. Its PICK
+  mode.
+
+Where `show-me` and this file disagree, this file wins. Three places they do:
+
+1. **Number of options.** `show-me` asks for three at minimum. P4 shows only the
+   real ways to build it. With two real ways, the board has two cards; never
+   invent a third to fill it.
+2. **The render does not confirm anything.** A click that copies "A" counts as
+   the user's pick in P4 and nothing more. P5 still needs the written Discussion
+   outcome and an explicit "对 / 确认 / 按这个来" in words. The outcome stays
+   plain text, because it is copied verbatim into the plan document and recon.
+   Every assumption and question shown in a render is also in the text message,
+   so the user can answer either one.
+3. **How it is opened.** `show-me` opens Chrome through `osascript`. Where the
+   session has its own way to show a page or a diagram (a built-in browser pane,
+   an inline diagram tool), use that instead. Its other rules (self-contained
+   HTML, look at it yourself before showing it, say "not verified" for anything
+   unchecked) stand.
+
+**Checking a render you cannot see.** `show-me` says to look at the render
+before you speak about it. An inline diagram tool usually hands back no image,
+so that look has to happen another way, in this order:
+
+1. Check the content. Every number, path, name and count in the render traces to
+   a tool result from this run (an explorer's report you checked, a query you
+   ran). Anything that does not is cut, or marked "not verified" in the render.
+2. Check how it looks. Where the session has a browser you can screenshot (a
+   built-in browser pane, the Chrome tools), write the same render as a
+   self-contained HTML file, open it there, take a screenshot, and read it:
+   nothing cut off, nothing overlapping, the text readable in light and dark.
+   Fix what is wrong, then show it the way rule 3 says.
+3. No way to screenshot at all: show it anyway, and say in the text message
+   that you could not see the render yourself, so the user knows to say if it
+   came out broken.
+
+The `shuorenhua` rules apply to the words in the render too. Not installed:
+write P1 and P4 as text, as below.
+
 ## P0 Pick the depth
 
 Pick one and tell the user in one sentence which one and why.
@@ -31,6 +83,14 @@ answer "right" or "wrong" to.
 
 Do not list "unknowns". Fill in what you can infer from the repo, the request,
 and project memory. Say it as an assumption.
+
+If the change has a before/after shape and `show-me` is installed, render it
+alongside this text (see "Showing instead of describing" above).
+
+Under Full, hold P1 until P2 is back, and send P1 and the P3 questions in one
+message: the restatement and the render then rest on the code rather than on
+the request, and the user answers both in one reply. Under Light, P1 goes out
+on its own, after you have read the files the change touches.
 
 ## P2 Look at the code (Full only)
 
@@ -69,7 +129,8 @@ Only when P2 shows two or more real ways to build it. Launch 2 or 3 built-in
 and different focuses (smallest change, cleanest structure, middle path).
 
 Present to the user: each option in plain words, what it costs, and your pick
-with the reason. The user picks, or says "按你说的".
+with the reason, on a `show-me` board when it is installed (see "Showing instead
+of describing" above). The user picks, or says "按你说的".
 
 If there is only one reasonable way, skip the architects. Say which way and why
 in P5.
