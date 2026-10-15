@@ -311,7 +311,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T14 omp docs: override location, rollover conditions, citations  [fix: phase 3 review D1, D2, D3, D4, D5, D7, D8-nit]  [no-red-test: documentation only]
-- Status: pending
+- Status: done (merged 45d1077; skill.test exit 0, roles.test exit 0; review x1 + rework)
 - depends_on: [T3, T4, T8]
 - write_scope: skills/omp/INSTALL.md, skills/omp/SKILL.md, skills/omp/roles.md, skills/omp/config.example.yml, README.md, README.zh-CN.md
 - exclusive_resources: []
