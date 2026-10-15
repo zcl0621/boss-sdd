@@ -15,7 +15,7 @@
 //                 (wrapper.ts:238-243). Only the inner event counts; the outer write must not, or one call is
 //                 counted twice (tidy would fire after 3 tasks instead of 5).
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, existsSync, readdirSync, writeFileSync, utimesSync } from "node:fs"
+import { mkdtempSync, rmSync, existsSync, readdirSync, writeFileSync, utimesSync, chmodSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -29,7 +29,9 @@ const { default: extension, boardCalls, LIMITS, BLOCK } = mod
 type Handler = (event: any, ctx: any) => any
 function boot(sessionId: string) {
   const handlers: Record<string, Handler[]> = {}
-  const pi = { on: (name: string, h: Handler) => void (handlers[name] ??= []).push(h) }
+  const logs: { message: string; data?: any }[] = []
+  const logger = { warn: (message: string, data?: any) => void logs.push({ message, data }) }
+  const pi = { on: (name: string, h: Handler) => void (handlers[name] ??= []).push(h), logger }
   extension(pi as any)
   const ctx = { sessionManager: { getSessionId: () => sessionId } }
   const fire = async (name: string, event: any) => {
@@ -53,7 +55,7 @@ function boot(sessionId: string) {
     const text = typeof blk.content === "string" ? blk.content : blk.content[0].text
     return text as string
   }
-  return { fire, ran, mcp, note, handlers }
+  return { fire, ran, mcp, note, handlers, logs, ctx }
 }
 let seq = 0
 const fresh = () => boot(`ses_mem_${Date.now()}_${++seq}`)
@@ -445,5 +447,121 @@ describe("write reminder is a pure function of state inside `context`", () => {
     const messages = [{ role: "user", content: [{ type: "text", text: "go" }] }]
     const out = (await fire("context", { type: "context", messages }))?.messages ?? messages
     expect(out.length).toBe(2)
+  })
+})
+
+describe("unwritable state directory", () => {
+  const isRoot = typeof process.getuid === "function" && process.getuid() === 0
+  const t = isRoot ? test.skip : test
+  type H = ReturnType<typeof boot>
+  // Runs `body` with $OMP_PLAN_MEMORY_STATE_DIR pointing at a temp dir. `prepare` runs while it is still writable;
+  // then it is chmod 500 (or, with `missing`, the state dir is a not-yet-created child of a chmod-500 parent,
+  // so mkdirSync fails instead of writeFileSync).
+  const withReadOnly = async (opts: { missing?: boolean; prepare?: (h: H) => Promise<void> }, body: (h: H) => Promise<void>) => {
+    const root = mkdtempSync(path.join(tmpdir(), "omp-plan-memory-ro-"))
+    const dir = opts.missing ? path.join(root, "state", "nested") : root
+    const prev = process.env.OMP_PLAN_MEMORY_STATE_DIR
+    process.env.OMP_PLAN_MEMORY_STATE_DIR = dir
+    try {
+      const h = fresh()
+      await opts.prepare?.(h)
+      chmodSync(root, 0o500)
+      await body(h)
+    } finally {
+      chmodSync(root, 0o700)
+      if (prev === undefined) delete process.env.OMP_PLAN_MEMORY_STATE_DIR
+      else process.env.OMP_PLAN_MEMORY_STATE_DIR = prev
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+  // For the state assertions: a throwing handler must not hide the lost-state failure behind its own exception.
+  const quiet = async (f: () => Promise<unknown>) => {
+    try {
+      await f()
+    } catch {}
+  }
+  const prepareWriteDue = async ({ mcp, ran }: H) => {
+    await mcp("plan_create_run", {})
+    await mcp("plan_memory_list", {})
+    await ran("task", { agent: "recon-code", task: "r" })
+    await mcp("plan_set_tasks", { tasks: [{ id: "T1", status: "pending" }] })
+  }
+
+  t("tool_result does not throw when the state cannot be saved", async () => {
+    await withReadOnly({}, async ({ mcp }) => {
+      await mcp("plan_create_run", {}) // changes state -> save() -> EACCES
+    })
+  })
+
+  t("turn_start does not throw when the state cannot be saved", async () => {
+    await withReadOnly({ prepare: prepareWriteDue }, async ({ fire }) => {
+      await fire("turn_start", { type: "turn_start", turnIndex: 0, timestamp: 0 }) // due -> save() -> EACCES
+    })
+  })
+
+  t("state kept in memory: read reminder appears and clears with the dir read-only from the first event", async () => {
+    await withReadOnly({}, async ({ mcp, note }) => {
+      await quiet(() => mcp("plan_create_run", {}))
+      expect(await note()).toContain("plan_memory_list")
+      await quiet(() => mcp("plan_memory_list", {}))
+      expect(await note()).toBe("")
+    })
+  })
+
+  t("state kept in memory: write reminder stops after writeShows turns although saves fail", async () => {
+    await withReadOnly({ prepare: prepareWriteDue }, async ({ fire, note }) => {
+      expect(await note()).toContain("plan_memory_add") // sanity: due before the dir went read-only
+      for (let i = 0; i < LIMITS.writeShows; i++)
+        await quiet(() => fire("turn_start", { type: "turn_start", turnIndex: i, timestamp: 0 }))
+      expect(await note()).not.toContain("plan_memory_add")
+    })
+  })
+
+  t("state kept in memory when the state dir cannot even be created (mkdir fails)", async () => {
+    await withReadOnly({ missing: true }, async ({ mcp, note }) => {
+      await mcp("plan_create_run", {}) // must not throw
+      expect(await note()).toContain("plan_memory_list")
+    })
+  })
+
+  t("context returns undefined, without throwing, when its body fails", async () => {
+    const { mcp, handlers, ctx } = fresh()
+    await mcp("plan_create_run", {}) // a run is open, so the reminder is due and insertReminder runs
+    const result = await handlers.context![0]({ type: "context", messages: undefined }, ctx)
+    expect(result).toBeUndefined()
+  })
+
+  t("a save error is logged exactly once per session", async () => {
+    await withReadOnly({}, async ({ mcp, logs }) => {
+      await mcp("plan_create_run", {})
+      await mcp("plan_memory_list", {})
+      await mcp("plan_memory_add", {})
+      expect(logs.length).toBe(1)
+      expect(logs[0].message).toContain("omp-plan-memory")
+      expect(String(logs[0].data?.error)).toContain("EACCES")
+    })
+  })
+})
+
+describe("handler error logging", () => {
+  test("a handler error is logged exactly once per session, and never throws", async () => {
+    const { handlers, logs } = fresh()
+    const event = { type: "tool_result", toolCallId: "c", toolName: "plan_create_run", input: {}, content: [], isError: false }
+    const bad = { sessionManager: { getSessionId: () => { throw new Error("boom") } } }
+    expect(await handlers.tool_result![0](event, bad)).toBeUndefined()
+    expect(await handlers.tool_result![0](event, bad)).toBeUndefined()
+    expect(logs.length).toBe(1)
+    expect(String(logs[0].data?.error)).toContain("boom")
+  })
+
+  test("a logger that throws, or is missing, cannot make a handler throw", async () => {
+    const handlers: Record<string, Handler[]> = {}
+    const pi = { on: (n: string, h: Handler) => void (handlers[n] ??= []).push(h), logger: { warn: () => { throw new Error("log") } } }
+    extension(pi as any)
+    const bad = { sessionManager: { getSessionId: () => { throw new Error("boom") } } }
+    expect(await handlers.tool_result![0]({ toolName: "x", input: {} }, bad)).toBeUndefined()
+    const handlers2: Record<string, Handler[]> = {}
+    extension({ on: (n: string, h: Handler) => void (handlers2[n] ??= []).push(h) } as any)
+    expect(await handlers2.turn_start![0]({}, bad)).toBeUndefined()
   })
 })
