@@ -281,6 +281,54 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Risk / rollback: Kimi quota; findings of wrong behaviour in landed work become verify/fix pairs.
 - Obstacle ledger: empty. Rounds: 0.
 
+### T12 omp-context: restore block ready before the next request; nudge and input from settled state  [fix: phase 3 review C1, C3, C4, C2-doc, D3-doc]  [complexity: high]
+- Status: pending
+- depends_on: [T5, T7, T8]
+- write_scope: plugins/omp-context/index.ts, plugins/omp-context/index.test.ts, plugins/omp-context/README.md
+- exclusive_resources: []
+- role: implementer
+- Acceptance:
+  1. (C1) After `session_compact`, the restore block for that compaction is in place before any later `context` call, even when omp emits `session_compact` detached (`session-maintenance.ts:2490-2496`) and the handler's git calls are slow: no `await` happens before the new pending block is set from state already held (git/worktree info refreshed earlier, e.g. at `turn_end`, or the git part filled in by a later update that does not change bytes mid-turn more than once per compaction). Test: emit `session_compact` without awaiting, with git stubbed slow, then call `context`; the new block is present and the old one is gone.
+  2. (C3) The nudge decision is made outside the `context` handler (e.g. at `turn_end`) from stored state; `context` is a pure function of stored state with no `await` before it decides the inserted messages. Test: two `context` calls with no event in between return identical messages even when usage crosses the threshold between them.
+  3. (C4) "Recent user words" only contains text that reached the session as a user message (e.g. recorded from the user message entry / `message_end`, not from raw `input`); text another extension rewrote or swallowed in `input` is not recorded; the continue shortcut is not recorded. Tests for rewrite, swallow and continue.
+  4. (C2, D3) README: states that each inserted block is marked per-call by omp (`runner.ts:2069`) and that on Anthropic this stops omp's every-15-turns cache checkpoints below the block (`anthropic.ts:4514-4518`); and corrects "only `/compact <focus>`" to: `/compact <focus>` and `/compact soft|remote` reach a summarizer with the setting on (`session-maintenance.ts:1184-1188`, `compact-modes.ts:42-52`); `/compact snapcompact` has no summarizer.
+  5. All earlier omp-context tests still pass (adjusted only where the old behaviour is what changed).
+- Gates: `(cwd plugins/omp-context) bun test`
+- Risk / rollback: restore content one turn stale for git fields; rollback = revert merge.
+- Obstacle ledger: empty. Rounds: 0.
+
+### T13 omp-plan-memory: never throw into omp; README install path  [fix: phase 3 review C5, D6]
+- Status: pending
+- depends_on: [T6, T11]
+- write_scope: plugins/omp-plan-memory/index.ts, plugins/omp-plan-memory/index.test.ts, plugins/omp-plan-memory/README.md
+- exclusive_resources: []
+- role: implementer
+- Acceptance:
+  1. Every handler catches its own errors (as the OpenCode `plan-memory.js` does); an unwritable state dir leaves the reminder logic working in memory and throws nothing. Test with a read-only state dir.
+  2. README gives the install path `~/.omp/agent/extensions/omp-plan-memory/` (or a project's `.omp/extensions/`) and the copy command used in the root README.
+- Gates: `(cwd plugins/omp-plan-memory) bun test`
+- Risk / rollback: none beyond revert.
+- Obstacle ledger: empty. Rounds: 0.
+
+### T14 omp docs: override location, rollover conditions, citations  [fix: phase 3 review D1, D2, D3, D4, D5, D7, D8-nit]  [no-red-test: documentation only]
+- Status: pending
+- depends_on: [T3, T4, T8]
+- write_scope: skills/omp/INSTALL.md, skills/omp/SKILL.md, skills/omp/roles.md, skills/omp/config.example.yml, README.md, README.zh-CN.md
+- exclusive_resources: []
+- role: implementer
+- Acceptance:
+  1. (D1) INSTALL step 3 no longer merges `task.agentModelOverrides` into `~/.omp/agent/config.yml`; it says the override is set per dispatch in the project's `.omp/config.yml` only, as roles.md says.
+  2. (D2) INSTALL and config.example.yml state the Pins-vs-guidance trade-off of `experimentalContextManagement` in one sentence each, pointing to plugins/omp-context/README.md.
+  3. (D3) Root READMEs (EN, ZH): `/compact <focus>` and `/compact soft|remote` reach a summarizer with the setting on.
+  4. (D4) SKILL.md: `--goal` is refused for any non-interactive launch (`--print` or `--mode`), cited `cli/args.ts:131-132`.
+  5. (D5) SKILL.md tools list and root READMEs: rollover needs `context_notes`, `new_context`, `read`, `grep` in the tool set, else omp stays on legacy compaction (omp `docs/compaction.md:185-187`).
+  6. (D7) INSTALL profile claim cites omp's `docs/config-usage.md:78`; bare `docs/...` citations in roles.md and config.example.yml say "omp's".
+  7. (D8 nit) roles.md / config.example.yml: a `wait` snapshot after its 30-minute cap is not the result.
+  8. `bun test skills/omp/test/skill.test.ts` and `roles.test.ts` still pass; EN and ZH say the same.
+- Gates: `bun test skills/omp/test/skill.test.ts`; `bun test skills/omp/test/roles.test.ts`
+- Risk / rollback: revert merge.
+- Obstacle ledger: empty. Rounds: 0.
+
 ## Run recipe
 
 Verified by the orchestrator, 2026-10-16 (`/tmp/omp-probe`): a project-local agent with `model: "@probe"`, `.omp/config.yml` `modelRoles: { probe: kimi-code/kimi-for-coding-highspeed }`, and
