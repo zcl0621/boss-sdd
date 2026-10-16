@@ -1,0 +1,15 @@
+{
+  "name": "omp-context-local",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Restores the working set after an omp compaction or rollover and feeds summary requirements to the summarizer",
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "omp": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "omp-sidebar-local",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Full-height right status sidebar extension for the ordinary OMP CLI",
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "@oh-my-pi/pi-coding-agent": "^18.10.4",
+    "@oh-my-pi/pi-natives": "^18.10.4",
+    "@oh-my-pi/pi-tui": "^18.10.4",
+    "@oh-my-pi/pi-utils": "^18.10.4"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "18.11.1",
+    "@oh-my-pi/pi-natives": "18.11.1",
+    "@oh-my-pi/pi-tui": "18.11.1",
+    "@oh-my-pi/pi-utils": "18.11.1"
+  },
+  "omp": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
