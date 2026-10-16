@@ -270,6 +270,14 @@ Copy the 10 role files into the target project's `.claude/agents/`. If an older 
 
 Unattended runs: the skill can't start `/goal` by itself. It gives you a `/goal ...` line to type. It still runs if you don't, but it stops at the end of each turn and waits for you to say something. Claude Code needs none of the six plugins above.
 
+Sounds (optional): `plugins/claude-sounds` is a Claude Code mod that plays opencode's sounds when a subagent starts, finishes or fails, when a turn finishes or errors, at permission prompts and at questions. Add one entry to `env` in `~/.claude/settings.json` and new sessions (CLI and the desktop app's Code tab) load it:
+
+```json
+{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/boss-sdd/plugins/claude-sounds" } }
+```
+
+`claude plugin list` should show `opencode-sounds@inline` as loaded. In a session, `/sound on|off|test|list|status`. macOS only. Details: [`plugins/claude-sounds/README.md`](plugins/claude-sounds/README.md).
+
 ### OpenCode
 
 Run these from the repository root.

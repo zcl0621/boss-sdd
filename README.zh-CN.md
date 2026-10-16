@@ -271,6 +271,14 @@ cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
 
 无人值守：skill 不能自己开 `/goal`，它会给你一行 `/goal ...` 让你输入。不输入也能跑，但一轮结束就停，要你说话才继续。上面六个插件 Claude Code 都不需要。
 
+提示音（可选）：`plugins/claude-sounds` 是一个 Claude Code mod，用 opencode 的音效提示 subagent 开始、结束、失败，一轮跑完或出错，权限弹窗和提问。在 `~/.claude/settings.json` 的 `env` 里加一项，新开的会话（CLI 和桌面版 Code 标签页）就会加载：
+
+```json
+{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/你的路径/boss-sdd/plugins/claude-sounds" } }
+```
+
+用 `claude plugin list` 看到 `opencode-sounds@inline` 是 loaded 就对了。会话里用 `/sound on|off|test|list|status` 控制。只在 macOS 上出声。详见 [`plugins/claude-sounds/README.md`](plugins/claude-sounds/README.md)。
+
 ### OpenCode
 
 在仓库根目录执行。
