@@ -89,6 +89,19 @@ export function cleanupLive(): void {
 }
 
 // ---------- locations ----------
+// omp's profile-name rule (utils/src/dirs.ts:42-80 normalizeProfileName): empty or "default" is the default profile.
+const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const WINDOWS_RESERVED_BASENAME_RE = /^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\..*)?$/i;
+
+/** A valid named profile, or undefined for the default one; throws for a name omp would refuse. */
+export function profileName(raw: string | undefined): string | undefined {
+  const name = raw?.trim();
+  if (!name || name === "default") return undefined;
+  if (name === "." || name === ".." || name.endsWith(".") || !PROFILE_NAME_RE.test(name) || WINDOWS_RESERVED_BASENAME_RE.test(name))
+    throw new Error(`invalid omp profile "${raw}": omp profile names match ${PROFILE_NAME_RE.source}, are not "." or "..", do not end with "." and are not a reserved device name`);
+  return name;
+}
+
 /**
  * The installed extension dir, inside omp's agent directory as omp resolves it (utils/src/dirs.ts): a named profile
  * (`OMP_PROFILE`, else `PI_PROFILE`; empty or "default" means none) uses `<root>/profiles/<name>/agent` and ignores
@@ -97,8 +110,7 @@ export function cleanupLive(): void {
  */
 export function defaultTargetDir(env: Record<string, string | undefined> = process.env): string {
   const root = join(env.HOME || homedir(), env.PI_CONFIG_DIR || ".omp");
-  const raw = (env.OMP_PROFILE !== undefined ? env.OMP_PROFILE : env.PI_PROFILE)?.trim();
-  const profile = raw && raw !== "default" ? raw : undefined;
+  const profile = profileName(env.OMP_PROFILE !== undefined ? env.OMP_PROFILE : env.PI_PROFILE);
   const agent = profile ? join(root, "profiles", profile, "agent") : env.PI_CODING_AGENT_DIR || join(root, "agent");
   return join(agent, "extensions", "omp-context");
 }
@@ -809,6 +821,13 @@ export function parseArgs(argv: string[]): { ok: true; value: CliOptions } | { o
   const margin = int("margin", 1);
   for (const v of [rounds, samples, margin]) if (typeof v === "string") return { ok: false, error: v };
   if (raw.profile !== undefined && raw.target !== undefined) return { ok: false, error: "--profile and --target cannot be combined" };
+  if (raw.profile !== undefined) {
+    try {
+      profileName(raw.profile);
+    } catch (e: any) {
+      return { ok: false, error: `--profile: ${e.message}` };
+    }
+  }
   if (raw.dialect !== undefined && raw.dialect !== "anthropic" && raw.dialect !== "generic") return { ok: false, error: `--dialect must be anthropic or generic, got "${raw.dialect}"` };
   return {
     ok: true,

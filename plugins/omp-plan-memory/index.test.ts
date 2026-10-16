@@ -844,4 +844,24 @@ describe("review fixes (2026-10-16)", () => {
       rmSync(ompDir, { recursive: true, force: true })
     }
   })
+  test("each loaded instance keeps its own omp's agent dir", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "omp-plan-memory-two-"))
+    try {
+      const load = (name: string) => {
+        const handlers: Record<string, Handler[]> = {}
+        const pi = { on: (n: string, h: Handler) => void (handlers[n] ??= []).push(h), logger: { warn() {} }, pi: { getAgentDir: () => path.join(root, name) } }
+        extension(pi as any)
+        return handlers
+      }
+      const first = load("first")
+      load("second") // a later instance must not redirect the first one's state
+      const ctx = { sessionManager: { getSessionId: () => `ses_two_${Date.now()}` } }
+      for (const h of first.tool_result ?? [])
+        await h({ type: "tool_result", toolCallId: "t1", toolName: "mcp__plan_sdd_plan_create_run", input: {}, content: [], isError: false }, ctx)
+      expect(existsSync(path.join(root, "first", "omp-plan-memory"))).toBe(true)
+      expect(existsSync(path.join(root, "second", "omp-plan-memory"))).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

@@ -1005,6 +1005,16 @@ describe("install decision", () => {
       expect(defaultTargetDir({ HOME: home, OMP_PROFILE: "default", PI_CODING_AGENT_DIR: "/x" })).toBe(join("/x", "extensions", "omp-context"));
     });
 
+    test("a profile name omp would reject is refused, never turned into a path", () => {
+      const home = tmp("home");
+      for (const bad of ["../shared", "work/", "Work", "con", "a.", ".", "-x"]) {
+        expect(() => defaultTargetDir({ HOME: home, OMP_PROFILE: bad })).toThrow(/invalid omp profile/i);
+      }
+      expect(defaultTargetDir({ HOME: home, OMP_PROFILE: "work-2.b_c" })).toBe(
+        join(home, ".omp", "profiles", "work-2.b_c", "agent", "extensions", "omp-context"),
+      );
+    });
+
     test("defaultTargetDir follows omp's agent directory: PI_CODING_AGENT_DIR, then HOME/PI_CONFIG_DIR/agent", () => {
       const home = tmp("home");
       expect(defaultTargetDir({ HOME: home, PI_CODING_AGENT_DIR: "/work/omp-agent" })).toBe(

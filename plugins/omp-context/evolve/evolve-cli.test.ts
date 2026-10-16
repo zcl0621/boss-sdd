@@ -160,6 +160,9 @@ describe("main", () => {
     expect(code).toBe(0);
     expect(d.calls[0].targetDir).toBe(defaultTargetDir({ ...process.env, OMP_PROFILE: "work" }));
     expect(d.calls[0].targetDir).toContain(join("profiles", "work", "agent", "extensions", "omp-context"));
+    const bad = deps();
+    expect(await main(["--sessions", "/s", "--bank", bankFile(), "--model", "p/m", "--profile=../shared"], bad as any)).toBe(2);
+    expect(bad.calls).toHaveLength(0);
     const both = deps();
     expect(await main(["--sessions", "/s", "--bank", bankFile(), "--model", "p/m", "--profile=work", "--target=/t"], both as any)).toBe(2);
     expect(both.calls).toHaveLength(0);

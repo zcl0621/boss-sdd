@@ -56,30 +56,30 @@ interface State {
 
 const envAgentDir = () =>
   process.env.PI_CODING_AGENT_DIR || path.join(process.env.HOME || homedir(), process.env.PI_CONFIG_DIR || ".omp", "agent")
-// Set by the extension from omp's own resolver; tests and other hosts fall back to the env rule.
-let ompAgentDir: () => string | undefined = () => undefined
-const stateDir = () => process.env.OMP_PLAN_MEMORY_STATE_DIR || path.join(ompAgentDir() || envAgentDir(), "omp-plan-memory")
+// The state dir for one extension instance: `ompAgentDir` is that instance's omp resolver; without it (tests, other
+// hosts) the env rule applies. Read on every use, so an env override set later still counts.
+const stateDirOf = (ompAgentDir: () => string | undefined) => (): string =>
+  process.env.OMP_PLAN_MEMORY_STATE_DIR || path.join(ompAgentDir() || envAgentDir(), "omp-plan-memory")
 const FILE_PREFIX = "omp-plan-memory-"
-const file = (sid: string) => path.join(stateDir(), `${FILE_PREFIX}${sid.replace(/[^\w.-]/g, "_")}.json`)
+const file = (dir: string, sid: string) => path.join(dir, `${FILE_PREFIX}${sid.replace(/[^\w.-]/g, "_")}.json`)
 const empty = (): State => ({ run: false, listed: false, recon: false, graph: false, added: 0, writeShows: 0, closedIds: [], tidyDue: false })
-const load = (sid: string): State => {
+const load = (dir: string, sid: string): State => {
   try {
-    const saved = { ...empty(), ...JSON.parse(readFileSync(file(sid), "utf8")) }
+    const saved = { ...empty(), ...JSON.parse(readFileSync(file(dir, sid), "utf8")) }
     if (!Array.isArray(saved.closedIds)) saved.closedIds = []
     return saved
   } catch {
     return empty()
   }
 }
-const save = (sid: string, state: State) => {
-  mkdirSync(stateDir(), { recursive: true })
-  const tmp = `${file(sid)}.${process.pid}.tmp`
+const save = (dir: string, sid: string, state: State) => {
+  mkdirSync(dir, { recursive: true })
+  const tmp = `${file(dir, sid)}.${process.pid}.tmp`
   writeFileSync(tmp, JSON.stringify(state, null, 1))
-  renameSync(tmp, file(sid))
+  renameSync(tmp, file(dir, sid))
 }
-const pruneOld = () => {
+const pruneOld = (dir: string) => {
   try {
-    const dir = stateDir()
     const cutoff = Date.now() - LIMITS.keepDays * 86_400_000
     for (const f of readdirSync(dir))
       // only files this plugin writes (omp-plan-memory-<session>.json and its .<pid>.tmp); the directory may be shared
@@ -242,21 +242,21 @@ export function insertReminder(messages: any[], text: string): any[] | null {
 }
 
 export default function planMemory(pi: ExtensionAPI): void {
-  ompAgentDir = () => {
+  const stateDir = stateDirOf(() => {
     try {
       const dir = (pi as any).pi?.getAgentDir?.()
       return typeof dir === "string" && dir ? dir : undefined
     } catch {
       return undefined
     }
-  }
-  pruneOld()
+  })
+  pruneOld(stateDir())
   // Per-session state is read from disk once, then kept here: a failed save (unwritable state dir) must not lose a
   // transition. Saving is best-effort; the disk copy only lets a restarted omp pick the session up again.
   const sessions = new Map<string, State>()
   const stateOf = (sid: string): State => {
     let state = sessions.get(sid)
-    if (!state) sessions.set(sid, (state = load(sid)))
+    if (!state) sessions.set(sid, (state = load(stateDir(), sid)))
     return state
   }
   // Failures are logged through omp's extension logger, once per session per kind. Logging itself never throws.
@@ -278,7 +278,7 @@ export default function planMemory(pi: ExtensionAPI): void {
   }
   const trySave = (sid: string, state: State) => {
     try {
-      save(sid, state)
+      save(stateDir(), sid, state)
     } catch (error) {
       logOnce("save", sid, error)
     }
