@@ -27,7 +27,7 @@ class FakeTerminal {
   }
 }
 
-function setup() {
+function setup(lines: string[] = Array.from({ length: ROWS }, (_, row) => `side ${row}`)) {
   const terminal = new FakeTerminal();
   const tui = {
     terminal,
@@ -38,14 +38,24 @@ function setup() {
   };
   const compositor = new SidebarCompositor(
     tui as never,
-    (_width, rows) => Array.from({ length: rows }, (_, row) => `side ${row}`),
+    (_width, rows) => lines.slice(0, rows),
     { width: WIDTH, getTheme: () => theme },
   );
   // The first core write paints the sidebar; later writes are what we inspect.
   terminal.write("\x1b[1;1Hfirst frame");
   terminal.out.length = 0;
-  return { terminal, compositor };
+  return { terminal, compositor, lines };
 }
+
+/** 1-based rows of the sidebar painted after the core bytes (all of `written` when core is ""). */
+function paintedRows(written: string, core: string): number[] {
+  const after = core ? written.slice(written.indexOf(core) + core.length) : written;
+  const rows: number[] = [];
+  const pattern = new RegExp(`\\x1b\\[(\\d+);${REGION_COLUMN + 1}H\\x1b\\[0m`, "g");
+  for (const match of after.matchAll(pattern)) rows.push(Number(match[1]));
+  return rows;
+}
+const allRows = Array.from({ length: ROWS }, (_, i) => i + 1);
 
 /** 1-based rows whose sidebar cells were erased before the core bytes. */
 function erasedRows(written: string, core: string): number[] {
@@ -62,13 +72,48 @@ function paintedAfter(written: string, core: string): boolean {
 }
 
 describe("sidebar does not flash on writes without synchronized output", () => {
-  test("a diff paint (cursor-addressed rows, no line feed) erases nothing and repaints the sidebar", () => {
+  test("a diff paint (cursor-addressed rows, no line feed) erases nothing and repaints only the rows it erased into", () => {
     const { terminal } = setup();
     const core = "\x1b[?25l\x1b[5;1Hspinner ⠋\x1b[K\x1b[19;1H> prompt\x1b[K\x1b[?25h";
     terminal.write(core);
     const written = terminal.out.join("");
     expect(erasedRows(written, core)).toEqual([]);
-    expect(paintedAfter(written, core)).toBe(true);
+    expect(paintedRows(written, core)).toEqual([5, 19]);
+  });
+
+  test("a core write that touches no sidebar cell repaints nothing", () => {
+    const { terminal } = setup();
+    const core = "\x1b[3;1Hplain text";
+    terminal.write(core);
+    expect(paintedRows(terminal.out.join(""), core)).toEqual([]);
+  });
+
+  test("erase below repaints from the cursor row down; a full erase repaints everything", () => {
+    const { terminal } = setup();
+    const below = "\x1b[15;1H\x1b[J";
+    terminal.write(below);
+    expect(paintedRows(terminal.out.join(""), below)).toEqual([15, 16, 17, 18, 19, 20]);
+    terminal.out.length = 0;
+    const full = "\x1b[H\x1b[2Jframe";
+    terminal.write(full);
+    expect(paintedRows(terminal.out.join(""), full)).toEqual(allRows);
+  });
+
+  test("an erase on an unknown cursor row repaints every row", () => {
+    const { terminal } = setup();
+    terminal.write("\x1b[?1049h");
+    terminal.out.length = 0;
+    const core = "text\x1b[K";
+    terminal.write(core);
+    expect(paintedRows(terminal.out.join(""), core)).toEqual(allRows);
+  });
+
+  test("a sidebar line that changed is repainted even where the core did not touch", () => {
+    const { terminal, lines } = setup();
+    lines[7] = "side 7 changed";
+    const core = "\x1b[3;1Hplain text";
+    terminal.write(core);
+    expect(paintedRows(terminal.out.join(""), core)).toEqual([8]);
   });
 
   test("line feeds that start at a known row and stay on screen erase nothing", () => {
@@ -86,10 +131,22 @@ describe("sidebar does not flash on writes without synchronized output", () => {
     const written = terminal.out.join("");
     expect(erasedRows(written, core)).toEqual([1, 2, 3]);
     expect(paintedAfter(written, core)).toBe(true);
+    expect(paintedRows(written, core)).toEqual(allRows);
   });
 
-  test("line feeds before any absolute position assume the cursor is on the bottom row", () => {
+  test("the cursor row is carried across writes: a standalone line feed mid-screen erases nothing", () => {
     const { terminal } = setup();
+    // omp places its cursor and then writes "\r\n" as a separate write (tui.ts:2680).
+    terminal.write("\x1b[10;1Hprompt");
+    terminal.out.length = 0;
+    terminal.write("\r\n");
+    expect(erasedRows(terminal.out.join(""), "\r\n")).toEqual([]);
+  });
+
+  test("line feeds with no known cursor row (after an alt-screen switch) assume the bottom row", () => {
+    const { terminal } = setup();
+    terminal.write("\x1b[?1049l");
+    terminal.out.length = 0;
     const core = "\r\nx\r\ny";
     terminal.write(core);
     expect(erasedRows(terminal.out.join(""), core)).toEqual([1, 2]);
@@ -118,12 +175,21 @@ describe("sidebar does not flash on writes without synchronized output", () => {
     }
   });
 
-  test("a sidebar-only refresh over the same region erases nothing", () => {
+  test("a sidebar-only refresh with nothing changed writes nothing", () => {
     const { terminal, compositor } = setup();
+    compositor.requestRender();
+    compositor.requestRender();
+    expect(terminal.out.join("")).toBe("");
+  });
+
+  test("a sidebar-only refresh repaints only the changed rows and erases nothing", () => {
+    const { terminal, compositor, lines } = setup();
+    lines[2] = "side 2 now";
+    lines[11] = "side 11 now";
     compositor.requestRender();
     const written = terminal.out.join("");
     expect(written).not.toMatch(/\x1b\[\d+X/);
-    expect(written).toContain("side 0");
+    expect(paintedRows(written, "")).toEqual([3, 12]);
   });
 
   test("a width change still erases the old region before painting the new one", () => {

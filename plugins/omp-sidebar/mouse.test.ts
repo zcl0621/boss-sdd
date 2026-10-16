@@ -195,19 +195,24 @@ async function harness(options: HarnessOptions = {}) {
     },
     /** Raw bytes the terminal received since `mark`. */
     since: (mark: number) => terminal.out.slice(mark).join(""),
-    /** Paint a frame and return the sidebar rows as plain text, top to bottom. */
+    /**
+     * Paint a frame and return the sidebar rows as plain text, top to bottom, as
+     * the screen shows them: the sidebar repaints only rows that changed or that
+     * the core touched, so the latest paint of each row is read from all output.
+     */
     sidebarRows: (): string[] => {
-      const mark = terminal.out.length;
       (terminal as unknown as { write(data: string): void }).write("frame");
-      const bytes = terminal.out
-        .slice(mark)
-        .join("")
-        .replace(/\x1b\[\d+;\d+H/g, "\n")
-        .replace(/\x1b\[\d*X/g, "");
-      return Bun.stripANSI(bytes)
-        .split("\n")
-        .filter((line) => line.startsWith("│"))
-        .map((line) => line.slice(1).trimEnd());
+      const screen = new Map<number, string>();
+      const bytes = terminal.out.join("");
+      const cup = /\x1b\[(\d+);(\d+)H/g;
+      const hits = [...bytes.matchAll(cup)];
+      hits.forEach((hit, index) => {
+        if (Number(hit[2]) !== SIDEBAR_COLUMN) return;
+        const end = index + 1 < hits.length ? hits[index + 1].index : bytes.length;
+        const text = Bun.stripANSI(bytes.slice(hit.index + hit[0].length, end).replace(/\x1b[78]/g, ""));
+        if (text.startsWith("│")) screen.set(Number(hit[1]), text.slice(1).trimEnd());
+      });
+      return [...screen.entries()].sort((a, b) => a[0] - b[0]).map(([, text]) => text);
     },
   };
 }
@@ -393,9 +398,7 @@ describe("a click does not trap the keyboard", () => {
     expect(h.input(ALT_SHIFT_S)).toBe(true);
     expect(h.input("\r")).toBe(true);
     // The first selectable row is the Context header; running it collapses it.
-    const mark = h.terminal.out.length;
-    h.coreWrite("frame");
-    expect(Bun.stripANSI(h.since(mark))).toContain("▸");
+    expect(h.sidebarRows()[0]).toContain("▸");
   });
 
   test("Alt+Shift+S then a key the sidebar does not bind drops focus and passes through", async () => {

@@ -30,6 +30,10 @@ interface TerminalAdapter {
   dataColumns: number;
   autowrapEnabled: boolean;
   painted: SidebarBounds | undefined;
+  /** Row texts as last painted over `painted`. */
+  paintedLines: string[] | undefined;
+  /** Cursor row the last core write left, when known (see coreEffect). */
+  cursorRow: number | undefined;
 }
 
 interface SidebarState {
@@ -191,18 +195,38 @@ function sameRegion(a: SidebarBounds | undefined, b: SidebarBounds | undefined):
   return !!a && !!b && a.column === b.column && a.width === b.width && a.rows === b.rows;
 }
 
+/** What one core write does to the rows the sidebar occupies. */
+interface CoreEffect {
+  /** Upper bound on rows scrolled off the top; Infinity when it cannot be bounded. */
+  scrolls: number;
+  /** Rows (0-based) whose sidebar cells the write may have erased or shifted; "all" when it cannot say. */
+  touched: Set<number> | "all";
+  /** Cursor row after the write, when known. */
+  row: number | undefined;
+}
+
+const ALT_SCREEN_RE = /^\?(?:.*;)?(?:47|1047|1049)(?:;|$)/;
+
 /**
- * Upper bound on how many rows `data` scrolls off the top of a `rows`-high
- * screen, or Infinity when it cannot be bounded (a scroll region, or a full
- * erase that tmux implements by scrolling). The cursor is assumed on the
- * bottom row until an absolute position says otherwise, so the count never
- * falls short.
+ * Walk one core write the way the terminal will, tracking only the cursor row.
+ * `start` is the row the previous write left the cursor on; while the row is
+ * unknown it is assumed to be the bottom row, so scrolls are never undercounted,
+ * and an erase on an unknown row touches every row. Text never reaches the
+ * sidebar (the core sees the narrowed width), so only erases, line inserts and
+ * deletes, scrolls and screen switches touch sidebar cells.
  */
-function scrollCount(data: string, rows: number): number {
+function coreEffect(data: string, rows: number, start: number | undefined): CoreEffect {
   const bottom = rows - 1;
-  let row = bottom;
-  let saved = bottom;
+  let known = start !== undefined && start >= 0 && start <= bottom;
+  let row = known ? (start as number) : bottom;
+  let saved = { row, known };
   let scrolls = 0;
+  let all = false;
+  const touched = new Set<number>();
+  const mark = (from: number, to: number) => {
+    if (!known) all = true;
+    else for (let r = from; r <= to; r++) touched.add(r);
+  };
   const lineFeed = () => {
     if (row >= bottom) scrolls++;
     else row++;
@@ -221,7 +245,14 @@ function scrollCount(data: string, rows: number): number {
       const params = data.slice(i + 1, end);
       const final = data[end];
       i = end;
-      if (/^[?<>=]/.test(params)) continue;
+      if (/^[?<>=]/.test(params)) {
+        if ((final === "h" || final === "l") && ALT_SCREEN_RE.test(params)) {
+          all = true;
+          known = false;
+          row = bottom;
+        }
+        continue;
+      }
       const first = Number.parseInt(params.split(";")[0] ?? "", 10);
       const n = Number.isNaN(first) || first < 1 ? 1 : first;
       switch (final) {
@@ -229,6 +260,7 @@ function scrollCount(data: string, rows: number): number {
         case "f":
         case "d":
           row = Math.min(bottom, n - 1);
+          known = true;
           break;
         case "A":
         case "F":
@@ -241,16 +273,31 @@ function scrollCount(data: string, rows: number): number {
         case "S":
           scrolls += n;
           break;
+        case "T":
+          all = true;
+          break;
         case "J":
-          if (first === 2) return Number.POSITIVE_INFINITY;
+          if (first === 2) return { scrolls: Number.POSITIVE_INFINITY, touched: "all", row: known ? row : undefined };
+          if (first === 1) mark(0, row);
+          else if (first !== 3) mark(row, bottom);
+          break;
+        case "K":
+        case "X":
+        case "P":
+        case "@":
+          mark(row, row);
+          break;
+        case "L":
+        case "M":
+          mark(row, bottom);
           break;
         case "r":
-          return Number.POSITIVE_INFINITY;
+          return { scrolls: Number.POSITIVE_INFINITY, touched: "all", row: undefined };
         case "s":
-          saved = row;
+          saved = { row, known };
           break;
         case "u":
-          row = saved;
+          ({ row, known } = saved);
           break;
       }
     } else if (next === "]" || next === "P" || next === "_" || next === "^") {
@@ -262,13 +309,17 @@ function scrollCount(data: string, rows: number): number {
           break;
         }
       }
-    } else if (next === "7") saved = row;
-    else if (next === "8") row = saved;
+    } else if (next === "7") saved = { row, known };
+    else if (next === "8") ({ row, known } = saved);
     else if (next === "D" || next === "E") lineFeed();
-    else if (next === "M") row = Math.max(0, row - 1);
+    else if (next === "M") {
+      // Reverse index on the top row scrolls the screen down.
+      if (!known || row === 0) all = true;
+      row = Math.max(0, row - 1);
+    } else if (next === "c") return { scrolls: Number.POSITIVE_INFINITY, touched: "all", row: undefined };
     else if (next !== undefined && next >= " " && next <= "/") i++; // ESC ( B and friends
   }
-  return scrolls;
+  return { scrolls, touched: all || scrolls > 0 ? "all" : touched, row: known ? row : undefined };
 }
 
 /** Erase the sidebar cells of the top `count` rows, the ones a scroll pushes into scrollback. */
@@ -292,38 +343,47 @@ function paintSidebar(
   state: SidebarState,
   adapter: TerminalAdapter,
   region: SidebarBounds | undefined,
+  touched: Set<number> | "all" = "all",
 ): string {
   state.bounds = undefined;
-  if (!region) return "";
+  if (!region) {
+    adapter.paintedLines = undefined;
+    return "";
+  }
   const width = region.width - 1;
   const lines = state.renderSidebar(width, region.rows);
   const divider = state.getTheme().fg("borderMuted", "│");
   const blank = fitLayoutLine("", width);
-  let buffer = "\x1b7" + AUTOWRAP_OFF;
+  // Rows already on screen with the same content are skipped unless the core touched them.
+  const previous = sameRegion(adapter.painted, region) ? adapter.paintedLines : undefined;
+  const painted: string[] = [];
+  let buffer = "";
   for (let row = 0; row < region.rows; row++) {
     const line = lines[row];
-    buffer +=
-      `\x1b[${row + 1};${region.column + 1}H` +
-      SEGMENT_RESET +
-      divider +
-      (line === undefined ? blank : fitLayoutLine(line.replaceAll(CURSOR_MARKER, ""), width)) +
-      SEGMENT_RESET;
+    const text = divider + (line === undefined ? blank : fitLayoutLine(line.replaceAll(CURSOR_MARKER, ""), width));
+    painted.push(text);
+    if (previous && touched !== "all" && !touched.has(row) && previous[row] === text) continue;
+    buffer += `\x1b[${row + 1};${region.column + 1}H` + SEGMENT_RESET + text + SEGMENT_RESET;
   }
   adapter.painted = region;
+  adapter.paintedLines = painted;
   state.bounds = { column: region.column + 1, width, rows: region.rows };
+  if (!buffer) return "";
   // No newline, even at the bottom-right cell. Restore the app's cursor,
   // rendition and its last emitted autowrap mode, not a sidebar cursor.
-  return buffer + "\x1b8" + (adapter.autowrapEnabled ? AUTOWRAP_ON : AUTOWRAP_OFF);
+  return "\x1b7" + AUTOWRAP_OFF + buffer + "\x1b8" + (adapter.autowrapEnabled ? AUTOWRAP_ON : AUTOWRAP_OFF);
 }
 
 function repaintSidebar(state: SidebarState): void {
   const adapter = state.adapter;
   if (!adapter || nativeSurfaceActive(state)) return;
   const region = sidebarRegion(state, adapter);
-  // The paint overwrites every cell of an unchanged region; erasing first
-  // only makes it flash on terminals without synchronized output.
-  const clear = sameRegion(adapter.painted, region) ? "" : clearSidebar(adapter, region);
-  const buffer = clear + paintSidebar(state, adapter, region);
+  // Over an unchanged region only rows whose content changed are written:
+  // erasing first would flash where DEC 2026 is off, and rewriting unchanged
+  // rows on every data refresh is wasted output.
+  const same = sameRegion(adapter.painted, region);
+  const clear = same ? "" : clearSidebar(adapter, region);
+  const buffer = clear + paintSidebar(state, adapter, region, same ? new Set() : "all");
   if (!buffer) return;
   // Preserve the host's explicit opt-out on terminals with broken DEC 2026.
   const synchronized = state.tui.synchronizedOutput !== false;
@@ -422,6 +482,8 @@ function installAdapter(state: SidebarState): string | undefined {
     // OMP's completed ANSI paints restore autowrap before returning.
     autowrapEnabled: true,
     painted: undefined,
+    paintedLines: undefined,
+    cursorRow: undefined,
     columnsGetter: function () {
       // An externally retained wrapper is inert after detach/disposal.
       const region = state.adapter === adapter ? sidebarRegion(state, adapter) : undefined;
@@ -434,11 +496,16 @@ function installAdapter(state: SidebarState): string | undefined {
       }
       if (nativeSurfaceActive(state)) {
         adapter.painted = undefined;
+        adapter.cursorRow = undefined;
         originalWrite.call(this, data);
         return;
       }
       observeCoreMouse(state, data);
       const region = sidebarRegion(state, adapter);
+      // The cursor row survives only while the geometry does: a resize reflows the screen.
+      const same = region !== undefined && sameRegion(adapter.painted, region);
+      const effect = coreEffect(data, adapter.terminal.rows, same || !region ? adapter.cursorRow : undefined);
+      adapter.cursorRow = effect.row;
       if (!region && !adapter.painted) {
         state.bounds = undefined;
         originalWrite.call(this, data + mouseCorrection(state));
@@ -452,14 +519,14 @@ function installAdapter(state: SidebarState): string | undefined {
       // an unchanged region only the rows this write can scroll off the top
       // are cleared: the paint below overwrites the rest, and erasing them
       // first makes the sidebar flash where DEC 2026 is off (Apple Terminal).
-      const clear =
-        region && sameRegion(adapter.painted, region)
-          ? clearScrolledRows(adapter, region, scrollCount(data, region.rows))
-          : clearSidebar(adapter, region);
+      const clear = same
+        ? clearScrolledRows(adapter, region, effect.scrolls)
+        : clearSidebar(adapter, region);
       const synchronized = state.tui.synchronizedOutput !== false;
       const core =
         synchronized && data.includes("\x1b[?2026") ? data.replace(SYNC_WRAPPERS, "") : data;
-      const sidebar = paintSidebar(state, adapter, region);
+      // Only rows the core erased or shifted, plus rows whose content changed.
+      const sidebar = paintSidebar(state, adapter, region, effect.touched);
       const buffer = clear + core + sidebar + mouseCorrection(state);
       originalWrite.call(this, synchronized ? SYNC_BEGIN + buffer + SYNC_END : buffer);
     },
