@@ -13,6 +13,8 @@ interface SidebarOptions {
   getTheme: () => Theme;
   minMainWidth?: number;
   onUnsupported?: (message: string) => void;
+  /** omp's `tui.mouse` setting as read at mount; omp already turned reporting on. */
+  ompOwnsMouse?: () => boolean;
 }
 
 type TerminalWrite = (this: Terminal, data: string) => void;
@@ -42,6 +44,25 @@ interface SidebarState {
   adapter: TerminalAdapter | undefined;
   bounds: SidebarBounds | undefined;
   lastUnsupported: string | undefined;
+  mouse: MouseState;
+}
+
+/**
+ * Opt-in SGR mouse reporting owned by the sidebar. omp's TUI keeps its own
+ * private notion of the mode, so every core write is read for omp's own
+ * ON/OFF bytes and the terminal is corrected after it.
+ */
+interface MouseState {
+  /** `/sidebar mouse on` requested it. */
+  wanted: boolean;
+  /** omp's `tui.mouse` inline tracking owns the terminal: never write mouse bytes. */
+  ompOwns: boolean;
+  /** omp turned reporting on for the current overlay. */
+  overlayOwned: boolean;
+  /** Last mode the byte stream left the terminal in, from either side. */
+  on: boolean;
+  /** The sidebar's own bytes put it there. */
+  ours: boolean;
 }
 
 const terminalOwners = new Map<Terminal, SidebarState>();
@@ -52,6 +73,58 @@ const SYNC_END = "\x1b[?2026l";
 const SYNC_WRAPPERS = /\x1b\[\?2026[hl]/g;
 const AUTOWRAP_ON = "\x1b[?7h";
 const AUTOWRAP_OFF = "\x1b[?7l";
+// Clicks and wheel only (no 1003 any-motion) with SGR coordinates.
+const MOUSE_ON = "\x1b[?1000h\x1b[?1006h";
+// Same bytes as omp's own OFF, so a 1003 set by omp is never left behind.
+const MOUSE_OFF = "\x1b[?1006l\x1b[?1003l\x1b[?1000l";
+const CORE_MOUSE_ON = "\x1b[?1000h";
+const CORE_MOUSE_OFF = "\x1b[?1000l";
+
+/** Record what a core write did to mouse reporting. */
+function observeCoreMouse(state: SidebarState, data: string): void {
+  const on = data.lastIndexOf(CORE_MOUSE_ON);
+  const off = data.lastIndexOf(CORE_MOUSE_OFF);
+  if (on < 0 && off < 0) return;
+  const mouse = state.mouse;
+  const overlay = state.tui.hasOverlay();
+  mouse.ours = false;
+  mouse.on = on > off;
+  if (mouse.on) {
+    if (overlay) mouse.overlayOwned = true;
+    else mouse.ompOwns = true;
+  } else {
+    mouse.overlayOwned = false;
+    if (!overlay) mouse.ompOwns = false;
+  }
+}
+
+/** Bytes that bring mouse reporting to what the sidebar wants now. */
+function mouseCorrection(state: SidebarState): string {
+  const mouse = state.mouse;
+  if (mouse.ompOwns) return "";
+  let want: boolean;
+  if (state.tui.hasOverlay()) {
+    if (mouse.overlayOwned) return "";
+    want = false;
+  } else {
+    mouse.overlayOwned = false;
+    // Only while the sidebar is actually painted: the narrow-terminal rule
+    // hides it, and reporting would then swallow every main-area click.
+    const adapter = state.adapter;
+    want = mouse.wanted && adapter !== undefined && sidebarRegion(state, adapter) !== undefined;
+  }
+  if (want && !mouse.on) {
+    mouse.on = true;
+    mouse.ours = true;
+    return MOUSE_ON;
+  }
+  if (!want && mouse.on) {
+    mouse.on = false;
+    mouse.ours = false;
+    return MOUSE_OFF;
+  }
+  return "";
+}
 
 /** Terminal-cell width contract shared by construction and later resizing. */
 function clampWidth(width: number): number {
@@ -161,6 +234,11 @@ function restoreAdapter(state: SidebarState): void {
   if (!adapter) return;
   state.adapter = undefined;
   state.bounds = undefined;
+  if (state.mouse.ours && state.mouse.on && !state.mouse.ompOwns) {
+    state.mouse.on = false;
+    state.mouse.ours = false;
+    adapter.originalWrite.call(adapter.terminal, MOUSE_OFF);
+  }
   if (!state.tui.nativeRendering && !adapter.terminal.tspExpected) {
     const clear = clearSidebar(adapter, undefined);
     if (clear) {
@@ -255,10 +333,11 @@ function installAdapter(state: SidebarState): string | undefined {
         originalWrite.call(this, data);
         return;
       }
+      observeCoreMouse(state, data);
       const region = sidebarRegion(state, adapter);
       if (!region && !adapter.painted) {
         state.bounds = undefined;
-        originalWrite.call(this, data);
+        originalWrite.call(this, data + mouseCorrection(state));
         return;
       }
       const wrapOn = data.lastIndexOf(AUTOWRAP_ON);
@@ -271,7 +350,7 @@ function installAdapter(state: SidebarState): string | undefined {
       const core =
         synchronized && data.includes("\x1b[?2026") ? data.replace(SYNC_WRAPPERS, "") : data;
       const sidebar = paintSidebar(state, adapter, region);
-      const buffer = clear + core + sidebar;
+      const buffer = clear + core + sidebar + mouseCorrection(state);
       originalWrite.call(this, synchronized ? SYNC_BEGIN + buffer + SYNC_END : buffer);
     },
   };
@@ -332,6 +411,13 @@ export class SidebarCompositor {
       adapter: undefined,
       bounds: undefined,
       lastUnsupported: undefined,
+      mouse: {
+        wanted: false,
+        ompOwns: options.ompOwnsMouse?.() === true,
+        overlayOwned: false,
+        on: false,
+        ours: false,
+      },
     };
     if (typeof tui.requestRender !== "function") {
       reportUnsupported(this.state, "This TUI does not expose a public render scheduler.");
@@ -393,6 +479,34 @@ export class SidebarCompositor {
     state.enabled = false;
     restoreAdapter(state);
     if (attached) state.tui.requestRender(true);
+  }
+
+  /**
+   * Request or drop the sidebar's own mouse reporting. Returns false when
+   * omp's `tui.mouse` owns reporting, in which case nothing is written.
+   */
+  setMouseReporting(wanted: boolean): boolean {
+    const state = this.state;
+    if (state.disposed) return false;
+    state.mouse.wanted = wanted;
+    if (state.mouse.ompOwns) return false;
+    if (!wanted && !state.mouse.ours) return true;
+    if (wanted && !state.adapter) this.requestRender();
+    const adapter = state.adapter;
+    if (!adapter) return !wanted;
+    const bytes = mouseCorrection(state);
+    if (bytes) adapter.originalWrite.call(adapter.terminal, bytes);
+    return true;
+  }
+
+  /** omp's own inline tracking (`tui.mouse`) owns the terminal. */
+  get ompOwnsMouse(): boolean {
+    return this.state.mouse.ompOwns;
+  }
+
+  /** The sidebar's reporting is wanted and omp does not own the terminal. */
+  get mouseReporting(): boolean {
+    return this.state.mouse.wanted && !this.state.mouse.ompOwns;
   }
 
   getSidebarBounds(): SidebarBounds | undefined {
