@@ -56,4 +56,20 @@ Limits:
 - This is one run with one rollover after the first board call. Recheck2 had 11. The model's behaviour varies from run to run, so this run shows the fix working once; it does not prove the problem cannot come back.
 - Kimi did not follow the new SKILL.md line: neither of its `context_notes` writes (04:13:48, 04:19:21) contained `xd://`. In this run the route reached the model through the omp-context block, not through the notes.
 
+## Three more runs, `thresholdTokens: 60000`
+
+Same setup and prompt. The three ran in parallel as tmux sessions `w2`-`w4` on server `livefix`, sharing the scratch board on 18999. Each run had its own repo, session dir, probe log and plan-memory state under `LIVE/run<k>/`. Counts come from `LIVE/run<k>/timeline.txt`, which lists only the main session; subagent sessions sit in a subdirectory and are not counted.
+
+| run | rollovers (main session) | rollovers after its first board call | `ask` calls | `write xd://` board calls | run closed | `./test.sh` on main |
+|-----|-----|-----|-----|-----|-----|-----|
+| run2 | 10 | 2 (`cdc2e720` 04:26:19, `a84d5496` 04:30:42) | 0 | 10 | `update_run` status done 04:32:37 | `ok` |
+| run3 | 5 | 1 (`5cbeaa7a` 04:29:27, after the run was already done; no request followed it) | 0 | 12 | done 04:29:14 | `ok` |
+| run4 | 3 | 1 (`669573c8` 04:26:33) | 0 | 12 | done 04:29:13 | `ok` |
+
+The probe shows the first restore block after `cdc2e720`, `a84d5496` and `669573c8` listing the `xd://mcp__plan_sdd_*` devices. In all 3 runs the blocks after rollovers that came before any board call list no devices, as expected. run2's probe also has two rollovers (`9ecf4b45`, `c6beccf9`) whose blocks list no devices. Those belong to the `ReconProduct` and `ReconRules` subagent sessions, which never called a device.
+
+Across the four live runs (run1 above plus these three): 4 rollovers in the main session after a board call had worked, 0 `ask` calls, and every run closed with status done. run4's plan doc ended with `**Status:** completed` instead of `done`. That is a model wording slip, unrelated to this fix.
+
+Hygiene for these runs: tmux server killed, scratch board stopped (0 listeners on 18999), `pgrep -x omp` 0. Three session pointers omp wrote into `~/.omp/agent/custom-session-files/` pointed into `LIVE` and were removed (36 entries before and after). `~/.omp` config and extensions mtimes are unchanged. The real board answered `runs:20` before and after.
+
 Hygiene: tmux server `livefix` killed. Scratch board pid stopped; `lsof` on 18999 returned 0 lines. `pgrep -x omp` returned 0. I removed the two session pointers omp wrote to `~/.omp/agent/custom-session-files/` (36 entries before and after). `~/.omp/agent/config.yml` and `extensions/` mtimes are unchanged. `~/.omp/agent/omp-plan-memory` does not exist. The real board on 18888 answered `{"ok":true,"version":"0.3.0","port":18888,"runs":20}` before and after; it received GET `/api/health` only.
