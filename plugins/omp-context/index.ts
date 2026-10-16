@@ -2,7 +2,8 @@
 // requirements to omp's summarizer, and nudges near the budget in legacy compaction mode.
 //
 // omp API used (omp 18.11.1), all documented extension surface:
-//   input, message_end, tool_result, turn_end     extensions/types.ts (InputEvent, MessageEndEvent, ToolResultEvent)
+//   session_start, message_end, tool_result,      extensions/types.ts (MessageEndEvent, ToolResultEvent)
+//   turn_end
 //   session.compacting -> { context?: string[] }  extensibility/shared-events.ts:90, :482
 //   session_compact {compactionEntry}             shared-events.ts:97; fired for legacy compaction and rollover
 //                                                 (session/session-maintenance.ts:2486); rollover entries carry
@@ -36,13 +37,19 @@
 //   6190-6208). Role alternation stays valid.
 // Timestamp: the constant 0. A real timestamp makes anthropic.ts:5869 flushCompactionFiles(msg.timestamp) replay the
 //   summary's file metadata in front of the retained tail (ai/src/types.ts:1108-1130).
-// Cache: the block's bytes are constant between compactions (nudge numbers are frozen when it latches, the timestamp is
-//   0), so the cached prefix shifts once per compaction or nudge latch and is stable otherwise. Cost: the block's tokens
-//   on each request until the next compaction.
-// Filtering: `input` fires before slash parsing (modes/controllers/input-controller.ts:1011-1021), so text starting
-//   with "/" or "!" is not recorded; agent-attributed user messages (session/agent-session.ts:7545, :11448) are skipped.
+// Cache: `context` is synchronous over stored state, so two requests with no event between them carry the same bytes.
+//   The block changes at a compaction, at most once more when that compaction's git refresh fills in, and when the
+//   nudge latches at a turn_end (numbers frozen, timestamp 0). omp marks each inserted message per-call
+//   (extensions/runner.ts:2069); on Anthropic that stops the every-15-turns cache checkpoints below the block
+//   (ai/src/providers/anthropic.ts:4514-4518). Cost: the block's tokens on each request until the next compaction.
+// User words: only from message_end with role "user" (the message as it entered the session), not from `input`:
+//   input handlers chain (runner.ts:1982-2005), so a later extension may rewrite or swallow the text, and the continue
+//   shortcut becomes a synthetic developer message (input-controller.ts:985-998). Agent-attributed or synthetic user
+//   messages (session/agent-session.ts:7545, :11448) are skipped.
 // Read selectors stripped from read paths: docs/tools/read.md:33-49.
 // session_before_compact is deliberately NOT registered: it would disable async speculative compaction.
+// Nudge: decided at turn_end (settings and usage read there) and stored; a compaction clears it and drops any decision
+//   still in flight, so nothing re-arms it before the next turn_end.
 // Mode and threshold come from omp itself through string-literal dynamic imports behind try/catch; on any
 // failure the nudge stays quiet:
 //   lookup("compaction.experimentalContextManagement").get(pi.pi.settings)   docs/extensions.md:287-296
@@ -123,19 +130,23 @@ export function createSettingsReader(pi: any, loaders: ModuleLoaders = defaultLo
   };
 }
 
-interface Word {
-  text: string;
-  viaInput: boolean;
-  matched: boolean;
+interface GitInfo {
+  branch?: string;
+  worktrees: string[];
 }
 interface State {
-  words: Word[];
+  words: string[];
   /** Restore block built at the last compaction; included in every context request until the next one. */
   pendingRestore?: string;
-  /** Nudge text once triggered, numbers frozen at that moment; included until the next compaction. */
+  /** Nudge text once triggered at a turn_end, numbers frozen at that moment; included until the next compaction. */
   nudgeText?: string;
-  /** After a compaction, usage may still be stale; do not evaluate the nudge until the next turn_end. */
-  nudgeHold: boolean;
+  /** Bumped by every compaction: git fills and nudge decisions started before it are dropped. */
+  generation: number;
+  /** Last known git branch and worktrees (refreshed at session_start, turn_end and after a compaction). */
+  git?: GitInfo;
+  /** Sequence number of the latest git refresh started, and of the one whose result `git` holds. */
+  gitStarted: number;
+  gitApplied: number;
   plan?: { path: string; status?: string };
   skills: Set<string>;
   announced: Set<string>;
@@ -204,7 +215,7 @@ function readGuidance(path: string): string {
   return DEFAULT_GUIDANCE;
 }
 
-async function gitLines(pi: any, ctx: any): Promise<{ branch?: string; worktrees: string[] }> {
+async function gitLines(pi: any, ctx: any): Promise<GitInfo> {
   const run = async (args: string[]): Promise<string | undefined> => {
     try {
       const r = await pi.exec("git", args, { timeout: GIT_TIMEOUT_MS, cwd: ctx?.cwd });
@@ -235,7 +246,7 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
     }
     let s = states.get(id);
     if (s) states.delete(id); // re-insert below: Map order is least recently used first
-    else s = { words: [], nudgeHold: false, skills: new Set(), announced: new Set() };
+    else s = { words: [], generation: 0, gitStarted: 0, gitApplied: 0, skills: new Set(), announced: new Set() };
     states.set(id, s);
     while (states.size > MAX_SESSIONS) states.delete(states.keys().next().value as string);
     return s;
@@ -249,20 +260,12 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
     }
   };
 
-  const addWord = (s: State, raw: string, viaInput: boolean) => {
+  // Only the user message as it entered the session (message_end). Raw `input` text is not used: another extension
+  // may rewrite or swallow it later in the chain (runner.ts:1982-2005), and the continue shortcut never reaches it.
+  const addWord = (s: State, raw: string) => {
     const full = raw.trim();
     if (!full) return;
-    if (viaInput && (full.startsWith("/") || full.startsWith("!"))) return; // slash commands, shell escapes
-    const text = full.slice(0, MAX_WORD_CHARS);
-    if (!viaInput) {
-      // The message typed earlier (possibly while streaming) arrives here; pair it whatever the turn.
-      const twin = s.words.find(w => w.viaInput && !w.matched && w.text === text);
-      if (twin) {
-        twin.matched = true;
-        return;
-      }
-    }
-    s.words.push({ text, viaInput, matched: false });
+    s.words.push(full.slice(0, MAX_WORD_CHARS));
     if (s.words.length > MAX_WORDS) s.words.splice(0, s.words.length - MAX_WORDS);
   };
 
@@ -270,15 +273,11 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
     s.plan = { path, status };
   };
 
-  pi.on("input", safe((e: any, ctx: any) => {
-    if (typeof e?.text === "string") addWord(stateFor(ctx), e.text, true);
-  }));
-
   pi.on("message_end", safe((e: any, ctx: any) => {
     const m = e?.message;
     const s = stateFor(ctx);
     if (m?.role === "user") {
-      if (m.attribution !== "agent") addWord(s, textOf(m.content), false);
+      if (m.attribution !== "agent" && m.synthetic !== true) addWord(s, textOf(m.content));
     }
     else if (m?.role === "custom" && m.customType === "skill-prompt" && typeof m.details?.name === "string")
       s.skills.add(m.details.name);
@@ -315,6 +314,34 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
 
   pi.on("session.compacting", safe(() => ({ context: [readGuidance(guidancePath)] })));
 
+  const gitPart = (git: GitInfo | undefined): string[] => {
+    const out: string[] = [];
+    if (git?.branch) out.push("", `Git branch: ${git.branch}`);
+    if (git?.worktrees.length) out.push(...(git.branch ? [] : [""]), "Worktrees:", ...git.worktrees.map(w => `- ${w}`));
+    return out;
+  };
+
+  // Each refresh takes a sequence number when it starts; its result replaces `s.git` only when no later-started
+  // refresh has been applied, so a slow old answer never overwrites a newer one.
+  const refreshGit = async (s: State, ctx: any): Promise<GitInfo> => {
+    const seq = ++s.gitStarted;
+    const git = await gitLines(pi, ctx);
+    if (seq > s.gitApplied) {
+      s.git = git;
+      s.gitApplied = seq;
+    }
+    return git;
+  };
+  // Not awaited: omp awaits session_start at startup and waits for in-flight handlers before going idle.
+  const refreshInBackground = (s: State, ctx: any) => void refreshGit(s, ctx).catch(() => undefined);
+
+  pi.on("session_start", safe((_e: any, ctx: any) => {
+    refreshInBackground(stateFor(ctx), ctx);
+  }));
+
+  // The new block is set synchronously from state already held, before any await: omp may emit session_compact
+  // detached (session-maintenance.ts:2490-2496), so the next provider request can come before any git call returns.
+  // A git refresh started here fills in the git part once, and is dropped if a newer compaction happened meanwhile.
   pi.on("session_compact", safe(async (e: any, ctx: any) => {
     const s = stateFor(ctx);
     const entry = e?.compactionEntry;
@@ -323,52 +350,67 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
       if (s.announced.has(id)) return;
       s.announced.add(id);
     }
+    const generation = ++s.generation;
     s.nudgeText = undefined; // a new window starts
-    s.nudgeHold = true;
     const rollover = entry?.details?.kind === ROLLOVER_KIND;
-    const lines: string[] = [
+    const head: string[] = [
       rollover
         ? "Working set restored after a context rollover:"
         : "Working set restored after compaction (the summary may have lost detail):",
     ];
     if (s.words.length) {
-      lines.push("", "Recent user words (verbatim):");
-      for (const w of s.words) lines.push(`- ${w.text.replace(/\n/g, "\n  ")}`);
+      head.push("", "Recent user words (verbatim):");
+      for (const w of s.words) head.push(`- ${w.replace(/\n/g, "\n  ")}`);
     }
     if (s.plan) {
-      lines.push("", `Active plan: ${s.plan.path}`);
-      if (s.plan.status) lines.push(s.plan.status);
+      head.push("", `Active plan: ${s.plan.path}`);
+      if (s.plan.status) head.push(s.plan.status);
     }
-    const git = await gitLines(pi, ctx);
-    if (git.branch) lines.push("", `Git branch: ${git.branch}`);
-    if (git.worktrees.length) lines.push(...(git.branch ? [] : [""]), "Worktrees:", ...git.worktrees.map(w => `- ${w}`));
-    if (!rollover && s.skills.size) lines.push("", `Loaded skills: ${[...s.skills].join(", ")}`);
-    s.pendingRestore = lines.join("\n"); // replaces the previous block; the context handler inserts it
+    const tail: string[] = !rollover && s.skills.size ? ["", `Loaded skills: ${[...s.skills].join(", ")}`] : [];
+    const build = (git: GitInfo | undefined) => [...head, ...gitPart(git), ...tail].join("\n");
+    s.pendingRestore = build(s.git); // replaces the previous block; the context handler inserts it
+
+    const git = await refreshGit(s, ctx);
+    if (s.generation !== generation) return; // a newer compaction owns the block now
+    s.pendingRestore = build(git); // the one git fill for this compaction
   }));
 
-  pi.on("turn_end", safe((_e: any, ctx: any) => {
-    stateFor(ctx).nudgeHold = false; // usage reflects the post-compaction window from here on
-  }));
-
-  const nudgeFor = async (s: State, ctx: any): Promise<string | undefined> => {
-    if (s.nudgeText) return s.nudgeText;
-    if (s.nudgeHold) return undefined;
+  // The nudge is decided here, from settled usage, and stored; `context` only reads it. Usage is read after
+  // the settings so it is as fresh as possible; a compaction during the await drops the decision.
+  const decideNudge = async (s: State, ctx: any): Promise<void> => {
+    if (s.nudgeText) return; // latched: numbers frozen until the next compaction
+    const generation = s.generation;
+    let settings: SettingsSnapshot | undefined;
     try {
-      const settings = await readSettings(ctx);
-      const threshold = settings?.thresholdTokens;
-      if (!settings || settings.experimentalContextManagement || typeof threshold !== "number" || threshold <= 0) return undefined;
-      const tokens = ctx?.getContextUsage?.()?.tokens;
-      if (typeof tokens !== "number" || tokens < fraction * threshold) return undefined;
-      s.nudgeText =
-        `Context is near the compaction threshold (${tokens} of ${threshold} tokens). ` +
-        "Compaction will summarize soon: state the user's key words, the plan status and any open decisions in your next reply so they survive.";
-      return s.nudgeText;
+      settings = await readSettings(ctx);
     } catch {
-      return undefined;
+      return;
     }
+    if (s.generation !== generation || s.nudgeText) return;
+    const threshold = settings?.thresholdTokens;
+    if (!settings || settings.experimentalContextManagement || typeof threshold !== "number" || threshold <= 0) return;
+    let tokens: unknown;
+    try {
+      tokens = ctx?.getContextUsage?.()?.tokens;
+    } catch {
+      return;
+    }
+    if (typeof tokens !== "number" || tokens < fraction * threshold) return;
+    s.nudgeText =
+      `Context is near the compaction threshold (${tokens} of ${threshold} tokens). ` +
+      "Compaction will summarize soon: state the user's key words, the plan status and any open decisions in your next reply so they survive.";
   };
 
-  pi.on("context", safe(async (e: any, ctx: any) => {
+  // A compaction clears the nudge and nothing re-evaluates it before the next turn_end, so stale usage cannot re-arm it.
+  // Only the settings/usage read for the nudge is awaited; the git refresh runs in the background.
+  pi.on("turn_end", safe(async (_e: any, ctx: any) => {
+    const s = stateFor(ctx);
+    refreshInBackground(s, ctx);
+    await decideNudge(s, ctx);
+  }));
+
+  // A pure function of stored state: no await, so two requests with no event between them carry the same bytes.
+  pi.on("context", safe((e: any, ctx: any) => {
     const messages = e?.messages;
     if (!Array.isArray(messages)) return undefined;
     // Leading compactionSummary: index 1. Otherwise right after the first non-synthetic user message. Otherwise nothing.
@@ -377,8 +419,7 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
     const s = stateFor(ctx);
     const parts: string[] = [];
     if (s.pendingRestore) parts.push(s.pendingRestore);
-    const nudge = await nudgeFor(s, ctx);
-    if (nudge) parts.push(nudge);
+    if (s.nudgeText) parts.push(s.nudgeText);
     if (!parts.length) return undefined;
     const block = { role: "user", content: [{ type: "text", text: parts.join("\n\n") }], synthetic: true, timestamp: 0 };
     return { messages: [...messages.slice(0, at + 1), block, ...messages.slice(at + 1)] };

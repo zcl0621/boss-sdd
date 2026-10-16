@@ -112,6 +112,8 @@ async function appendedTexts(emit: any, ctx: any, messages: any[] = baseMessages
   return r?.messages ? r.messages.filter((m: any) => !messages.includes(m)).map(msgText) : [];
 }
 const text = (s: string) => [{ type: "text", text: s }];
+/** A user message as it entered the session (message_end): the only source of recorded user words. */
+const said = (t: string) => ({ message: { role: "user", content: [{ type: "text", text: t }], attribution: "user" } });
 const legacyCompaction = (id = "c1") => ({
   compactionEntry: { id, type: "compaction", summary: "s", details: undefined },
   fromExtension: false,
@@ -157,8 +159,8 @@ describe("restore block after legacy compaction", () => {
   test("carries user words, plan path + status, skills, branch and worktrees, once", async () => {
     const { emit, sent } = setup();
     const ctx = makeCtx();
-    await emit("input", { text: "please keep the migration reversible", source: "interactive" }, ctx);
-    await emit("input", { text: "and do not touch the main tree", source: "interactive" }, ctx);
+    await emit("message_end", said("please keep the migration reversible"), ctx);
+    await emit("message_end", said("and do not touch the main tree"), ctx);
     await emit(
       "tool_result",
       { toolName: "read", input: { path: "docs/plans/2026-10-16-x.md" }, content: text("# Plan\nStatus: In progress (T5)\nbody"), isError: false },
@@ -211,7 +213,7 @@ describe("restore block after legacy compaction", () => {
   test("user messages are bounded in count and size, newest kept", async () => {
     const { emit, sent } = setup();
     const ctx = makeCtx();
-    for (let i = 0; i < 30; i++) await emit("input", { text: `msg-${i} ${"z".repeat(5000)}`, source: "interactive" }, ctx);
+    for (let i = 0; i < 30; i++) await emit("message_end", said(`msg-${i} ${"z".repeat(5000)}`), ctx);
     await emit("session_compact", legacyCompaction(), ctx);
     const body = String(sent[0].message.content);
     expect(body).toContain("msg-29");
@@ -225,7 +227,7 @@ describe("restore block after legacy compaction", () => {
     await emit("session_compact", legacyCompaction("c1"), ctx);
     await emit("session_compact", legacyCompaction("c1"), ctx);
     expect(sent).toHaveLength(1);
-    await emit("input", { text: "something new", source: "interactive" }, ctx);
+    await emit("message_end", said("something new"), ctx);
     await emit("session_compact", legacyCompaction("c2"), ctx);
     expect(sent).toHaveLength(2);
   });
@@ -245,7 +247,7 @@ describe("restore block after rollover", () => {
   test("is thin: words, plan and git, no skills", async () => {
     const { emit, sent } = setup();
     const ctx = makeCtx();
-    await emit("input", { text: "ship it carefully", source: "interactive" }, ctx);
+    await emit("message_end", said("ship it carefully"), ctx);
     await emit(
       "tool_result",
       { toolName: "read", input: { path: "docs/plans/p.md" }, content: text("Status: Approved"), isError: false },
@@ -290,21 +292,31 @@ describe("session.compacting", () => {
   });
 });
 
-describe("near-budget nudge (context event)", () => {
+describe("near-budget nudge (decided at turn_end, carried by the context event)", () => {
   const usage = (tokens: number) => () => ({ tokens, contextWindow: 200000, percent: tokens / 2000 });
-  const nudges = async (emit: any, ctx: any) => (await appendedTexts(emit, ctx)).filter(t => t.includes(NUDGE));
+  /** A turn ends with this ctx's usage (the decision point), then the next request is built. */
+  const nudges = async (emit: any, ctx: any) => {
+    await emit("turn_end", {}, ctx);
+    return (await appendedTexts(emit, ctx)).filter(t => t.includes(NUDGE));
+  };
 
-  test("appended on every request once usage reaches the fraction of thresholdTokens, until the next compaction", async () => {
+  test("appended on every request once usage at a turn_end reaches the fraction of thresholdTokens, until the next compaction", async () => {
     const { emit, sendCalls } = setup({ nudgeFraction: 0.85 });
-    expect(await nudges(emit, makeCtx({ getContextUsage: usage(80000) }))).toHaveLength(0); // below 85% of 100000
-    expect(await nudges(emit, makeCtx({ getContextUsage: usage(90000) }))).toHaveLength(1);
-    expect(await nudges(emit, makeCtx({ getContextUsage: usage(90000) }))).toHaveLength(1); // later request: still there
-    expect(await nudges(emit, makeCtx({ getContextUsage: usage(10) }))).toHaveLength(1); // latched until compaction
+    const turn = (tokens: number) => emit("turn_end", {}, makeCtx({ getContextUsage: usage(tokens) }));
+    const request = async (tokens = 10) => (await appendedTexts(emit, makeCtx({ getContextUsage: usage(tokens) }))).filter(t => t.includes(NUDGE));
+    await turn(80000);
+    expect(await request()).toHaveLength(0); // below 85% of 100000
+    await turn(90000);
+    expect(await request()).toHaveLength(1);
+    expect(await request()).toHaveLength(1); // later request: still there
+    await turn(10);
+    expect(await request()).toHaveLength(1); // latched until compaction
     await emit("session_compact", legacyCompaction(), makeCtx());
-    expect(await nudges(emit, makeCtx({ getContextUsage: usage(90000) }))).toHaveLength(0); // usage not yet refreshed
-    await emit("turn_end", {}, makeCtx());
-    expect(await nudges(emit, makeCtx({ getContextUsage: usage(10) }))).toHaveLength(0);
-    expect(await nudges(emit, makeCtx({ getContextUsage: usage(90000) }))).toHaveLength(1); // new window, armed again
+    expect(await request(90000)).toHaveLength(0); // cleared; high live usage does not re-arm it before the next turn_end
+    await turn(10);
+    expect(await request()).toHaveLength(0);
+    await turn(90000);
+    expect(await request()).toHaveLength(1); // new window, armed again
     expect(sendCalls).toHaveLength(0);
   });
 
@@ -318,7 +330,7 @@ describe("near-budget nudge (context event)", () => {
   test("the reader receives the live ctx so it can resolve the active model", async () => {
     const seen: any[] = [];
     const { emit } = setup({ settings: async (c: any) => { seen.push(c); return { experimentalContextManagement: false, thresholdTokens: 100000 }; } });
-    await emit("context", { messages: baseMessages() }, makeCtx({ model: { provider: "p", id: "m", contextWindow: 200000 } }));
+    await emit("turn_end", {}, makeCtx({ model: { provider: "p", id: "m", contextWindow: 200000 } }));
     expect(seen[0]?.model?.id).toBe("m");
   });
 
@@ -360,7 +372,7 @@ describe("restore block through the context event", () => {
   test("present after a compaction, as one synthetic user message right after the first user message, and on later requests", async () => {
     const { emit, sendCalls } = setup();
     const ctx = makeCtx();
-    await emit("input", { text: "keep this", source: "interactive" }, ctx);
+    await emit("message_end", said("keep this"), ctx);
     await emit("session_compact", legacyCompaction(), ctx);
     const msgs = baseMessages();
     const r = await emit("context", { messages: msgs }, ctx);
@@ -396,9 +408,9 @@ describe("restore block through the context event", () => {
   test("replaced (not stacked) after the next compaction, rebuilt from current state", async () => {
     const { emit } = setup();
     const ctx = makeCtx();
-    await emit("input", { text: "first words", source: "interactive" }, ctx);
+    await emit("message_end", said("first words"), ctx);
     await emit("session_compact", legacyCompaction("c1"), ctx);
-    await emit("input", { text: "second words", source: "interactive" }, ctx);
+    await emit("message_end", said("second words"), ctx);
     expect((await appendedTexts(emit, ctx)).join("\n")).not.toContain("second words"); // block is the c1 snapshot
     await emit("session_compact", legacyCompaction("c2"), ctx);
     const texts = (await appendedTexts(emit, ctx)).filter(t => t.startsWith(RESTORE));
@@ -409,7 +421,7 @@ describe("restore block through the context event", () => {
   test("an identical rebuild is not skipped: a second compaction with no new words still leaves one block in place", async () => {
     const { emit } = setup();
     const ctx = makeCtx();
-    await emit("input", { text: "same state", source: "interactive" }, ctx);
+    await emit("message_end", said("same state"), ctx);
     await emit("session_compact", legacyCompaction("c1"), ctx);
     await emit("session_compact", legacyCompaction("c2"), ctx); // e.g. dead-end recovery with a new entry id
     const texts = (await appendedTexts(emit, ctx)).filter(t => t.startsWith(RESTORE));
@@ -421,7 +433,7 @@ describe("restore block through the context event", () => {
     const { emit } = setup();
     const ctx = makeCtx();
     await emit("session_compact", legacyCompaction("c1"), ctx);
-    await emit("input", { text: "after c1", source: "interactive" }, ctx);
+    await emit("message_end", said("after c1"), ctx);
     await emit("session_compact", legacyCompaction("c1"), ctx);
     expect((await appendedTexts(emit, ctx)).join("\n")).not.toContain("after c1");
   });
@@ -430,7 +442,7 @@ describe("restore block through the context event", () => {
     const { emit } = setup();
     const ctx = makeCtx();
     await emit("tool_result", { toolName: "read", input: { path: "skill://plan-sdd" }, content: text("x"), isError: false }, ctx);
-    await emit("input", { text: "thin please", source: "interactive" }, ctx);
+    await emit("message_end", said("thin please"), ctx);
     await emit("session_compact", rolloverCompaction(), ctx);
     for (let i = 0; i < 2; i++) {
       const t = (await appendedTexts(emit, ctx)).find(x => x.startsWith(RESTORE)) ?? "";
@@ -442,8 +454,8 @@ describe("restore block through the context event", () => {
   test("restore and nudge share ONE synthetic message when both apply (stable message count)", async () => {
     const { emit } = setup();
     await emit("session_compact", legacyCompaction(), makeCtx());
-    await emit("turn_end", {}, makeCtx());
     const hot = makeCtx({ getContextUsage: () => ({ tokens: 95000, contextWindow: 200000, percent: 47 }) });
+    await emit("turn_end", {}, hot);
     const texts = await appendedTexts(emit, hot);
     expect(texts).toHaveLength(1);
     expect(texts[0].startsWith(RESTORE)).toBe(true);
@@ -453,6 +465,7 @@ describe("restore block through the context event", () => {
   test("the extra text is identical on every request in a window, whatever the live token count does", async () => {
     const { emit } = setup();
     const at = (tokens: number) => makeCtx({ getContextUsage: () => ({ tokens, contextWindow: 200000, percent: 0 }) });
+    await emit("turn_end", {}, at(90000));
     const first = await appendedTexts(emit, at(90000));
     await Bun.sleep(5);
     const second = await appendedTexts(emit, at(97000));
@@ -577,7 +590,7 @@ describe("degradation", () => {
   test("git missing: block is still sent, without git lines", async () => {
     const { emit, sent } = setup({ execImpl: async () => { throw new Error("spawn git ENOENT"); } });
     const ctx = makeCtx();
-    await emit("input", { text: "remember this", source: "interactive" }, ctx);
+    await emit("message_end", said("remember this"), ctx);
     await emit("session_compact", legacyCompaction(), ctx);
     expect(sent).toHaveLength(1);
     const body = String(sent[0].message.content);
@@ -686,7 +699,7 @@ describe("per session", () => {
 
   test("a second session starts empty and the first is unaffected", async () => {
     const { emit, sent } = setup();
-    await emit("input", { text: "words of session A", source: "interactive" }, ctxFor("A"));
+    await emit("message_end", said("words of session A"), ctxFor("A"));
     await emit(
       "tool_result",
       { toolName: "read", input: { path: "docs/plans/a.md" }, content: text("Status: A-status"), isError: false },
@@ -697,7 +710,7 @@ describe("per session", () => {
     expect(bodyB).not.toContain("words of session A");
     expect(bodyB).not.toContain("A-status");
 
-    await emit("input", { text: "words of session B", source: "interactive" }, ctxFor("B"));
+    await emit("message_end", said("words of session B"), ctxFor("B"));
     await emit("session_compact", legacyCompaction("cA"), ctxFor("A"));
     const bodyA = String(sent[1].message.content);
     expect(bodyA).toContain("words of session A");
@@ -707,7 +720,7 @@ describe("per session", () => {
 
   test("the restore block of one session is not shown to another", async () => {
     const { emit } = setup();
-    await emit("input", { text: "only A", source: "interactive" }, ctxFor("A"));
+    await emit("message_end", said("only A"), ctxFor("A"));
     await emit("session_compact", legacyCompaction("cA"), ctxFor("A"));
     expect((await appendedTexts(emit, ctxFor("A"))).join("\n")).toContain("only A");
     expect(await appendedTexts(emit, ctxFor("B"))).toHaveLength(0);
@@ -717,6 +730,8 @@ describe("per session", () => {
     const { emit } = setup();
     const hot = (id: string, tokens: number) =>
       makeCtx({ sessionManager: { getSessionId: () => id, getBranch: () => [] }, getContextUsage: () => ({ tokens, contextWindow: 200000, percent: 0 }) });
+    await emit("turn_end", {}, hot("A", 95000));
+    await emit("turn_end", {}, hot("B", 10));
     expect((await appendedTexts(emit, hot("A", 95000))).some(t => t.includes(NUDGE))).toBe(true);
     expect((await appendedTexts(emit, hot("B", 10))).some(t => t.includes(NUDGE))).toBe(false);
   });
@@ -914,7 +929,9 @@ describe("default settings reader (decision 9 fallback)", () => {
   test("the extension with a failing default reader never nudges and never throws", async () => {
     const fake = makeFakePi();
     ompContext(fake.pi as any, { guidancePath: join(dir, "g.md"), loadModules: { registry: async () => { throw new Error("x"); }, threshold: async () => ({}) } });
-    const texts = await appendedTexts(fake.emit, makeCtx({ getContextUsage: () => ({ tokens: 199000, contextWindow: 200000, percent: 99 }) }));
+    const hot = makeCtx({ getContextUsage: () => ({ tokens: 199000, contextWindow: 200000, percent: 99 }) });
+    await fake.emit("turn_end", {}, hot);
+    const texts = await appendedTexts(fake.emit, hot);
     expect(texts).toHaveLength(0);
   });
 });
@@ -923,16 +940,40 @@ describe("default settings reader (decision 9 fallback)", () => {
 // Rework round: delivery timing, repeat suppression, filtering, selectors, env fraction, bounded state
 // ---------------------------------------------------------------------------------------------------
 
-describe("input filtering", () => {
-  test("slash commands and shell escapes are not recorded as user words", async () => {
+describe("what counts as user words", () => {
+  test("input events are ignored: typed text, slash commands and shell escapes are not recorded from input", async () => {
     const { emit, sent } = setup();
     const ctx = makeCtx();
-    for (const t of ["/compact now", "/skill:plan-sdd go", "!ls -la", "  /model x", "real words"])
+    for (const t of ["typed but swallowed", "/compact now", "/skill:plan-sdd go", "!ls -la", "  /model x"])
       await emit("input", { text: t, source: "interactive" }, ctx);
+    await emit("message_end", said("real words"), ctx); // what reached the session as a user message
     await emit("session_compact", legacyCompaction(), ctx);
     const body = String(sent[0].message.content);
     expect(body).toContain("real words");
-    for (const t of ["/compact", "/skill:plan-sdd go", "!ls", "/model x"]) expect(body).not.toContain(t);
+    for (const t of ["typed but swallowed", "/compact", "/skill:plan-sdd go", "!ls", "/model x"]) expect(body).not.toContain(t);
+  });
+
+  test("a prompt template / file-based slash command arrives expanded at message_end and is recorded, cut to 1000 characters", async () => {
+    // slash-commands.ts:124-141, agent-session.ts:7380-7397: the expanded text is the user message
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    const expanded = `Review the diff for correctness. ${"x".repeat(1200)} END-OF-TEMPLATE`;
+    await emit("message_end", said(expanded), ctx);
+    await emit("session_compact", legacyCompaction(), ctx);
+    const body = String(sent[0].message.content);
+    expect(body).toContain(`- ${expanded.slice(0, 1000)}\n`);
+    expect(body).not.toContain("END-OF-TEMPLATE");
+  });
+
+  test("synthetic user messages are not recorded", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    await emit("message_end", { message: { role: "user", content: "synthetic words", attribution: "user", synthetic: true } }, ctx);
+    await emit("message_end", said("real words"), ctx);
+    await emit("session_compact", legacyCompaction(), ctx);
+    const body = String(sent[0].message.content);
+    expect(body).toContain("real words");
+    expect(body).not.toContain("synthetic words");
   });
 
   test("agent-attributed user messages are not recorded", async () => {
@@ -1069,7 +1110,9 @@ describe("OMP_CONTEXT_NUDGE_FRACTION", () => {
   };
   const fires = async (tokens: number, o: { nudgeFraction?: number } = {}) => {
     const { emit } = setup(o);
-    const texts = await appendedTexts(emit, makeCtx({ getContextUsage: () => ({ tokens, contextWindow: 200000, percent: 0 }) }));
+    const ctx = makeCtx({ getContextUsage: () => ({ tokens, contextWindow: 200000, percent: 0 }) });
+    await emit("turn_end", {}, ctx);
+    const texts = await appendedTexts(emit, ctx);
     return texts.some(t => t.includes(NUDGE));
   };
 
@@ -1110,12 +1153,363 @@ describe("bounded session state", () => {
 
   test("keeps the 32 most recently used sessions and evicts the least recently used", async () => {
     const { emit, sent } = setup();
-    for (let i = 0; i < 32; i++) await emit("input", { text: `words-of-s${i}`, source: "interactive" }, ctxFor(`s${i}`));
-    await emit("input", { text: "words-of-s0-again", source: "interactive" }, ctxFor("s0")); // s0 is now most recent
-    await emit("input", { text: "words-of-s32", source: "interactive" }, ctxFor("s32")); // evicts s1
+    for (let i = 0; i < 32; i++) await emit("message_end", said(`words-of-s${i}`), ctxFor(`s${i}`));
+    await emit("message_end", said("words-of-s0-again"), ctxFor("s0")); // s0 is now most recent
+    await emit("message_end", said("words-of-s32"), ctxFor("s32")); // evicts s1
     expect(await bodyFor(emit, sent, "s0", "e0")).toContain("words-of-s0");
     expect(await bodyFor(emit, sent, "s32", "e32")).toContain("words-of-s32");
     const s1 = await bodyFor(emit, sent, "s1", "e1");
     expect(s1).not.toContain("words-of-s1");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// T12: restore block ready before the next request; nudge and words from settled state
+// ---------------------------------------------------------------------------------------------------
+
+/**
+ * A git stub for a detached session_compact: while slow, every call waits until release(); the branch it
+ * reports can be changed to see whether a later git answer leaks into a block that should be settled.
+ */
+function slowGit() {
+  let release!: () => void;
+  const gate = new Promise<void>(r => (release = r));
+  let slow = false;
+  let branch = "feature/x";
+  const execImpl = async (_cmd: string, args: string[]) => {
+    if (slow) await gate;
+    if (args[0] === "rev-parse") return { stdout: `${branch}\n`, stderr: "", code: 0, killed: false };
+    if (args[0] === "worktree") return { stdout: "/repo  abc1234 [main]\n", stderr: "", code: 0, killed: false };
+    return { stdout: "", stderr: "", code: 1, killed: false };
+  };
+  return {
+    execImpl,
+    goSlow: () => (slow = true),
+    goFast: () => (slow = false),
+    setBranch: (b: string) => (branch = b),
+    release: () => release(),
+  };
+}
+
+/** Fire every handler for an event without awaiting it (omp's `void compactEmit`, session-maintenance.ts:2490-2496). */
+const fireDetached = (handlers: Map<string, Handler[]>, event: string, payload: any, ctx: any) => {
+  for (const h of handlers.get(event) ?? []) void h({ type: event, ...payload }, ctx);
+};
+const flush = () => Bun.sleep(0);
+const restoreTexts = async (emit: any, ctx: any) => (await appendedTexts(emit, ctx)).filter((t: string) => t.startsWith(RESTORE));
+
+describe("T12 acceptance 1 (C1): restore block in place before the next context call", () => {
+  const userMsg = (t: string) => ({ message: { role: "user", content: [{ type: "text", text: t }], attribution: "user" } });
+
+  test("detached session_compact with git slow: the next context call carries the new block (git from turn_end) and not the old one", async () => {
+    const git = slowGit();
+    const { emit, handlers } = setup({ execImpl: git.execImpl });
+    const ctx = makeCtx();
+    try {
+      await emit("message_end", userMsg("old words"), ctx);
+      await emit("session_compact", legacyCompaction("c1"), ctx); // fast git: the old block is in place
+      expect((await restoreTexts(emit, ctx)).some(t => t.includes("old words"))).toBe(true);
+
+      await emit("message_end", userMsg("new words"), ctx);
+      git.setBranch("turn/branch"); // differs from c1's branch: the instant block must show the turn_end refresh
+      await emit("turn_end", {}, ctx); // git still fast here: the refresh point for git/worktree info
+      await flush();
+      git.goSlow();
+      fireDetached(handlers, "session_compact", rolloverCompaction("r2"), ctx);
+
+      const seen: string[] = [];
+      const first = await restoreTexts(emit, ctx);
+      expect(first).toHaveLength(1);
+      expect(first[0]).toContain("new words");
+      expect(first[0]).toContain("after a context rollover"); // the r2 block
+      expect(first[0]).not.toContain("after compaction"); // the c1 block is gone
+      expect(first[0]).toContain("Git branch: turn/branch"); // from the turn_end refresh, no await
+      seen.push(first[0]);
+
+      git.release();
+      await flush();
+      for (let i = 0; i < 2; i++) {
+        const r = await restoreTexts(emit, ctx);
+        expect(r).toHaveLength(1);
+        seen.push(r[0]);
+      }
+      expect(new Set(seen).size).toBeLessThanOrEqual(2); // bytes change at most once per compaction
+      expect(seen[seen.length - 1]).toContain("Git branch:");
+    } finally {
+      git.release();
+    }
+  });
+
+  test("first compaction with no git known yet, detached and git slow: block present at once, git filled in later, then settled", async () => {
+    const git = slowGit();
+    git.goSlow();
+    const { emit, handlers } = setup({ execImpl: git.execImpl });
+    const ctx = makeCtx();
+    try {
+      await emit("message_end", userMsg("keep me"), ctx);
+      fireDetached(handlers, "session_compact", legacyCompaction("c1"), ctx);
+      const now = await restoreTexts(emit, ctx);
+      expect(now).toHaveLength(1);
+      expect(now[0]).toContain("keep me");
+
+      git.release();
+      await flush();
+      const filled = await restoreTexts(emit, ctx);
+      expect(filled).toHaveLength(1);
+      expect(filled[0]).toContain("Git branch: feature/x"); // the later fill
+      expect(filled[0]).toContain("keep me");
+
+      git.goFast();
+      git.setBranch("other/branch");
+      expect(await restoreTexts(emit, ctx)).toEqual(filled);
+      await emit("turn_end", {}, ctx); // a new git answer must not rewrite this compaction's block
+      await flush();
+      expect(await restoreTexts(emit, ctx)).toEqual(filled);
+    } finally {
+      git.release();
+    }
+  });
+
+  test("a stale git result from an earlier compaction does not overwrite a later compaction's block", async () => {
+    const git = slowGit();
+    git.goSlow();
+    const { emit, handlers } = setup({ execImpl: git.execImpl });
+    const ctx = makeCtx();
+    try {
+      await emit("message_end", userMsg("c1 words"), ctx);
+      fireDetached(handlers, "session_compact", legacyCompaction("c1"), ctx); // its git waits on the gate
+      await flush();
+      git.goFast();
+      await emit("message_end", userMsg("r2 words"), ctx);
+      fireDetached(handlers, "session_compact", rolloverCompaction("r2"), ctx); // fast git
+      await flush();
+      git.release(); // c1's git answers late
+      await flush();
+      const r = await restoreTexts(emit, ctx);
+      expect(r).toHaveLength(1);
+      expect(r[0]).toContain("after a context rollover");
+      expect(r[0]).not.toContain("after compaction");
+      expect(r[0]).toContain("r2 words");
+    } finally {
+      git.release();
+    }
+  });
+});
+
+describe("T12 acceptance 2 (C3): context is a pure function of stored state", () => {
+  test("two context calls with no event between return identical messages even when usage crosses the threshold between them", async () => {
+    let tokens = 10;
+    const ctx = makeCtx({ getContextUsage: () => ({ tokens, contextWindow: 200000, percent: 0 }) });
+    const { emit } = setup({ nudgeFraction: 0.85 });
+    await emit("session_compact", legacyCompaction(), ctx);
+    await emit("turn_end", {}, ctx); // usage settled at 10: below 85% of 100000
+    const msgs = baseMessages();
+    const first = (await emit("context", { messages: msgs }, ctx))?.messages ?? msgs;
+    tokens = 95000; // live usage crosses the threshold, but no event happened
+    const second = (await emit("context", { messages: msgs }, ctx))?.messages ?? msgs;
+    expect(second).toEqual(first);
+    expect(second.map(msgText).join("\n")).not.toContain(NUDGE);
+  });
+
+  test("the nudge decided at turn_end is carried by the next context calls whatever the live usage then says", async () => {
+    let tokens = 95000;
+    const ctx = makeCtx({ getContextUsage: () => ({ tokens, contextWindow: 200000, percent: 0 }) });
+    const { emit } = setup({ nudgeFraction: 0.85 });
+    await emit("turn_end", {}, ctx); // decided here from usage 95000
+    tokens = 10;
+    expect((await appendedTexts(emit, ctx)).some(t => t.includes(NUDGE))).toBe(true);
+  });
+
+  test("context does not wait on the settings reader, even while a turn_end is still waiting on it", async () => {
+    const never = new Promise<any>(() => {});
+    const { emit, handlers } = setup({ settings: () => never });
+    const ctx = makeCtx({ getContextUsage: () => ({ tokens: 95000, contextWindow: 200000, percent: 0 }) });
+    // no compaction: nothing holds the nudge back, so today's context handler reaches the reader
+    fireDetached(handlers, "turn_end", {}, ctx); // its reader call never resolves
+    const timedOut = Symbol("timed out");
+    const r = await Promise.race([emit("context", { messages: baseMessages() }, ctx), Bun.sleep(200).then(() => timedOut)]);
+    expect(r).not.toBe(timedOut);
+  });
+});
+
+describe("T12 acceptance 3 (C4): recent user words come from the user message as it entered the session", () => {
+  const userMsg = (t: string) => ({ message: { role: "user", content: [{ type: "text", text: t }], attribution: "user" } });
+  const bodyAfterCompaction = async (emit: any, sent: any[], ctx: any) => {
+    await emit("session_compact", legacyCompaction(), ctx);
+    return String(sent[sent.length - 1]?.message.content ?? "");
+  };
+
+  test("rewrite: another input handler rewrote the text; only the rewritten text (the session's user message) is recorded", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    // runner.ts:1982-2005 chains input handlers; a later one rewrites what this extension saw
+    await emit("input", { text: "raw typed text", source: "interactive" }, ctx);
+    await emit("message_end", userMsg("rewritten by another extension"), ctx);
+    const body = await bodyAfterCompaction(emit, sent, ctx);
+    expect(body).toContain("rewritten by another extension");
+    expect(body).not.toContain("raw typed text");
+  });
+
+  test("regression guard (passes today): the continue directive, a synthetic developer message, is not recorded", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    await emit("message_end", userMsg("a real message"), ctx);
+    // input-controller.ts:985-998: "." / "c" never reach `input`; omp prompts manualContinuePrompt as a synthetic,
+    // agent-attributed developer message (agent-session.ts:7536-7545)
+    const directive = {
+      message: {
+        role: "developer",
+        content: [{ type: "text", text: "<system-notice>\nContinue.\n</system-notice>" }],
+        attribution: "agent",
+        synthetic: true,
+        userInitiated: true,
+      },
+    };
+    await emit("message_end", directive, ctx);
+    const body = await bodyAfterCompaction(emit, sent, ctx);
+    expect(body).toContain("a real message");
+    expect(body).not.toContain("Continue.");
+  });
+
+  test("regression guard: a real user message 'c' (guided-goal answer / RPC) is recorded", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    await emit("message_end", { message: { role: "user", content: "c", attribution: "user" } }, ctx);
+    const body = await bodyAfterCompaction(emit, sent, ctx);
+    expect(body).toMatch(/^- c$/m);
+  });
+
+  test("regression guard: a user message starting with '/' that reached the session is recorded (no input prefix filter on message_end)", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    await emit("message_end", userMsg("/Users/zhang/x please"), ctx);
+    const body = await bodyAfterCompaction(emit, sent, ctx);
+    expect(body).toContain("- /Users/zhang/x please");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// T12 rework: git refreshes never block a handler, never overwrite newer git state; coverage of drops
+// ---------------------------------------------------------------------------------------------------
+
+/**
+ * A git stub in phases: a `rev-parse` call waits on the phase current when it starts and reports that phase's
+ * branch, so refreshes started at different moments can be answered in any order.
+ */
+function phasedGit() {
+  type Phase = { gate: Promise<void>; open: () => void; branch: string };
+  const phases = new Map<string, Phase>();
+  const make = (branch: string, open: boolean): Phase => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => (release = r));
+    if (open) release();
+    return { gate, open: release, branch };
+  };
+  let current = make("feature/x", true);
+  const execImpl = async (_cmd: string, args: string[]) => {
+    const p = current;
+    await p.gate;
+    if (args[0] === "rev-parse") return { stdout: `${p.branch}\n`, stderr: "", code: 0, killed: false };
+    if (args[0] === "worktree") return { stdout: "/repo  abc1234 [main]\n", stderr: "", code: 0, killed: false };
+    return { stdout: "", stderr: "", code: 1, killed: false };
+  };
+  return {
+    execImpl,
+    phase: (name: string, branch: string, open = false) => {
+      current = make(branch, open);
+      phases.set(name, current);
+    },
+    release: (name: string) => phases.get(name)?.open(),
+    releaseAll: () => {
+      for (const p of phases.values()) p.open();
+    },
+  };
+}
+
+const settled = <T>(p: Promise<T>, ms = 200) => {
+  const timedOut = Symbol("timed out");
+  return Promise.race([p.then(() => "settled" as const), Bun.sleep(ms).then(() => timedOut)]);
+};
+
+describe("T12 rework item 1: git refreshes do not hold up turn_end or session_start", () => {
+  test("turn_end resolves promptly while git is gated slow", async () => {
+    const git = phasedGit();
+    const { emit } = setup({ execImpl: git.execImpl });
+    try {
+      git.phase("slow", "slow/branch");
+      expect(await settled(emit("turn_end", {}, makeCtx()))).toBe("settled");
+    } finally {
+      git.releaseAll();
+    }
+  });
+
+  test("session_start resolves promptly while git is gated slow", async () => {
+    const git = phasedGit();
+    const { emit } = setup({ execImpl: git.execImpl });
+    try {
+      git.phase("slow", "slow/branch");
+      expect(await settled(emit("session_start", {}, makeCtx()))).toBe("settled");
+    } finally {
+      git.releaseAll();
+    }
+  });
+});
+
+describe("T12 rework item 2: an older git refresh never overwrites newer git state", () => {
+  test("a turn_end refresh started before a compaction and finishing after its fill does not overwrite the git state", async () => {
+    const git = phasedGit();
+    const { emit, handlers } = setup({ execImpl: git.execImpl });
+    const ctx = makeCtx();
+    try {
+      git.phase("old", "old/branch"); // the turn_end refresh waits here
+      fireDetached(handlers, "turn_end", {}, ctx);
+      await flush();
+      git.phase("fill", "new/branch", true); // the compaction's fill answers at once
+      await emit("session_compact", legacyCompaction("c1"), ctx);
+      await flush();
+      git.release("old"); // the older refresh answers last
+      await flush();
+      git.phase("never", "never/branch"); // c2's own fill never answers: its instant block shows s.git
+      fireDetached(handlers, "session_compact", legacyCompaction("c2"), ctx);
+      const r = await restoreTexts(emit, ctx);
+      expect(r).toHaveLength(1);
+      expect(r[0]).toContain("Git branch: new/branch");
+      expect(r[0]).not.toContain("old/branch");
+    } finally {
+      git.releaseAll();
+    }
+  });
+});
+
+describe("T12 rework item 3: coverage", () => {
+  test("a nudge decision is dropped when a compaction happens during the settings read", async () => {
+    let answer!: (v: any) => void;
+    const pending = new Promise<any>(r => (answer = r));
+    const { emit, handlers } = setup({ settings: () => pending });
+    const hot = makeCtx({ getContextUsage: () => ({ tokens: 95000, contextWindow: 200000, percent: 0 }) });
+    fireDetached(handlers, "turn_end", {}, hot); // waits on the settings read
+    await flush();
+    await emit("session_compact", legacyCompaction(), hot);
+    answer({ experimentalContextManagement: false, thresholdTokens: 100000 });
+    await flush();
+    expect((await appendedTexts(emit, hot)).some(t => t.includes(NUDGE))).toBe(false);
+  });
+
+  test("the session_start refresh feeds the first compaction's instant block", async () => {
+    const git = phasedGit();
+    const { emit, handlers } = setup({ execImpl: git.execImpl });
+    const ctx = makeCtx();
+    try {
+      git.phase("start", "start/branch", true);
+      await emit("session_start", {}, ctx);
+      await flush();
+      git.phase("never", "never/branch"); // the compaction's own fill never answers
+      fireDetached(handlers, "session_compact", legacyCompaction("c1"), ctx);
+      const r = await restoreTexts(emit, ctx);
+      expect(r).toHaveLength(1);
+      expect(r[0]).toContain("Git branch: start/branch");
+    } finally {
+      git.releaseAll();
+    }
   });
 });
