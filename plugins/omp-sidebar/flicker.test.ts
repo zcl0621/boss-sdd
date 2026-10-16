@@ -81,11 +81,31 @@ describe("sidebar does not flash on writes without synchronized output", () => {
     expect(paintedRows(written, core)).toEqual([5, 19]);
   });
 
-  test("a core write that touches no sidebar cell repaints nothing", () => {
+  test("a core write repaints only the rows it printed on, so overflowing text is healed", () => {
     const { terminal } = setup();
-    const core = "\x1b[3;1Hplain text";
+    // A glyph the terminal draws wider than omp measured can land on the divider column.
+    const core = "\x1b[3;1Hplain text\x1b[9;1H🙂wide";
+    terminal.write(core);
+    expect(paintedRows(terminal.out.join(""), core)).toEqual([3, 9]);
+  });
+
+  test("a core write of cursor moves and modes alone repaints nothing", () => {
+    const { terminal } = setup();
+    const core = "\x1b[?25l\x1b[3;1H\x1b[?25h";
     terminal.write(core);
     expect(paintedRows(terminal.out.join(""), core)).toEqual([]);
+  });
+
+  test("after a full erase the rest of the write is still followed, so the next line feed is counted", () => {
+    const { terminal } = setup();
+    // A destructive reset: erase, then the whole frame down to the bottom row.
+    const frame = "\x1b[H\x1b[2J" + Array.from({ length: ROWS }, (_, i) => `line ${i}`).join("\r\n");
+    terminal.write(frame);
+    terminal.out.length = 0;
+    terminal.write("\r\n");
+    const written = terminal.out.join("");
+    expect(erasedRows(written, "\r\n")).toEqual([1]);
+    expect(paintedRows(written, "\r\n")).toEqual(allRows);
   });
 
   test("erase below repaints from the cursor row down; a full erase repaints everything", () => {
@@ -113,7 +133,7 @@ describe("sidebar does not flash on writes without synchronized output", () => {
     lines[7] = "side 7 changed";
     const core = "\x1b[3;1Hplain text";
     terminal.write(core);
-    expect(paintedRows(terminal.out.join(""), core)).toEqual([8]);
+    expect(paintedRows(terminal.out.join(""), core)).toEqual([3, 8]);
   });
 
   test("line feeds that start at a known row and stay on screen erase nothing", () => {

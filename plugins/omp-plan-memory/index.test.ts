@@ -784,4 +784,23 @@ describe("review fixes (2026-10-16)", () => {
       rmSync(home, { recursive: true, force: true })
     }
   })
+  test("a batch the board refused counts nothing; only tasks in `written` count", async () => {
+    const { mcp, note, fire } = fresh()
+    await mcp("plan_create_run", { project: "/p" })
+    await mcp("plan_memory_list", { project: "/p" })
+    const batch = (ids: string[], written: string[]) =>
+      fire("tool_result", {
+        type: "tool_result",
+        toolCallId: `b${ids.join("")}${written.length}`,
+        toolName: "mcp__plan_sdd_plan_set_tasks",
+        input: { run: "r", tasks: ids.map((id) => ({ id, status: "done" })) },
+        content: [{ type: "text", text: JSON.stringify({ written, failed: Object.fromEntries(ids.filter((id) => !written.includes(id)).map((id) => [id, "exclusive resource held"])), graph: {} }) }],
+        isError: false,
+      })
+    await batch(["T1", "T2"], ["T1", "T2"])
+    await batch(["T3", "T4", "T5"], []) // refused as a whole: nothing landed
+    expect(await note()).toBe("")
+    await batch(["T3", "T4", "T5"], ["T3", "T4", "T5"])
+    expect(await note()).toMatch(/5 tasks reached done\/blocked/)
+  })
 })

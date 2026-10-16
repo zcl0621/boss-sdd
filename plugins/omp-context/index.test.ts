@@ -1984,6 +1984,19 @@ describe("review fixes (2026-10-16)", () => {
     expect(body).not.toContain("Status: done");
   });
 
+  test("a Markdown-bold header Status is the plan status, shown without the markup", async () => {
+    for (const header of ["**Status:** running", "**Status**: running", "__Status:__ running"]) {
+      const { emit, sent } = setup();
+      const ctx = makeCtx();
+      const doc = `# Plan\n\n${header}\n\n### T1\n- Status: done\n`;
+      await emit("tool_result", { toolName: "read", input: { path: "docs/plans/bold.md" }, content: text(doc), isError: false }, ctx);
+      await emit("session_compact", legacyCompaction(), ctx);
+      const body = String(sent[0].message.content);
+      expect(body).toContain("\nStatus: running");
+      expect(body).not.toContain("Status: done");
+    }
+  });
+
   test("only a repeat of the latest compaction entry is dropped; nothing older is remembered", async () => {
     const { emit, sent } = setup();
     const ctx = makeCtx();

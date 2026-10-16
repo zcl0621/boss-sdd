@@ -125,8 +125,21 @@ const isRecon = (input: any): boolean => {
   return agents.some((a) => typeof a === "string" && /^recon/.test(a))
 }
 
-// Update the state for one finished tool call. Returns whether anything changed.
-export function observe(state: State, tool: unknown, input: any): boolean {
+// The task ids a plan_set_tasks result says landed (`written`, mcp/main.go batchOutput), or undefined when the
+// result is not readable. A batch the board refuses lands nothing: written is empty, failed lists every task.
+const writtenIds = (content: unknown): Set<string> | undefined => {
+  const text = Array.isArray(content) ? content.find((b: any) => b?.type === "text" && typeof b.text === "string")?.text : undefined
+  if (typeof text !== "string") return undefined
+  try {
+    const parsed = JSON.parse(text)
+    return Array.isArray(parsed?.written) ? new Set(parsed.written.map(String)) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// Update the state for one finished tool call. Returns whether anything changed. `content` is the tool result.
+export function observe(state: State, tool: unknown, input: any, content?: unknown): boolean {
   let changed = false
   if (tool === "task" && isRecon(input) && !state.recon) (state.recon = true), (changed = true)
   for (const [name, text] of boardCalls(tool, input)) {
@@ -138,9 +151,12 @@ export function observe(state: State, tool: unknown, input: any): boolean {
     else if (name === "plan_memory_add") state.added++
     else if (name === "plan_set_tasks") state.graph = true
     if (name === "plan_set_task" || name === "plan_set_tasks") {
-      // Distinct ids: a batch that re-sends tasks already done does not count them again.
+      // Distinct ids: a batch that re-sends tasks already done does not count them again. For a batch, only tasks
+      // the board reports as written count.
+      const landed = name === "plan_set_tasks" ? writtenIds(content) : undefined
       for (const [id, status] of taskWrites(name, input))
-        if ((status === "done" || status === "blocked") && !state.closedIds.includes(id)) state.closedIds.push(id)
+        if ((status === "done" || status === "blocked") && (!landed || landed.has(id)) && !state.closedIds.includes(id))
+          state.closedIds.push(id)
       if (state.listed && state.closedIds.length >= LIMITS.tidyEvery) state.tidyDue = true
     }
     if (name === "plan_update_run" && /"status":"review"/.test(text)) state.tidyDue = true
@@ -257,7 +273,7 @@ export default function planMemory(pi: ExtensionAPI): void {
       if (event.isError) return
       const sid = ctx.sessionManager.getSessionId()
       const state = stateOf(sid)
-      if (observe(state, event.toolName, event.input)) trySave(sid, state)
+      if (observe(state, event.toolName, event.input, event.content)) trySave(sid, state)
     } catch (error) {
       logOnce("handler", sidOf(ctx), error)
     }

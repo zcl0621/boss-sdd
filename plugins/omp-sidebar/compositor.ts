@@ -211,9 +211,10 @@ const ALT_SCREEN_RE = /^\?(?:.*;)?(?:47|1047|1049)(?:;|$)/;
  * Walk one core write the way the terminal will, tracking only the cursor row.
  * `start` is the row the previous write left the cursor on; while the row is
  * unknown it is assumed to be the bottom row, so scrolls are never undercounted,
- * and an erase on an unknown row touches every row. Text never reaches the
- * sidebar (the core sees the narrowed width), so only erases, line inserts and
- * deletes, scrolls and screen switches touch sidebar cells.
+ * and an erase on an unknown row touches every row. Erases, line inserts and
+ * deletes, scrolls and screen switches touch sidebar cells; so does printed
+ * text, because a glyph the terminal draws wider than omp measured can spill
+ * onto the divider column, and repainting that row heals it.
  */
 function coreEffect(data: string, rows: number, start: number | undefined): CoreEffect {
   const bottom = rows - 1;
@@ -222,6 +223,9 @@ function coreEffect(data: string, rows: number, start: number | undefined): Core
   let saved = { row, known };
   let scrolls = 0;
   let all = false;
+  // A full erase or reset: everything is redrawn, but the walk goes on so the
+  // cursor row the write ends on is still known.
+  let full = false;
   const touched = new Set<number>();
   const mark = (from: number, to: number) => {
     if (!known) all = true;
@@ -237,7 +241,14 @@ function coreEffect(data: string, rows: number, start: number | undefined): Core
       lineFeed();
       continue;
     }
-    if (ch !== "\x1b") continue;
+    if (ch !== "\x1b") {
+      const code = data.charCodeAt(i);
+      if (code >= 0x20 && code !== 0x7f) {
+        if (!known) all = true;
+        else touched.add(row);
+      }
+      continue;
+    }
     const next = data[++i];
     if (next === "[") {
       let end = i + 1;
@@ -277,8 +288,8 @@ function coreEffect(data: string, rows: number, start: number | undefined): Core
           all = true;
           break;
         case "J":
-          if (first === 2) return { scrolls: Number.POSITIVE_INFINITY, touched: "all", row: known ? row : undefined };
-          if (first === 1) mark(0, row);
+          if (first === 2) full = true;
+          else if (first === 1) mark(0, row);
           else if (first !== 3) mark(row, bottom);
           break;
         case "K":
@@ -319,6 +330,7 @@ function coreEffect(data: string, rows: number, start: number | undefined): Core
     } else if (next === "c") return { scrolls: Number.POSITIVE_INFINITY, touched: "all", row: undefined };
     else if (next !== undefined && next >= " " && next <= "/") i++; // ESC ( B and friends
   }
+  if (full) return { scrolls: Number.POSITIVE_INFINITY, touched: "all", row: known ? row : undefined };
   return { scrolls, touched: all || scrolls > 0 ? "all" : touched, row: known ? row : undefined };
 }
 
