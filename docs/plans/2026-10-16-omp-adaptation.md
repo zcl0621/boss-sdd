@@ -375,7 +375,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T18 re-check in real omp after the fixes  [no-red-test: evidence report only]
-- Status: running
+- Status: done (merged; items 3/5/9/10 observed as specified; Status line depends on the model following plan-spec.md:13)
 - depends_on: [T12, T13, T15, T16, T17]
 - write_scope: docs/e2e/2026-10-16-omp-e2e-recheck.md
 - exclusive_resources: [kimi-quota-and-tmux]
