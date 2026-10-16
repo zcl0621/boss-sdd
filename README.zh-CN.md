@@ -10,7 +10,8 @@
   - `skills/omp/`：给 omp（oh-my-pi）18.x 用。角色是 omp agent，用 `task` 派发；todo 和 `/goal` 用 omp 自带的；每个角色用哪个模型由 `modelRoles` 决定。
 
   三份的流程是同一套：先跟用户讨论（Phase P），再 recon、写 spec 和 DAG；每个节点在自己的 worktree 里先写红测试、审红测试、再修；gate 先跑，绿了才审查；同一个原因修两次不好才升级一次模型。角色数量和平台细节不同：Claude Code 版和 omp 版 10 个角色，OpenCode 版 5 个。
-- **三个 omp 扩展**（`plugins/omp-sidebar`、`plugins/omp-context`、`plugins/omp-plan-memory`），可选，只给 omp 版用。见 安装 一节的 omp。
+- **四个 omp 扩展**（`plugins/omp-sidebar`、`plugins/omp-context`、`plugins/omp-plan-memory`、`plugins/omp-sound`），可选，只给 omp 版用。见 安装 一节的 omp。
+- **一个 Claude Code mod**（`plugins/claude-sounds`），可选：在 CLI 和桌面版 Code 标签页里，用 opencode 的音效提示 subagent、一轮跑完、权限弹窗和提问。在 `~/.claude/settings.json` 的 `env` 里加 `"CLAUDE_CODE_PLUGIN_DIRS": "<仓库路径>/plugins/claude-sounds"` 就会加载，详见 [`plugins/claude-sounds/README.md`](plugins/claude-sounds/README.md)。
 - **六个 OpenCode 插件**（`plugins/`），Claude Code 都用不着：
   - `context-keeper`：上下文管理。解决长会话 compact 之后丢失项目信息、skill 规则、worktree 进度的问题。
   - `pin`：`pin_context` 工具。agent 把长期有用的事实（worktree、部署目标、决定）钉住，不再成立时自己删掉。
@@ -270,6 +271,14 @@ cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
 
 无人值守：skill 不能自己开 `/goal`，它会给你一行 `/goal ...` 让你输入。不输入也能跑，但一轮结束就停，要你说话才继续。上面六个插件 Claude Code 都不需要。
 
+提示音（可选）：`plugins/claude-sounds` 是一个 Claude Code mod，用 opencode 的音效提示 subagent 开始、结束、失败，一轮跑完或出错，权限弹窗和提问。在 `~/.claude/settings.json` 的 `env` 里加一项，新开的会话（CLI 和桌面版 Code 标签页）就会加载：
+
+```json
+{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/你的路径/boss-sdd/plugins/claude-sounds" } }
+```
+
+用 `claude plugin list` 看到 `opencode-sounds@inline` 是 loaded 就对了。会话里用 `/sound on|off|test|list|status` 控制。只在 macOS 上出声。详见 [`plugins/claude-sounds/README.md`](plugins/claude-sounds/README.md)。
+
 ### OpenCode
 
 在仓库根目录执行。
@@ -393,10 +402,11 @@ cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
 3. 扩展，都是可选的。每个都是一个目录，`package.json` 里有 `"omp": { "extensions": ["./index.ts"] }`：
 
    ```bash
-   mkdir -p ~/.omp/agent/extensions/sidebar ~/.omp/agent/extensions/omp-context ~/.omp/agent/extensions/omp-plan-memory
+   mkdir -p ~/.omp/agent/extensions/sidebar ~/.omp/agent/extensions/omp-context ~/.omp/agent/extensions/omp-plan-memory ~/.omp/agent/extensions/omp-sound
    rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-sidebar/ ~/.omp/agent/extensions/sidebar/
    rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-context/ ~/.omp/agent/extensions/omp-context/
    rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-plan-memory/ ~/.omp/agent/extensions/omp-plan-memory/
+   rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-sound/ ~/.omp/agent/extensions/omp-sound/
    ```
 
    复制时不带 `node_modules`、`bun.lock`、`.gitignore` 和测试。在已有的安装上再跑，会原地覆盖文件；上游已经删掉的文件会留着。想干净重装，先删掉目标目录，但 `~/.omp/agent/extensions/omp-context/` 里还放着 evolve 写的 `guidance.md`：先备份，或者让 evolve 用 `--target` 写到别处。
@@ -404,6 +414,7 @@ cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
    - `omp-sidebar`：全高的右侧侧边栏，显示上下文用量（分类）、正在跑的 agent、job、Git / Worktree、Directory、Todo、Pins（来自 `context_notes`）和 Goal。命令 `/sidebar on|off|toggle|width <16-80>|focus|refresh|status`；`Alt+Shift+B` 开关，`Alt+Shift+S` 切换键盘焦点。Git、Worktree 和 Directory 自动跟着 agent 正在干活的 checkout 走，不用手动切。要用鼠标（滚轮滚动、点击执行行上的动作），在 omp 配置里设 `tui.mouse: true`；这样 omp 会接管鼠标，选文字要按住 Shift 拖，滚终端自己的回滚区要 Shift+滚轮。终端自己的回滚区里，侧边栏那一列是空白的；它只在当前实时屏幕上画。详见 [`plugins/omp-sidebar/README.md`](plugins/omp-sidebar/README.md)。
    - `omp-context`：compact 或 rollover 之后，把用户最近的原话、当前 plan 和它的状态、已加载的 skill、git 分支和 worktree 放回上下文。它还通过 `session.compacting` 给摘要器提要求（`index.ts` 旁边的 `guidance.md`，没有就用内置默认），在旧 compact 模式下接近阈值时提醒。详见 [`plugins/omp-context/README.md`](plugins/omp-context/README.md)。
    - `omp-plan-memory`：`plan-memory` 的 omp 版：提醒编排者读、写、整理看板里的项目记忆。它要求看板 server 以 `plan-sdd` 为 key 注册（第 4 步）。详见 [`plugins/omp-plan-memory/README.md`](plugins/omp-plan-memory/README.md)。
+   - `omp-sound`：用 opencode 的音效（已打包，MIT）在 macOS 上提示：subagent 开始、完成、失败，主 agent 跑完，向你提问，工具等你批准时各响一声。命令 `/sound on|off|test [key]|status`。详见 [`plugins/omp-sound/README.md`](plugins/omp-sound/README.md)。
 
    evolve 用你自己的 omp 会话记录调 `guidance.md`。它重放 compact，数新摘要保住了题库里多少条事实，只有候选在训练用例上胜过基线、且在留出用例上不更差时才写 `guidance.md`；否则什么都不写，并打印原因。把 `plugins/omp-context/evolve/questions.example.json` 复制成 `./questions.json` 再改，当题库用：
 
@@ -510,6 +521,8 @@ omp 的（用 bun；侧边栏要先装开发依赖）：
 (cd plugins/omp-sidebar && bun install --frozen-lockfile && bun test)
 (cd plugins/omp-context && bun test)
 (cd plugins/omp-plan-memory && bun test)
+(cd plugins/omp-sound && bun test)
+claude plugin validate plugins/claude-sounds && claude plugin test plugins/claude-sounds
 bun test skills/omp/test/roles.test.ts
 bun test skills/omp/test/skill.test.ts
 ```
@@ -535,6 +548,8 @@ context-keeper、pin、goal 和 plan-memory 用 node 跑，状态写到临时目
 | `plugins/omp-sidebar/` | omp 右侧侧边栏扩展和测试 |
 | `plugins/omp-context/` | omp 扩展：compact 之后恢复、摘要要求；`evolve/` 调这份要求；测试 |
 | `plugins/omp-plan-memory/` | 项目记忆提醒的 omp 版和测试 |
+| `plugins/omp-sound/` | omp 扩展：subagent、跑完、等批准时的提示音，和测试 |
+| `plugins/claude-sounds/` | Claude Code mod：同一套 opencode 音效，和测试 |
 | `Sources/BoardKit` | 数据模型、DAG 投影、SQLite 存储、HTTP API，无第三方依赖 |
 | `Sources/BossSDD` | SwiftUI app：菜单栏和看板窗口 |
 | `mcp/` | Go MCP server，stdio，转发到 app 的本地 HTTP |

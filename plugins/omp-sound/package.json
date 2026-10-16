@@ -1,0 +1,15 @@
+{
+  "name": "omp-sound-local",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sounds when an omp subagent starts or finishes, the main agent finishes, or a tool needs approval",
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "omp": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
