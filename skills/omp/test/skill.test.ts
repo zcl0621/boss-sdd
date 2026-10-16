@@ -203,6 +203,19 @@ describe("content the review asked for", () => {
     const t = has("INSTALL.md", ["|| true", "config.yaml", "flow-style", "experimentalContextManagement"]);
     expect(t).toMatch(/mkdir -p ~\/\.omp\/agent\n/);
   });
+  // docs/e2e/2026-10-16-omp-e2e-recheck2.md finding 4: after a rollover Kimi read the system prompt's device docs as
+  // "the top-level function list shows them" and called `ask` five times instead of `write xd://…`.
+  test("SKILL.md board row: device docs are not the function list; no function-call escape hatch", () => {
+    const t = has("SKILL.md", ["`# xd:// Tool Devices`", "not your function list"]);
+    expect(t).not.toContain("When the top-level function list shows them directly, call them as functions");
+  });
+  test("SKILL.md board: call form kept in context_notes; a doubt after rollover is a read xd://, never ask", () => {
+    const t = has("SKILL.md", ["context_notes", "write xd://mcp__plan_sdd_<tool>"]);
+    const board = t.slice(t.indexOf("## The board"), t.indexOf("## Not established"));
+    expect(board).toContain("context_notes");
+    expect(board).toContain("`read xd://`");
+    expect(board).toMatch(/never .*`ask`/i);
+  });
   test("INSTALL.md: merge, overwrite, profile and Claude Code skill notes", () => {
     const t = has("INSTALL.md", ["cp -n", "--profile", ".claude/skills/plan-sdd", "plugins/omp-context", "~/.omp/profiles/"]);
     expect(t).not.toContain("landing");
