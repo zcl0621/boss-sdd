@@ -9,7 +9,8 @@ boss-sdd uses agents to carry a multi-step change through to the end. It surveys
   - `skills/omp/`: for omp (oh-my-pi) 18.x. Roles are omp agents dispatched with `task`; todos and `/goal` are omp's own; the model per role comes from `modelRoles`.
 
   All three follow the same process. They discuss the change with the user first (Phase P), then do recon and write the spec and the DAG. Each node works in its own worktree: write a red test, review the red test, then fix. Gates run first, and review starts only once they are green. The model gets upgraded once only after two failed fixes for the same cause. The number of roles and the platform details differ: the Claude Code and omp versions have 10 roles, the OpenCode version has 5.
-- **Three omp extensions** (`plugins/omp-sidebar`, `plugins/omp-context`, `plugins/omp-plan-memory`), optional, for the omp version only. See Installation, omp.
+- **Four omp extensions** (`plugins/omp-sidebar`, `plugins/omp-context`, `plugins/omp-plan-memory`, `plugins/omp-sound`), optional, for the omp version only. See Installation, omp.
+- **A Claude Code mod** (`plugins/claude-sounds`), optional: opencode's sounds for subagents, finished turns, permission prompts and questions, in the CLI and the desktop app's Code tab. Load it by adding `"CLAUDE_CODE_PLUGIN_DIRS": "<repo>/plugins/claude-sounds"` to `env` in `~/.claude/settings.json`; details in [`plugins/claude-sounds/README.md`](plugins/claude-sounds/README.md).
 - **Six OpenCode plugins** (`plugins/`). Claude Code needs none of them:
   - `context-keeper`: context management. It fixes the loss of project information, skill rules, and worktree progress after a long session compacts.
   - `pin`: the `pin_context` tool. The agent pins durable facts (worktree, deploy target, decisions) and removes them once they no longer hold.
@@ -392,10 +393,11 @@ Follow [`skills/omp/INSTALL.md`](skills/omp/INSTALL.md); it also covers re-insta
 3. Extensions, all optional. Each is a directory with `"omp": { "extensions": ["./index.ts"] }` in its `package.json`:
 
    ```bash
-   mkdir -p ~/.omp/agent/extensions/sidebar ~/.omp/agent/extensions/omp-context ~/.omp/agent/extensions/omp-plan-memory
+   mkdir -p ~/.omp/agent/extensions/sidebar ~/.omp/agent/extensions/omp-context ~/.omp/agent/extensions/omp-plan-memory ~/.omp/agent/extensions/omp-sound
    rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-sidebar/ ~/.omp/agent/extensions/sidebar/
    rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-context/ ~/.omp/agent/extensions/omp-context/
    rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-plan-memory/ ~/.omp/agent/extensions/omp-plan-memory/
+   rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-sound/ ~/.omp/agent/extensions/omp-sound/
    ```
 
    The copy leaves out `node_modules`, `bun.lock`, `.gitignore` and the tests. Run over an existing install it overwrites files in place; files that no longer exist upstream remain. For a clean install remove the destination directory first, but `~/.omp/agent/extensions/omp-context/` also holds the `guidance.md` that evolve writes: back it up first, or run evolve with `--target` pointing elsewhere.
@@ -403,6 +405,7 @@ Follow [`skills/omp/INSTALL.md`](skills/omp/INSTALL.md); it also covers re-insta
    - `omp-sidebar`: a full-height right sidebar with context usage (per-category), running agents, jobs, Git / Worktree, Directory, Todo, Pins (from `context_notes`) and Goal. `/sidebar on|off|toggle|width <16-80>|focus|refresh|status`; `Alt+Shift+B` toggles it and `Alt+Shift+S` moves keyboard focus. Git, Worktree and Directory follow the checkout the agent is working in, with no manual step. For the mouse (wheel scrolls, click acts on a row) set `tui.mouse: true` in omp's config; omp then captures the mouse, so selecting text needs Shift+drag and scrolling the terminal's own scrollback needs Shift+wheel. In the terminal's own scrollback the sidebar column is blank; it only draws in the live screen. Details: [`plugins/omp-sidebar/README.md`](plugins/omp-sidebar/README.md).
    - `omp-context`: after a compaction or rollover it puts the user's recent words, the active plan and its status, loaded skills, and the git branch and worktrees back into context. Through `session.compacting` it also gives the summarizer requirements (`guidance.md` next to `index.ts`, or a built-in default), and in legacy compaction mode it nudges near the threshold. Details: [`plugins/omp-context/README.md`](plugins/omp-context/README.md).
    - `omp-plan-memory`: the omp port of `plan-memory`: reminds the orchestrator to read, write and tidy the board's project memory. It needs the board server registered under the key `plan-sdd` (step 4). Details: [`plugins/omp-plan-memory/README.md`](plugins/omp-plan-memory/README.md).
+   - `omp-sound`: opencode's sounds (bundled, MIT) on macOS when a subagent starts, finishes or fails, when the main agent finishes, when it asks you a question, and when a tool waits for approval. `/sound on|off|test [key]|status`. Details: [`plugins/omp-sound/README.md`](plugins/omp-sound/README.md).
 
    Evolve tunes `guidance.md` from your own omp session journals. It replays compactions, scores how many bank facts the new summary keeps, and writes `guidance.md` only when the candidate beats the baseline on the train cases and does no worse on the holdout ones; otherwise it writes nothing and prints why. Copy `plugins/omp-context/evolve/questions.example.json` to `./questions.json` and edit it as the bank:
 
@@ -509,6 +512,8 @@ omp (bun; the sidebar needs its dev dependencies installed first):
 (cd plugins/omp-sidebar && bun install --frozen-lockfile && bun test)
 (cd plugins/omp-context && bun test)
 (cd plugins/omp-plan-memory && bun test)
+(cd plugins/omp-sound && bun test)
+claude plugin validate plugins/claude-sounds && claude plugin test plugins/claude-sounds
 bun test skills/omp/test/roles.test.ts
 bun test skills/omp/test/skill.test.ts
 ```
@@ -534,6 +539,8 @@ context-keeper, pin, goal and plan-memory run under node and write state to a te
 | `plugins/omp-sidebar/` | omp right sidebar extension and tests |
 | `plugins/omp-context/` | omp extension: restore after compaction, summary guidance; `evolve/` tunes the guidance; tests |
 | `plugins/omp-plan-memory/` | omp port of the project memory reminder, and tests |
+| `plugins/omp-sound/` | omp extension: sounds for subagents, finished runs and approvals, and tests |
+| `plugins/claude-sounds/` | Claude Code mod: the same opencode sounds, and tests |
 | `Sources/BoardKit` | Data model, DAG projection, SQLite storage, HTTP API; no third-party dependencies |
 | `Sources/BossSDD` | SwiftUI app: menu bar and board window |
 | `mcp/` | Go MCP server, stdio, forwarding to the app's local HTTP |
