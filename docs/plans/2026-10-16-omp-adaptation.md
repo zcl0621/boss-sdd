@@ -1,7 +1,7 @@
 # boss-sdd 适配 omp（oh-my-pi）
 
 ```text
-Status: running
+Status: complete
 Run id: 9d6aa9f5e59e4e7da7a37e7b29cc85e2
 Base ref: dfe5aaa
 Discussion: confirmed (full), 2026-10-16
@@ -421,6 +421,8 @@ returned the subagent's reply (`PONG kimi-code/kimi-for-coding-highspeed`), exit
 5. T1's gate showed a pre-existing flaky sidebar test (1 failure in 6 runs, code unchanged since dfe5aaa). Treated as a test-only defect: T1's acceptance item 3 was amended to exclude that one test, and T10 makes it deterministic as a `[no-red-test]` task rather than a verify/fix pair, since no runtime behaviour is wrong. T2 waits for T10 so its gates are reliable.
 6. Summary guidance (omp-context `session.compacting`) reaches omp's summarizer paths (`soft` and `remote`, including Anthropic native compaction); `handoff`, snapcompact, shake and rollover ignore it. Manual `/compact` follows the same method choice. With `experimentalContextManagement` on (needed for Pins), every automatic compaction is a rollover before `methodOrder` is consulted (omp `session-maintenance.ts:4680-4681`), and so is `/compact` without focus text; only `/compact <focus>` reaches a summarizer. So on the user's config the guidance, and anything evolve installs, applies only to `/compact <focus>`, and evolve finds summarizer cases only from those. Trade-off for the user: Pins (context_notes) vs. summary guidance on automatic compaction. *(Corrected at T8 review.)* With the setting off, remote runs first on the user's models and uses the guidance; on routes without native compaction the default order reaches `handoff` before `soft`. Decided: keep the guidance and evolve, limit evolve's replay to summarizer compactions, and document `compaction.methodOrder` for users who want it applied. The restore block is method-independent and carries the main value. Other option: drop guidance/evolve on omp.
 
+7. Close-out install into `~/.omp/agent` (decision 11): skill to `skills/plan-sdd/`, the 10 role files to `agents/` (none existed), the three extensions to `extensions/{sidebar,omp-context,omp-plan-memory}` by the README rsync. The old `extensions/sidebar` was copied to `~/.omp/backup-sidebar-2026-10-16/` first (outside `extensions/`, so omp does not load it). `config.yml` (only `setupVersion: 2`) and `mcp.json` were not touched: modelRoles and the board server depend on the user's real models and board, which are not on this machine; README steps 2 and 4 are left to the user. Smoke: `omp -p` with the installed extensions exit 0, all ten roles listed, no extension errors in the omp log.
+
 ## Needs a decision from the user
 
 (none yet)
@@ -439,3 +441,13 @@ Per task, run by the orchestrator, one command at a time, never piped (cwd in pa
 ```
 
 Phase 3, on the integration worktree, additionally the existing gates (quoted by lane A from `Scripts/verify.sh` and README "Plugin tests"): `swift build -c release --product BossSDD`; `swift test`; `(cd mcp && go build ./...)`; `(cd mcp && go test -count=1 ./...)`; `sh plugins/context-keeper/test/run.sh`; `sh plugins/pin/test/run.sh`; `sh plugins/goal/test/run.sh`; `sh plugins/plan-memory/test/run.sh`; `(cd plugins/todo && bun test)`; `./Scripts/verify.sh`.
+
+## Delivery report
+
+Clean close-out, 2026-10-16. 18/18 tasks done (T1–T18), merged with `--no-ff` into `plan/2026-10-16-omp`; not merged to main, not pushed, no PR.
+
+- Phase 3 gates on the integration tree at c327a48, one at a time: 16/16 exit 0 (swift build/test, go build/test, four OpenCode plugin suites, todo, sidebar install + 74 tests, roles 46, skill 78, omp-context 298, omp-plan-memory 57, `Scripts/verify.sh`).
+- Live evidence: `docs/e2e/2026-10-16-omp-e2e.md` (T9, found F1–F5) and `docs/e2e/2026-10-16-omp-e2e-recheck.md` (T18, items 3/5/9/10 observed as specified after T15/T16/T17).
+- Open for the user: decision 6 (Pins vs. summary guidance on automatic compaction); modelRoles and board MCP in `~/.omp/agent` (decision 7); sidebar pinned while scrolling the main area (asked, deferred by the user); the restore block's `Status:` line needs the plan doc's Status header, which Kimi skipped in T18.
+- Residue: omp's own logs under `~/.omp/logs/` from the test runs; pointer files in `~/.omp/agent/custom-session-files/` whose targets still exist in scratch were left.
+
