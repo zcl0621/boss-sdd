@@ -346,7 +346,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T16 omp-sidebar: a mouse path that works in real omp; click does not trap the keyboard  [fix: T9 F2]  [complexity: high]
-- Status: pending
+- Status: done (merged ca24559; sidebar 74 pass; red-test audit, review, post-repair audit, adversary + final test round with mutations)
 - depends_on: [T2]
 - write_scope: plugins/omp-sidebar/index.ts, plugins/omp-sidebar/sidebar-view.ts, plugins/omp-sidebar/compositor.ts, plugins/omp-sidebar/*.test.ts, plugins/omp-sidebar/README.md
 - exclusive_resources: []
@@ -375,7 +375,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T18 re-check in real omp after the fixes  [no-red-test: evidence report only]
-- Status: pending
+- Status: running
 - depends_on: [T12, T13, T15, T16, T17]
 - write_scope: docs/e2e/2026-10-16-omp-e2e-recheck.md
 - exclusive_resources: [kimi-quota-and-tmux]
