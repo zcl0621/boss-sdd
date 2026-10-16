@@ -195,7 +195,8 @@ interface State {
   gitApplied: number;
   plan?: { path: string; status?: string };
   skills: Set<string>;
-  announced: Set<string>;
+  /** Id of the latest compaction announced: omp may emit session_compact twice for one entry. */
+  announced?: string;
 }
 
 const PLAN_RE = /(^|[\\/])docs[\\/]plans[\\/][^\\/]+\.md$/;
@@ -211,8 +212,9 @@ function textOf(content: unknown): string {
   return "";
 }
 
+// The plan-level Status starts its line (plan-spec.md: the header block); a task's `- Status:` line does not count.
 function statusOf(text: string): string | undefined {
-  const m = /\bStatus:[^\n]*/.exec(text);
+  const m = /^Status:[^\n]*/m.exec(text);
   return m ? m[0].trim() : undefined;
 }
 
@@ -314,7 +316,7 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
     }
     let s = states.get(id);
     if (s) states.delete(id); // re-insert below: Map order is least recently used first
-    else s = { words: [], generation: 0, gitStarted: 0, gitApplied: 0, skills: new Set(), announced: new Set() };
+    else s = { words: [], generation: 0, gitStarted: 0, gitApplied: 0, skills: new Set() };
     states.set(id, s);
     while (states.size > MAX_SESSIONS) states.delete(states.keys().next().value as string);
     return s;
@@ -418,8 +420,8 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
     const entry = e?.compactionEntry;
     const id = typeof entry?.id === "string" ? entry.id : undefined;
     if (id) {
-      if (s.announced.has(id)) return;
-      s.announced.add(id);
+      if (s.announced === id) return;
+      s.announced = id;
     }
     const generation = ++s.generation;
     s.nudgeText = undefined; // a new window starts

@@ -20,7 +20,8 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 
 const stateRoot = mkdtempSync(path.join(tmpdir(), "omp-plan-memory-test-"))
-process.env.XDG_STATE_HOME = stateRoot
+// omp's agent directory (PI_CODING_AGENT_DIR, else ~/.omp/agent); never the real one in tests.
+process.env.PI_CODING_AGENT_DIR = stateRoot
 delete process.env.OMP_PLAN_MEMORY_STATE_DIR
 
 const mod = await import("./index.ts")
@@ -177,9 +178,9 @@ describe("reminders (ported scenarios)", () => {
     expect(await note()).toBe("")
 
     // tidy: five tasks done/blocked after the last listing
-    for (const s of ["done", "done", "blocked", "done"]) await mcp("plan_set_task", { run: "r", task: { id: "T", status: s } })
+    for (const [i, s] of ["done", "done", "blocked", "done"].entries()) await mcp("plan_set_task", { run: "r", id: `T${i + 1}`, status: s })
     expect(await note()).toBe("")
-    await mcp("plan_set_task", { run: "r", task: { id: "T5", status: "done" } })
+    await mcp("plan_set_task", { run: "r", id: "T5", status: "done" })
     expect(await note()).toMatch(/tidy-up is due \(5 tasks reached done\/blocked since memory was last listed\)/)
     await mcp("plan_memory_list", { project: "/p" })
     expect(await note()).toBe("")
@@ -258,9 +259,9 @@ describe("every form drives the same state machine", () => {
       expect(await b.note()).toMatch(/has not been read/)
       await call(b, "plan_memory_list", { project: "/p" })
       expect(await b.note()).toBe("")
-      for (let i = 0; i < LIMITS.tidyEvery - 1; i++) await call(b, "plan_set_task", { run: "r", task: { id: `T${i}`, status: "done" } })
+      for (let i = 0; i < LIMITS.tidyEvery - 1; i++) await call(b, "plan_set_task", { run: "r", id: `T${i}`, status: "done" })
       expect(await b.note()).toBe("") // doubled counting would already fire here (after 3)
-      await call(b, "plan_set_task", { run: "r", task: { id: "T4", status: "done" } })
+      await call(b, "plan_set_task", { run: "r", id: "T4", status: "done" })
       expect(await b.note()).toMatch(/5 tasks reached done\/blocked/)
     })
   }
@@ -278,7 +279,7 @@ describe("every form drives the same state machine", () => {
 })
 
 describe("state location", () => {
-  test("per-session files under $XDG_STATE_HOME/omp-plan-memory/", async () => {
+  test("per-session files under omp's agent directory: $PI_CODING_AGENT_DIR/omp-plan-memory/", async () => {
     const b = fresh()
     await b.mcp("plan_create_run", {})
     const dir = path.join(stateRoot, "omp-plan-memory")
@@ -732,6 +733,55 @@ describe("T15 acceptance 5: the native Anthropic summary fold is never split", (
       expect(full[prefix.length], name).toBe(retained[0])
       expect(prefix.filter(isBlock).length, name).toBe(1)
       if (history[1]?.role === "assistant") expect(prefix[1], name).toBe(history[1])
+    }
+  })
+})
+
+describe("review fixes (2026-10-16)", () => {
+  test("a task re-sent as done counts once toward the tidy-up", async () => {
+    const { mcp, note } = fresh()
+    await mcp("plan_create_run", { project: "/p" })
+    await mcp("plan_memory_list", { project: "/p" })
+    // The orchestrator re-sends T1-T3 with each new batch: still only 4 distinct tasks closed.
+    await mcp("plan_set_tasks", { run: "r", tasks: [{ id: "T1", status: "done" }, { id: "T2", status: "done" }, { id: "T3", status: "done" }] })
+    await mcp("plan_set_tasks", { run: "r", tasks: [{ id: "T1", status: "done" }, { id: "T2", status: "done" }, { id: "T3", status: "done" }, { id: "T4", status: "done" }] })
+    await mcp("plan_set_task", { run: "r", id: "T4", status: "done" })
+    expect(await note()).toBe("")
+    await mcp("plan_set_task", { run: "r", id: "T5", status: "blocked" })
+    expect(await note()).toMatch(/5 tasks reached done\/blocked/)
+  })
+
+  test("listing memory restarts the distinct count", async () => {
+    const { mcp, note } = fresh()
+    await mcp("plan_create_run", { project: "/p" })
+    await mcp("plan_memory_list", { project: "/p" })
+    await mcp("plan_set_tasks", { run: "r", tasks: ["T1", "T2", "T3", "T4", "T5"].map((id) => ({ id, status: "done" })) })
+    expect(await note()).toMatch(/tidy-up is due/)
+    await mcp("plan_memory_list", { project: "/p" })
+    await mcp("plan_set_tasks", { run: "r", tasks: ["T1", "T2", "T3", "T4"].map((id) => ({ id, status: "done" })) })
+    expect(await note()).toBe("")
+    await mcp("plan_set_task", { run: "r", id: "T1", status: "done" })
+    expect(await note()).toBe("")
+  })
+
+  test("with no override, state goes under ~/.omp/agent, not ~/.local/state", async () => {
+    const saved = { agent: process.env.PI_CODING_AGENT_DIR, xdg: process.env.XDG_STATE_HOME, home: process.env.HOME }
+    const home = mkdtempSync(path.join(tmpdir(), "omp-plan-memory-home-"))
+    delete process.env.PI_CODING_AGENT_DIR
+    process.env.XDG_STATE_HOME = path.join(home, "xdg")
+    process.env.HOME = home
+    try {
+      const b = fresh()
+      await b.mcp("plan_create_run", {})
+      const dir = path.join(home, ".omp", "agent", "omp-plan-memory")
+      expect(existsSync(dir) && readdirSync(dir).some((f) => /^omp-plan-memory-.*\.json$/.test(f))).toBe(true)
+      expect(existsSync(path.join(home, "xdg"))).toBe(false)
+    } finally {
+      process.env.PI_CODING_AGENT_DIR = saved.agent
+      if (saved.xdg === undefined) delete process.env.XDG_STATE_HOME
+      else process.env.XDG_STATE_HOME = saved.xdg
+      process.env.HOME = saved.home
+      rmSync(home, { recursive: true, force: true })
     }
   })
 })

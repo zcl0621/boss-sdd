@@ -1959,3 +1959,53 @@ describe("T15 acceptance 5: the native Anthropic summary fold is never split", (
     }
   });
 });
+
+describe("review fixes (2026-10-16)", () => {
+  test("the plan status is the header's Status line, not a task's `- Status:` line", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    const doc = "# Plan\n\n## Tasks\n\n### T1 first\n- Status: done (merged)\n\n### T2 second\n- Status: pending\n";
+    await emit("tool_result", { toolName: "read", input: { path: "docs/plans/no-header.md" }, content: text(doc), isError: false }, ctx);
+    await emit("session_compact", legacyCompaction(), ctx);
+    const body = String(sent[0].message.content);
+    expect(body).toContain("Active plan: docs/plans/no-header.md");
+    expect(body).not.toContain("Status: done");
+    expect(body).not.toContain("Status: pending");
+  });
+
+  test("a header Status inside the plan-spec text block is found ahead of task lines", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    const doc = "# Plan\n\n```text\nStatus: running\nRun id: x\n```\n\n### T1\n- Status: done\n";
+    await emit("tool_result", { toolName: "read", input: { path: "docs/plans/h.md" }, content: text(doc), isError: false }, ctx);
+    await emit("session_compact", legacyCompaction(), ctx);
+    const body = String(sent[0].message.content);
+    expect(body).toContain("Status: running");
+    expect(body).not.toContain("Status: done");
+  });
+
+  test("only a repeat of the latest compaction entry is dropped; nothing older is remembered", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    await emit("session_compact", legacyCompaction("c1"), ctx);
+    await emit("message_end", said("two"), ctx);
+    await emit("session_compact", legacyCompaction("c2"), ctx);
+    await emit("session_compact", legacyCompaction("c2"), ctx);
+    await emit("message_end", said("three"), ctx);
+    await emit("session_compact", legacyCompaction("c1"), ctx);
+    expect(sent).toHaveLength(3);
+  });
+
+  test("anchorIndex is the same source in omp-context and omp-plan-memory", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const body = (file: string) => {
+      const src = require("node:fs").readFileSync(file, "utf8") as string;
+      const start = src.indexOf("function anchorIndex(");
+      expect(start).toBeGreaterThanOrEqual(0);
+      const end = src.indexOf("\n}\n", start);
+      // The two files differ only in semicolon style; compare the logic.
+      return src.slice(start, end).replace(/;$/gm, "").replace(/\s+/g, " ").trim();
+    };
+    expect(body(join(here, "../omp-plan-memory/index.ts"))).toBe(body(join(here, "index.ts")));
+  });
+});

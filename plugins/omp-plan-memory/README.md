@@ -50,7 +50,7 @@ Recon is detected from the `task` tool's `agent` (or `tasks[].agent`) starting w
 
 ## State
 
-Per-session JSON files (`omp-plan-memory-<session>.json`) under `$XDG_STATE_HOME/omp-plan-memory/` (default `~/.local/state/omp-plan-memory/`).
+Per-session JSON files (`omp-plan-memory-<session>.json`) under `omp-plan-memory/` in omp's agent directory: `~/.omp/agent/omp-plan-memory/` by default, or `$PI_CODING_AGENT_DIR/omp-plan-memory/` when omp's agent directory is moved (with `PI_CONFIG_DIR` set, `~/$PI_CONFIG_DIR/agent/omp-plan-memory/`). Earlier builds wrote to `~/.local/state/omp-plan-memory/`; that directory is no longer read and can be deleted. The task count toward the tidy-up reminder is by distinct task id, so re-sending a task that is already done does not count it again.
 Saving is best-effort: with an unwritable state directory the reminder state lives only for the omp process (it is kept in memory per session; a failed save is logged once per session through omp's extension logger). Set `OMP_PLAN_MEMORY_STATE_DIR` to use another directory. At start, this plugin's own files (`omp-plan-memory-*.json` and `omp-plan-memory-*.json.<pid>.tmp`) older than 30 days are removed; other files in the directory are left alone.
 
 Note: omp's `/btw` side turns and dumps also run the `context` event on the same session, but the write reminder counts only `turn_start`, so a bare conversion does not use up its showings (whether a `/btw` turn itself emits `turn_start` was not checked).

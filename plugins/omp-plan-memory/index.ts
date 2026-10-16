@@ -26,8 +26,9 @@
 // `write xd://<tool>` fires an outer `write` event and an inner event with the registered name; only the inner one
 // counts, so one call is never counted twice. Do not dedupe by toolCallId: the two events share it.
 //
-// State: $OMP_PLAN_MEMORY_STATE_DIR, else $XDG_STATE_HOME/omp-plan-memory/ (default ~/.local/state/omp-plan-memory/),
-// one omp-plan-memory-<session>.json each.
+// State: $OMP_PLAN_MEMORY_STATE_DIR, else omp-plan-memory/ in omp's agent directory ($PI_CODING_AGENT_DIR, else
+// ~/$PI_CONFIG_DIR/agent with PI_CONFIG_DIR defaulting to .omp, as omp's utils/src/dirs.ts resolves it), one
+// omp-plan-memory-<session>.json each.
 import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
@@ -47,19 +48,22 @@ interface State {
   graph: boolean
   added: number
   writeShows: number
-  closed: number
+  /** Distinct tasks that reached done/blocked since memory was last listed. */
+  closedIds: string[]
   tidyDue: boolean
 }
 
-const stateDir = () =>
-  process.env.OMP_PLAN_MEMORY_STATE_DIR ||
-  path.join(process.env.XDG_STATE_HOME || path.join(homedir(), ".local", "state"), "omp-plan-memory")
+const agentDir = () =>
+  process.env.PI_CODING_AGENT_DIR || path.join(process.env.HOME || homedir(), process.env.PI_CONFIG_DIR || ".omp", "agent")
+const stateDir = () => process.env.OMP_PLAN_MEMORY_STATE_DIR || path.join(agentDir(), "omp-plan-memory")
 const FILE_PREFIX = "omp-plan-memory-"
 const file = (sid: string) => path.join(stateDir(), `${FILE_PREFIX}${sid.replace(/[^\w.-]/g, "_")}.json`)
-const empty = (): State => ({ run: false, listed: false, recon: false, graph: false, added: 0, writeShows: 0, closed: 0, tidyDue: false })
+const empty = (): State => ({ run: false, listed: false, recon: false, graph: false, added: 0, writeShows: 0, closedIds: [], tidyDue: false })
 const load = (sid: string): State => {
   try {
-    return { ...empty(), ...JSON.parse(readFileSync(file(sid), "utf8")) }
+    const saved = { ...empty(), ...JSON.parse(readFileSync(file(sid), "utf8")) }
+    if (!Array.isArray(saved.closedIds)) saved.closedIds = []
+    return saved
   } catch {
     return empty()
   }
@@ -101,6 +105,15 @@ const boardTool = (name: string): string | undefined => {
   return best
 }
 
+// Tasks a plan_set_task / plan_set_tasks input writes, as [id, status]. plan_set_task carries id and status at the
+// top level (mcp/main.go setTaskInput); a nested `task` object is accepted too.
+const taskWrites = (name: string, input: any): [string, string][] => {
+  const entries = name === "plan_set_tasks" ? (Array.isArray(input?.tasks) ? input.tasks : []) : [input?.task ?? input]
+  return entries
+    .filter((t: any) => t && typeof t.status === "string")
+    .map((t: any) => [String(t.id ?? JSON.stringify(t)), t.status] as [string, string])
+}
+
 // The board call in one finished tool call, as [name, input-as-text], or none.
 export function boardCalls(tool: unknown, input: unknown): [string, string][] {
   const name = boardTool(String(tool ?? ""))
@@ -120,13 +133,15 @@ export function observe(state: State, tool: unknown, input: any): boolean {
     changed = true
     // A new run keeps `listed`: the orchestrator often lists memory just before creating the run. A finished run
     // clears it, so the next run reads memory again.
-    if (name === "plan_create_run") Object.assign(state, { run: true, recon: false, graph: false, added: 0, writeShows: 0, closed: 0, tidyDue: false })
-    else if (name === "plan_memory_list") Object.assign(state, { listed: true, closed: 0, tidyDue: false })
+    if (name === "plan_create_run") Object.assign(state, { run: true, recon: false, graph: false, added: 0, writeShows: 0, closedIds: [], tidyDue: false })
+    else if (name === "plan_memory_list") Object.assign(state, { listed: true, closedIds: [], tidyDue: false })
     else if (name === "plan_memory_add") state.added++
     else if (name === "plan_set_tasks") state.graph = true
     if (name === "plan_set_task" || name === "plan_set_tasks") {
-      state.closed += (text.match(/"status":"(done|blocked)"/g) ?? []).length
-      if (state.listed && state.closed >= LIMITS.tidyEvery) state.tidyDue = true
+      // Distinct ids: a batch that re-sends tasks already done does not count them again.
+      for (const [id, status] of taskWrites(name, input))
+        if ((status === "done" || status === "blocked") && !state.closedIds.includes(id)) state.closedIds.push(id)
+      if (state.listed && state.closedIds.length >= LIMITS.tidyEvery) state.tidyDue = true
     }
     if (name === "plan_update_run" && /"status":"review"/.test(text)) state.tidyDue = true
     if (name === "plan_update_run" && /"status":"done"/.test(text)) Object.assign(state, { run: false, listed: false, tidyDue: false })
@@ -146,7 +161,7 @@ export function reminder(state: State): string {
     lines.push("Recon has reported and the task graph is written, but nothing was filed in project memory. If recon confirmed a gate command, run recipe, hard rule or exclusive resource that memory lacks or has wrong, file it with plan_memory_add (with its source); if there is nothing new, carry on.")
   }
   if (state.tidyDue)
-    lines.push(`A project memory tidy-up is due (${state.closed >= LIMITS.tidyEvery ? `${state.closed} tasks reached done/blocked since memory was last listed` : "the run is closing out"}): run it as references/memory.md describes, starting with plan_memory_list.`)
+    lines.push(`A project memory tidy-up is due (${state.closedIds.length >= LIMITS.tidyEvery ? `${state.closedIds.length} tasks reached done/blocked since memory was last listed` : "the run is closing out"}): run it as references/memory.md describes, starting with plan_memory_list.`)
   return lines.length ? `${BLOCK}${lines.join("\n")}</memory>` : ""
 }
 
