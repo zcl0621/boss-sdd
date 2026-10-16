@@ -21,20 +21,30 @@
 //   model turn just to deliver a hidden message (#resumeStrandedIrcAsides, agent-session.ts:1202-1317). Instead the
 //   restore block and the nudge are added, as ONE synthetic user message, to every `context` request (the way
 //   plugins/omp-plan-memory does). Nothing is persisted and no turn is triggered.
-// Placement: if messages[0] is a compactionSummary, at index 1; otherwise IMMEDIATELY AFTER THE FIRST NON-SYNTHETIC USER
-//   MESSAGE; when neither applies, nothing is inserted. Never at the tail, never at index 0.
+// Placement (anchorIndex): right after a compactionSummary found among the LEADING custom (and synthetic user) messages;
+//   otherwise right after the EARLIEST USER TURN: the first non-synthetic user message or user-attributed `skill-prompt`
+//   custom message, whichever comes first; otherwise nothing. Never at the tail, never at index 0.
+//   - After a rollover omp's buildSessionContext (session/session-context.ts) pushes the summary first (:540-545),
+//     re-appends the latest user request, which for a /skill-started task is the skill-prompt custom message
+//     (:547-569, isRolloverRequestEntry :40-48), then kept and later messages, and finally splices the context-notes
+//     custom message in at index 0 (:646-670). T9 saw [custom notes, compactionSummary, custom skill-prompt, custom
+//     todo reminder, assistant, toolResult, ...] with no user role at all. That head stays put until the next
+//     compaction: session-maintenance.ts:2466-2468 swaps it in once and later turns only append.
 //   - omp builds the summarizer request from convert(history) and convert(history + retained) and cuts the second at
 //     len(convert(history)) (session/agent-session.ts:2380-2403). A tail block shifts that cut by its own size, can split
-//     a tool_use/tool_result pair and pulls retained messages into the summarized range. With this rule both
-//     conversions start with the same summary, so a summary-led request has the block at index 1 in both; without a
-//     summary, a user message in history sits at the same index in both, and one only in retained lies after the cut.
-//     Either way the prefix is exactly convert(history). (Falling back to "after the summary" only when there is no user
-//     message would misalign: history alone puts the block at 1, history+retained anchors on a user message in retained.)
+//     a tool_use/tool_result pair and pulls retained messages into the summarized range. History there is the rebuilt
+//     summary plus entries after the previous compaction (agent/src/compaction/compaction.ts:2051-2070), so a leading
+//     summary is in both conversions, and the earliest user turn in history is also the earliest in history+retained;
+//     one only in retained lies after the cut. Either way the prefix is exactly convert(history). (A "user message
+//     first, skill-prompt second" order would misalign: a skill-prompt in history, a user message only in retained.)
 //   - a block at index 0 would become the date/cwd reminder's root (firstUser, session/date-cwd-reminder.ts:66); with a
 //     summary first, the converted summary is the first user message, so that anchor is unchanged.
-//   Known cost: after an Anthropic NATIVE compaction summary the block sits between the summary and the first retained
-//   turn, which stops the converter merging the summary into a following assistant turn (ai/src/providers/anthropic.ts:
-//   6190-6208). Role alternation stays valid.
+//   - A NATIVE Anthropic summary (providerPayload.type "anthropicCompaction") must open the request and is folded into
+//     a directly following assistant turn whose signed thinking is bound to that prefix. The anchor then moves past
+//     that assistant turn, its toolResults and the notes message, exactly where omp puts the notes
+//     (session/session-context.ts:651-662). The native cut never separates a tool call from its results and cuts only
+//     at an assistant/non-assistant boundary (agent/src/compaction/anthropic.ts:137-171), so the same anchor is found
+//     in history and history+retained.
 // Timestamp: the constant 0. A real timestamp makes anthropic.ts:5869 flushCompactionFiles(msg.timestamp) replay the
 //   summary's file metadata in front of the retained tail (ai/src/types.ts:1108-1130).
 // Cache: `context` is synchronous over stored state, so two requests with no event between them carry the same bytes.
@@ -42,7 +52,11 @@
 //   nudge latches at a turn_end (numbers frozen, timestamp 0). omp marks each inserted message per-call
 //   (extensions/runner.ts:2069); on Anthropic that stops the every-15-turns cache checkpoints below the block
 //   (ai/src/providers/anthropic.ts:4514-4518). Cost: the block's tokens on each request until the next compaction.
-// User words: only from message_end with role "user" (the message as it entered the session), not from `input`:
+// User words: from message_end with role "user" (the message as it entered the session), and the task text of a
+//   user-invoked /skill:<name> <args>: omp stores it as a custom message, customType "skill-prompt", attribution
+//   "user", whose content is the skill body and whose details.args is the user's own text, trimmed
+//   (modes/skill-command.ts:63-87, extensibility/skills.ts:671-718); details.args is recorded, never the body or
+//   details.prompt. Not from `input`:
 //   input handlers chain (runner.ts:1982-2005), so a later extension may rewrite or swallow the text, and the continue
 //   shortcut becomes a synthetic developer message (input-controller.ts:985-998). Agent-attributed or synthetic user
 //   messages (session/agent-session.ts:7545, :11448) are skipped.
@@ -66,6 +80,38 @@ const MAX_SESSIONS = 32;
 const NUDGE_ENV = "OMP_CONTEXT_NUDGE_FRACTION";
 const DEFAULT_NUDGE_FRACTION = 0.85;
 const ROLLOVER_KIND = "experimental-context-rollover";
+const SKILL_PROMPT = "skill-prompt";
+
+/** A user-invoked /skill:<name> message (omp's isUserInvokedSkillPrompt, tui/src/chat/messages.ts:273-275). */
+const isUserSkillPrompt = (m: any): boolean => m?.role === "custom" && m.customType === SKILL_PROMPT && m.attribution === "user";
+
+// Same body as anchorIndex in plugins/omp-plan-memory/index.ts; keep the two identical.
+/** Index of the message the block goes right after, or -1 for none (see Placement in the header). */
+function anchorIndex(messages: any[]): number {
+  const isSyntheticUser = (m: any): boolean => m?.role === "user" && m.synthetic === true;
+  const isUserTurn = (m: any): boolean =>
+    (m?.role === "user" && m.synthetic !== true) ||
+    (m?.role === "custom" && m.customType === "skill-prompt" && m.attribution === "user");
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m?.role !== "compactionSummary") {
+      if (m?.role === "custom" || isSyntheticUser(m)) continue;
+      break;
+    }
+    // A native Anthropic summary is folded into a directly following assistant turn (signed thinking bound to that
+    // prefix): never split it. Mirror omp's notes placement (session/session-context.ts:651-662): past one assistant
+    // message, then its toolResults, then past the notes message omp put there.
+    let at = i;
+    if (m.providerPayload?.type === "anthropicCompaction") {
+      if (messages[at + 1]?.role === "assistant") at++;
+      while (messages[at + 1]?.role === "toolResult") at++;
+      const next = messages[at + 1];
+      if (next?.role === "custom" && next.customType === "experimental_context_notes") at++;
+    }
+    return at;
+  }
+  return messages.findIndex(isUserTurn);
+}
 
 export const DEFAULT_GUIDANCE = [
   "When summarizing, keep the following so work can resume:",
@@ -215,20 +261,42 @@ function readGuidance(path: string): string {
   return DEFAULT_GUIDANCE;
 }
 
-async function gitLines(pi: any, ctx: any): Promise<GitInfo> {
-  const run = async (args: string[]): Promise<string | undefined> => {
+/** One git answer: its output, a definite "not a git repository", or failed (timeout, spawn failure, other error). */
+type GitAnswer = { out: string } | { notRepo: true } | undefined;
+const NOT_REPO_RE = /not a git repository/i;
+
+/** Each field is set only when its own call succeeded; `notRepo` when git definitely said so. */
+interface GitRefresh {
+  branch?: string;
+  worktrees?: string[];
+  notRepo: boolean;
+}
+
+async function gitLines(pi: any, ctx: any): Promise<GitRefresh> {
+  const run = async (args: string[]): Promise<GitAnswer> => {
     try {
       const r = await pi.exec("git", args, { timeout: GIT_TIMEOUT_MS, cwd: ctx?.cwd });
-      if (!r || r.code !== 0) return undefined;
-      const out = String(r.stdout ?? "").trim();
-      return out || undefined;
+      if (!r || r.killed) return undefined; // timeout or signal (omp exec/exec.ts:49-55)
+      if (r.code === 0) return { out: String(r.stdout ?? "").trim() };
+      return NOT_REPO_RE.test(String(r.stderr ?? "")) ? { notRepo: true } : undefined;
     } catch {
       return undefined;
     }
   };
-  const branch = await run(["rev-parse", "--abbrev-ref", "HEAD"]);
-  const wt = await run(["worktree", "list"]);
-  return { branch, worktrees: wt ? wt.split("\n").map(l => l.trim()).filter(Boolean) : [] };
+  const b = await run(["rev-parse", "--abbrev-ref", "HEAD"]);
+  const w = await run(["worktree", "list"]);
+  const out: GitRefresh = { notRepo: (!!b && "notRepo" in b) || (!!w && "notRepo" in w) };
+  if (b && "out" in b) out.branch = b.out || undefined;
+  if (w && "out" in w) out.worktrees = w.out.split("\n").map(l => l.trim()).filter(Boolean);
+  return out;
+}
+
+/** Git info after a refresh: cleared outside a repository, else each field replaced only when its call succeeded. */
+function mergeGit(old: GitInfo | undefined, r: GitRefresh): GitInfo | undefined {
+  if (r.notRepo) return undefined;
+  const branch = "branch" in r ? r.branch : old?.branch;
+  const worktrees = r.worktrees ?? old?.worktrees ?? [];
+  return branch || worktrees.length ? { branch, worktrees } : undefined;
 }
 
 export default function ompContext(pi: any, options: OmpContextOptions = {}): void {
@@ -279,8 +347,10 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
     if (m?.role === "user") {
       if (m.attribution !== "agent" && m.synthetic !== true) addWord(s, textOf(m.content));
     }
-    else if (m?.role === "custom" && m.customType === "skill-prompt" && typeof m.details?.name === "string")
-      s.skills.add(m.details.name);
+    else if (m?.role === "custom" && m.customType === SKILL_PROMPT) {
+      if (typeof m.details?.name === "string") s.skills.add(m.details.name);
+      if (isUserSkillPrompt(m) && typeof m.details?.args === "string") addWord(s, m.details.args);
+    }
   }));
 
   pi.on("tool_result", safe((e: any, ctx: any) => {
@@ -322,10 +392,11 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
   };
 
   // Each refresh takes a sequence number when it starts; its result replaces `s.git` only when no later-started
-  // refresh has been applied, so a slow old answer never overwrites a newer one.
-  const refreshGit = async (s: State, ctx: any): Promise<GitInfo> => {
+  // refresh has been applied, so a slow old answer never overwrites a newer one. Fields merge one by one (mergeGit):
+  // a call that failed or timed out keeps its old field, a definite "not a git repository" clears both.
+  const refreshGit = async (s: State, ctx: any): Promise<GitInfo | undefined> => {
     const seq = ++s.gitStarted;
-    const git = await gitLines(pi, ctx);
+    const git = mergeGit(s.git, await gitLines(pi, ctx));
     if (seq > s.gitApplied) {
       s.git = git;
       s.gitApplied = seq;
@@ -413,8 +484,7 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
   pi.on("context", safe((e: any, ctx: any) => {
     const messages = e?.messages;
     if (!Array.isArray(messages)) return undefined;
-    // Leading compactionSummary: index 1. Otherwise right after the first non-synthetic user message. Otherwise nothing.
-    const at = messages[0]?.role === "compactionSummary" ? 0 : messages.findIndex((m: any) => m?.role === "user" && !m.synthetic);
+    const at = anchorIndex(messages);
     if (at < 0) return undefined; // no anchor in this request: insert nothing
     const s = stateFor(ctx);
     const parts: string[] = [];

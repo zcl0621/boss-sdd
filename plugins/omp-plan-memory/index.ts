@@ -2,13 +2,15 @@
 //
 // Port of plugins/plan-memory/plan-memory.js. The skill already says when to read, write and tidy project memory;
 // this only reminds. It watches finished board calls and, while a reminder is due, adds a short <memory> block to
-// each provider request: at index 1 when messages[0] is a compactionSummary, else right after the first non-synthetic
-// user message, else none. Never at the tail or index 0. Reasons: omp's compact() builds the summarizer request with
+// each provider request: right after a compactionSummary found among the leading custom and synthetic user messages,
+// else right after the earliest user turn (first non-synthetic user message or user-attributed skill-prompt custom
+// message, whichever comes first), else none (see insertReminder). Never at the tail or index 0. Reasons: omp's
+// compact() builds the summarizer request with
 // buildLiveProviderContext (session/agent-session.ts:2380-2403), which runs history and history+retained through this
 // handler and cuts the second result at len(first); a tail block shifts that cut and can split a tool_use/tool_result
 // pair, while this rule keeps the first len(first) messages identical (no user message in history and no summary: the
 // block lands in the retained part, after the cut). Index 0 is the date/cwd reminder root (date-cwd-reminder.ts:66).
-// Known cost: index 1 after an Anthropic native summary stops its merge with the next assistant turn (anthropic.ts:6190-6208).
+// A native Anthropic summary is never split from the assistant turn folded into it (see anchorIndex).
 // The `context` event returns {messages} per request without touching the stored history (docs/extensions.md
 // "context"; types.ts ContextEventResult). Presence and text depend only on state; the timestamp is constant 0.
 //
@@ -148,17 +150,54 @@ export function reminder(state: State): string {
   return lines.length ? `${BLOCK}${lines.join("\n")}</memory>` : ""
 }
 
-// Where the block goes: index 1 when messages[0] is a compactionSummary; else immediately after the first user
-// message that is not synthetic; else nowhere (null). Not the tail (see the header). Why not "user only": after a
-// compaction the retained part may hold no user message and the reminder would vanish; a summary-only fallback taken
-// when no user message exists would misalign the cut. This rule gives the same position for history and
-// history+retained in every case. Cost: an Anthropic native summary followed by an assistant turn is no longer merged
-// (ai providers/anthropic.ts:6190-6208); role alternation stays valid. Index 0 is omp's date/cwd reminder root.
+// Where the block goes: right after a compactionSummary found among the leading custom (or synthetic user) messages;
+// else right after the earliest user turn: the first non-synthetic user message or user-attributed `skill-prompt`
+// custom message (omp's isUserInvokedSkillPrompt, tui/src/chat/messages.ts:273-275), whichever comes first; else
+// nowhere (null). Not the tail (see the header). After a rollover omp's buildSessionContext puts the summary first
+// (session/session-context.ts:540-545), re-appends the latest user request, for a /skill-started run the skill-prompt
+// (:547-569), and splices the context-notes custom message in at index 0 (:646-670); T9 saw [custom notes,
+// compactionSummary, custom skill-prompt, custom todo, assistant, toolResult] with no user role. A run started with
+// /skill:plan-sdd has the skill-prompt as its only user turn even before any compaction. Why not "user only": the
+// retained part may hold no user message and the reminder would vanish; a summary-only fallback taken when no user
+// message exists, or a "user first, skill-prompt second" order, would misalign the cut. This rule gives the same
+// position for history and history+retained in every case (the cut's history is the rebuilt summary plus entries after
+// the previous compaction, agent/src/compaction/compaction.ts:2051-2070). After a native Anthropic summary
+// (providerPayload.type "anthropicCompaction") the anchor moves past a directly following assistant turn, its
+// toolResults and the notes message, where omp puts the notes (session/session-context.ts:651-662), so the summary's
+// fold into that turn is never split; the native cut never separates a tool call from its results
+// (agent/src/compaction/anthropic.ts:137-171), so history and history+retained still agree. Index 0 is omp's date/cwd
+// reminder root.
 // Returns a new array; the input is never mutated. timestamp is constant: Date.now() would make otherwise identical
 // requests differ.
+// Same body as anchorIndex in plugins/omp-context/index.ts; keep the two identical.
+function anchorIndex(messages: any[]): number {
+  const isSyntheticUser = (m: any): boolean => m?.role === "user" && m.synthetic === true
+  const isUserTurn = (m: any): boolean =>
+    (m?.role === "user" && m.synthetic !== true) ||
+    (m?.role === "custom" && m.customType === "skill-prompt" && m.attribution === "user")
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]
+    if (m?.role !== "compactionSummary") {
+      if (m?.role === "custom" || isSyntheticUser(m)) continue
+      break
+    }
+    // A native Anthropic summary is folded into a directly following assistant turn (signed thinking bound to that
+    // prefix): never split it. Mirror omp's notes placement (session/session-context.ts:651-662): past one assistant
+    // message, then its toolResults, then past the notes message omp put there.
+    let at = i
+    if (m.providerPayload?.type === "anthropicCompaction") {
+      if (messages[at + 1]?.role === "assistant") at++
+      while (messages[at + 1]?.role === "toolResult") at++
+      const next = messages[at + 1]
+      if (next?.role === "custom" && next.customType === "experimental_context_notes") at++
+    }
+    return at
+  }
+  return messages.findIndex(isUserTurn)
+}
+
 export function insertReminder(messages: any[], text: string): any[] | null {
-  const anchor =
-    messages[0]?.role === "compactionSummary" ? 0 : messages.findIndex((m) => m?.role === "user" && m.synthetic !== true)
+  const anchor = anchorIndex(messages)
   if (anchor < 0) return null
   const block = { role: "user", content: [{ type: "text", text }], synthetic: true, timestamp: 0 }
   return [...messages.slice(0, anchor + 1), block, ...messages.slice(anchor + 1)]

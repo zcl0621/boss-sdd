@@ -1513,3 +1513,449 @@ describe("T12 rework item 3: coverage", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// T15 (fix: T9 F1, F3). Request shape after a rollover, from omp's own assembly (omp 18.11.1):
+//   buildSessionContext (session/session-context.ts) pushes the compactionSummary first (:540-545), then on a rollover
+//   (details.kind "experimental-context-rollover") re-appends the latest user request from before the compaction
+//   (:547-569; isRolloverRequestEntry :40-48 -> isUserRequestEntry, tui/src/chat/transcript-entry.ts:59-70, which
+//   counts a user-attributed skill-prompt custom message), then the kept and later messages; last it splices the
+//   context-notes custom message (customType "experimental_context_notes", "<experimental-context-notes>") in at index
+//   0 (:646-670). session-maintenance.ts:2466-2468 swaps that in with agent.replaceMessages after appendCompaction,
+//   and later turns only append, so the leading messages stay put until the next compaction.
+//   The T9 capture (docs/e2e/2026-10-16-omp-e2e.md item 3a): [0] custom notes, [1] compactionSummary,
+//   [2] custom skill-prompt, [3] custom todo reminder, then assistant/toolResult, no `user` role at all.
+// /skill:<name> <args>: modes/skill-command.ts:63-87 builds { customType "skill-prompt", content <skill body>,
+//   details, attribution "user" }; details come from extensibility/skills.ts:671-718: { name, path, args (trimmed
+//   user text, undefined when empty), prompt (the whole draft), lineCount }. It reaches extensions as message_end
+//   (agent/src/agent-loop.ts:1121-1125 emitInputMessages).
+// ---------------------------------------------------------------------------------------------------------------
+const t9Notes = () => ({
+  role: "custom",
+  customType: "experimental_context_notes",
+  content: "<experimental-context-notes>\nPIN-1\n</experimental-context-notes>",
+  display: false,
+  timestamp: 1,
+});
+const t9Summary = () => ({ role: "compactionSummary", summary: "rolled over", tokensBefore: 69719, timestamp: 2 });
+const SKILL_BODY = '[IMPORTANT: User invoked the "plan-sdd" skill; follow its instructions. Full skill below.]\n\nSKILL BODY TEXT';
+const T9_ARGS = "Goal mode: run it to the end. Change: add farewell(name) to src/greet.js returning \"bye \" + name.";
+const t9Skill = (attribution: string = "user", args: string | undefined = T9_ARGS) => ({
+  role: "custom",
+  customType: "skill-prompt",
+  content: SKILL_BODY,
+  display: true,
+  details: { name: "plan-sdd", path: "/skills/plan-sdd/SKILL.md", args, prompt: `/skill:plan-sdd ${args ?? ""}`.trim(), lineCount: 120 },
+  attribution,
+  timestamp: 3,
+});
+const t9Todo = () => ({
+  role: "custom",
+  customType: "mid-run-todo-nudge",
+  content: "<system-reminder> 4 todo items still open </system-reminder>",
+  display: false,
+  attribution: "agent",
+  timestamp: 4,
+});
+const t9Call = (id = "tc1") => ({ role: "assistant", content: [{ type: "toolCall", id, name: "read", arguments: {} }], timestamp: 5 });
+const t9Result = (id = "tc1") => ({ role: "toolResult", toolCallId: id, toolName: "read", content: [{ type: "text", text: "r" }], timestamp: 6 });
+const t9User = (t: string) => ({ role: "user", content: [{ type: "text", text: t }], attribution: "user", timestamp: 7 });
+const t9Asst = (t: string) => ({ role: "assistant", content: [{ type: "text", text: t }], timestamp: 8 });
+/** The first request after the T9 second rollover, role for role. */
+const t9Request = () => [t9Notes(), t9Summary(), t9Skill(), t9Todo(), t9Call(), t9Result(), t9Asst("next")];
+const isRestoreBlock = (m: any) => m?.synthetic === true && msgText(m).startsWith(RESTORE);
+
+describe("T15 acceptance 1 (F1): the anchor in the request shape omp builds after a rollover", () => {
+  test("T9 shape [custom notes, compactionSummary, custom skill-prompt, custom todo, assistant, toolResult]: block right after the summary", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("message_end", said("keep me"), ctx);
+    await emit("session_compact", rolloverCompaction("r2"), ctx);
+    const msgs = t9Request();
+    expect(msgs.map((m: any) => m.role)).toEqual(["custom", "compactionSummary", "custom", "custom", "assistant", "toolResult", "assistant"]);
+    const r = await emit("context", { messages: msgs }, ctx);
+    expect(r?.messages).toBeDefined();
+    const out = r.messages;
+    expect(out).toHaveLength(msgs.length + 1);
+    expect(out[0]).toBe(msgs[0]);
+    expect(out[1]).toBe(msgs[1]);
+    expect(out[2]).toSatisfy(isRestoreBlock);
+    expect(out.slice(3)).toEqual(msgs.slice(2));
+  });
+
+  test("the summary after leading custom messages wins over a later user message (T9 3c shape: custom, summary, assistant, user)", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("session_compact", rolloverCompaction("r3"), ctx);
+    for (const lead of [[t9Notes()], [t9Notes(), t9Todo()], []]) {
+      const msgs = [...lead, t9Summary(), t9Asst("a"), t9User("u"), t9Asst("b")];
+      const out = (await emit("context", { messages: msgs }, ctx))?.messages ?? msgs;
+      expect(out.findIndex(isRestoreBlock)).toBe(lead.length + 1);
+      expect(out.filter(isRestoreBlock)).toHaveLength(1);
+    }
+  });
+
+  test("no summary, no user message: right after the user-invoked skill-prompt message", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("session_compact", legacyCompaction("c1"), ctx);
+    const msgs = [t9Notes(), t9Skill(), t9Todo(), t9Call(), t9Result()];
+    const out = (await emit("context", { messages: msgs }, ctx))?.messages ?? msgs;
+    expect(out.findIndex(isRestoreBlock)).toBe(2);
+    expect(out[1]).toBe(msgs[1]);
+    expect(out.filter(isRestoreBlock)).toHaveLength(1);
+  });
+
+  test("no summary: the skill-prompt anchors when it comes before the first user message (same anchor in history and history+retained)", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("session_compact", legacyCompaction("c1"), ctx);
+    const msgs = [t9Skill(), t9Asst("a"), t9User("later"), t9Asst("b")];
+    const out = (await emit("context", { messages: msgs }, ctx))?.messages ?? msgs;
+    expect(out.findIndex(isRestoreBlock)).toBe(1);
+  });
+
+  test("regression guard: no summary, a user message before any skill-prompt still anchors on the user message", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("session_compact", legacyCompaction("c1"), ctx);
+    const msgs = [t9User("first"), t9Skill(), t9Asst("a")];
+    const out = (await emit("context", { messages: msgs }, ctx))?.messages ?? msgs;
+    expect(out.findIndex(isRestoreBlock)).toBe(1);
+  });
+
+  test("regression guard: a skill-prompt not attributed to the user is no anchor; with no other anchor nothing is inserted", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("session_compact", legacyCompaction("c1"), ctx);
+    for (const attribution of ["agent", undefined]) {
+      const skill: any = t9Skill("x");
+      if (attribution === undefined) delete skill.attribution;
+      else skill.attribution = attribution;
+      expect(await emit("context", { messages: [t9Notes(), skill, t9Call(), t9Result()] }, ctx)).toBeUndefined();
+    }
+  });
+
+  // The async-compaction cut (session/agent-session.ts:2376-2403) converts history and history+retained and keeps the
+  // first len(convert(history)) messages. history there comes from session entries after the previous compaction
+  // plus the rebuilt summary (agent/src/compaction/compaction.ts:2051-2070, :1440-1473), so the notes message is not
+  // in it, but a skill-prompt or other custom entries can be. The T9 live shape is included as well.
+  describe("summarizer cut alignment for the new shapes", () => {
+    // [name, history, retained, history alone holds an anchor (so the block must already be in convert(history))]
+    const cases: [string, () => any[], () => any[], boolean][] = [
+      ["T9 live shape, cut inside the tool turn", () => [t9Notes(), t9Summary(), t9Skill(), t9Todo(), t9Call()], () => [t9Result(), t9Asst("done"), t9User("u2")], true],
+      ["summary, skill-prompt, todo; no user anywhere", () => [t9Summary(), t9Skill(), t9Todo(), t9Call()], () => [t9Result(), t9Asst("done")], true],
+      ["no summary, skill-prompt in history, user only in retained", () => [t9Skill(), t9Call()], () => [t9Result(), t9User("u2"), t9Asst("done")], true],
+      ["no summary, agent custom in history, skill-prompt only in retained", () => [t9Todo(), t9Call()], () => [t9Result(), t9Skill(), t9Asst("done")], false],
+      ["no summary, notes then skill-prompt", () => [t9Notes(), t9Skill(), t9Call()], () => [t9Result(), t9Asst("done")], true],
+      // What buildLiveProviderContext actually sees after the T9 rollover: summary plus entries after the compaction (the
+      // notes message and the re-appended request are added only by buildSessionContext). The notes-at-0 rows above are
+      // stricter than anything the cut sees.
+      ["cut's own view after the T9 rollover: summary, todo, tool call", () => [t9Summary(), t9Todo(), t9Call()], () => [t9Result(), t9Asst("done")], true],
+    ];
+    for (const withNudge of [false, true]) {
+      for (const [name, mkHistory, mkRetained, historyAnchored] of cases) {
+        test(`prefix of convert(history+retained) equals convert(history), block present: ${name} (nudge=${withNudge})`, async () => {
+          const { emit } = setup();
+          const ctx = makeCtx(withNudge ? { getContextUsage: () => ({ tokens: 95000, contextWindow: 200000, percent: 0 }) } : {});
+          await emit("message_end", said("words"), ctx);
+          await emit("session_compact", rolloverCompaction(), ctx);
+          if (withNudge) await emit("turn_end", {}, ctx);
+          const history = mkHistory();
+          const retained = mkRetained();
+          const run = async (msgs: any[]) => (await emit("context", { messages: msgs }, ctx))?.messages ?? msgs;
+          const convertH = await run(history);
+          const convertHR = await run([...history, ...retained]);
+          expect(convertHR.slice(0, convertH.length)).toEqual(convertH);
+          expect(convertHR[convertH.length]).toBe(retained[0]);
+          expect(convertHR.filter((m: any) => !isRestoreBlock(m))).toEqual([...history, ...retained]);
+          expect(convertHR.filter(isRestoreBlock)).toHaveLength(1); // every one of these shapes has an anchor
+          expect(convertH.filter(isRestoreBlock)).toHaveLength(historyAnchored ? 1 : 0);
+        });
+      }
+    }
+  });
+});
+
+// omp's other user-attributed custom turn (isUserTurnInitiator, tui/src/chat/messages.ts:282-287): customType
+// "collab-prompt" (wire/src/index.ts:170). Only the skill-prompt is part of T15.
+const collabPrompt = () => ({
+  role: "custom",
+  customType: "collab-prompt",
+  content: "peer prompt body",
+  display: true,
+  details: { args: "collab peer args" },
+  attribution: "user",
+  timestamp: 3,
+});
+
+describe("T15 audit tightening: a user-attributed custom of another type is neither an anchor nor recorded", () => {
+  test("collab-prompt carrying details.args: not recorded, no anchor", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("message_end", { message: collabPrompt() }, ctx);
+    await emit("session_compact", legacyCompaction(), ctx);
+    expect(await emit("context", { messages: [t9Notes(), collabPrompt(), t9Call(), t9Result()] }, ctx)).toBeUndefined();
+    const r = (await restoreTexts(emit, ctx))[0];
+    expect(r).not.toContain("collab peer args");
+    expect(r).not.toContain("Recent user words");
+  });
+});
+
+describe("T15 acceptance 2 (F3): the task text of /skill:<name> <args> counts as user words", () => {
+  const skillEnd = (attribution = "user", args: string | undefined = T9_ARGS) => ({ message: t9Skill(attribution, args) });
+
+  test("the args of a user-invoked skill-prompt are recorded verbatim, the skill body is not", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("message_end", skillEnd(), ctx);
+    await emit("session_compact", legacyCompaction(), ctx);
+    const r = await restoreTexts(emit, ctx);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toContain("Recent user words (verbatim):");
+    expect(r[0]).toContain(T9_ARGS);
+    expect(r[0]).not.toContain("SKILL BODY TEXT");
+    expect(r[0]).not.toContain("IMPORTANT: User invoked");
+    expect(r[0]).not.toContain("/skill:plan-sdd"); // details.args, not details.prompt (the whole draft)
+  });
+
+  test("the skill task and later typed words are both kept, in order", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("message_end", skillEnd(), ctx);
+    await emit("message_end", said("and keep the greet check"), ctx);
+    await emit("session_compact", legacyCompaction(), ctx);
+    const r = (await restoreTexts(emit, ctx))[0] ?? "";
+    const a = r.indexOf(T9_ARGS);
+    const b = r.indexOf("and keep the greet check");
+    expect(a).toBeGreaterThan(-1);
+    expect(b).toBeGreaterThan(a);
+  });
+
+  test("T9 end to end: /skill:plan-sdd task, rollover, T9 request shape: the block sits after the summary and carries the task", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("message_end", skillEnd(), ctx);
+    await emit("session_compact", rolloverCompaction("r1"), ctx);
+    const out = (await emit("context", { messages: t9Request() }, ctx))?.messages ?? [];
+    expect(out[2]).toSatisfy(isRestoreBlock);
+    expect(msgText(out[2])).toContain(T9_ARGS);
+  });
+
+  test("regression guard: a skill invoked without args records nothing as user words", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    const noArgs = t9Skill("user");
+    delete (noArgs.details as any).args; // omp sets args to undefined when nothing follows /skill:<name> (skills.ts:713)
+    noArgs.details.prompt = "/skill:plan-sdd";
+    await emit("message_end", { message: noArgs }, ctx);
+    await emit("session_compact", legacyCompaction(), ctx);
+    expect((await restoreTexts(emit, ctx))[0]).not.toContain("Recent user words");
+  });
+
+  test("regression guard: a skill-prompt not attributed to the user is not recorded; other slash commands typed as input are not recorded", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("message_end", skillEnd("agent", "agent-chosen args"), ctx);
+    await emit("input", { text: "/model kimi", source: "interactive" }, ctx);
+    await emit("input", { text: "/compact keep it", source: "interactive" }, ctx);
+    await emit("session_compact", legacyCompaction(), ctx);
+    const r = (await restoreTexts(emit, ctx))[0];
+    expect(r).not.toContain("agent-chosen args");
+    expect(r).not.toContain("/model");
+    expect(r).not.toContain("Recent user words");
+  });
+});
+
+describe("T15 fold-in of T12 nits", () => {
+  const usage = (tokens: number) => () => ({ tokens, contextWindow: 200000, percent: tokens / 2000 });
+  const nudgeText = async (emit: any, ctx: any) => (await appendedTexts(emit, ctx)).find(t => t.includes(NUDGE));
+
+  test("once latched, the nudge numbers stay frozen across later turn_ends until the next compaction", async () => {
+    const { emit } = setup({ nudgeFraction: 0.85 });
+    await emit("turn_end", {}, makeCtx({ getContextUsage: usage(90000) }));
+    const first = await nudgeText(emit, makeCtx());
+    expect(first).toContain("90000 of 100000");
+    await emit("turn_end", {}, makeCtx({ getContextUsage: usage(99000) }));
+    const later = await nudgeText(emit, makeCtx());
+    expect(later).toBe(first);
+    expect(later).not.toContain("99000");
+  });
+
+  test("once latched, later turn_ends do not consult the settings reader again until the next compaction", async () => {
+    let reads = 0;
+    const reader = async () => {
+      reads++;
+      return { experimentalContextManagement: false, thresholdTokens: 100000 };
+    };
+    const { emit } = setup({ settings: reader, nudgeFraction: 0.85 });
+    await emit("turn_end", {}, makeCtx({ getContextUsage: usage(90000) }));
+    expect(reads).toBe(1);
+    await emit("turn_end", {}, makeCtx({ getContextUsage: usage(99000) }));
+    await emit("turn_end", {}, makeCtx({ getContextUsage: usage(99500) }));
+    expect(reads).toBe(1);
+    await emit("session_compact", legacyCompaction(), makeCtx());
+    await emit("turn_end", {}, makeCtx({ getContextUsage: usage(10) }));
+    expect(reads).toBe(2);
+  });
+
+  test("a failed git refresh ({branch: undefined, worktrees: []}) does not overwrite earlier good git info", async () => {
+    let gitWorks = true;
+    const execImpl = async (_cmd: string, args: string[]) => {
+      if (!gitWorks) return { stdout: "", stderr: "", code: -1, killed: true }; // timeout (omp exec/exec.ts:49-55)
+      if (args[0] === "rev-parse") return { stdout: "feature/x\n", stderr: "", code: 0, killed: false };
+      if (args[0] === "worktree") return { stdout: "/repo  abc1234 [main]\n", stderr: "", code: 0, killed: false };
+      return { stdout: "", stderr: "", code: 1, killed: false };
+    };
+    const { emit } = setup({ execImpl });
+    const ctx = makeCtx();
+    await emit("session_start", {}, ctx);
+    await flush();
+    gitWorks = false;
+    await emit("turn_end", {}, ctx); // its background refresh fails
+    await flush();
+    await emit("session_compact", legacyCompaction("c1"), ctx); // its own fill fails too
+    await flush();
+    const r = await restoreTexts(emit, ctx);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toContain("Git branch: feature/x");
+    expect(r[0]).toContain("/repo  abc1234 [main]");
+  });
+});
+
+// T15 rework: git fields are refreshed one by one. omp's pi.exec (exec/exec.ts:49-55) reports a timeout as
+// {code: -1, killed: true}; git itself answers outside a repository with a non-zero exit and "not a git repository".
+describe("T15 rework: partial git failure and not-a-repo", () => {
+  const OK = (stdout: string) => ({ stdout, stderr: "", code: 0, killed: false });
+  const TIMEOUT = { stdout: "", stderr: "", code: -1, killed: true };
+  const NOT_REPO = { stdout: "", stderr: "fatal: not a git repository (or any of the parent directories): .git\n", code: 128, killed: false };
+  /** Each git call answers from the current `mode`. */
+  const scripted = () => {
+    let mode: { revParse: any; worktree: any } = {
+      revParse: OK("old/branch\n"),
+      worktree: OK("/repo  abc1234 [old/branch]\n/repo-wt  def5678 [side]\n"),
+    };
+    const execImpl = async (_cmd: string, args: string[]) => (args[0] === "rev-parse" ? mode.revParse : mode.worktree);
+    return { execImpl, set: (m: { revParse: any; worktree: any }) => (mode = m) };
+  };
+  const blockAfterRefresh = async (git: ReturnType<typeof scripted>, next: { revParse: any; worktree: any }) => {
+    const { emit } = setup({ execImpl: git.execImpl });
+    const ctx = makeCtx();
+    await emit("session_start", {}, ctx);
+    await flush();
+    git.set(next);
+    await emit("turn_end", {}, ctx);
+    await flush();
+    await emit("session_compact", legacyCompaction("c1"), ctx); // its own fill gets the same answers
+    await flush();
+    const r = await restoreTexts(emit, ctx);
+    expect(r).toHaveLength(1);
+    return r[0];
+  };
+
+  test("rev-parse ok, worktree list times out: the new branch is taken, the old worktrees are kept", async () => {
+    const git = scripted();
+    const b = await blockAfterRefresh(git, { revParse: OK("new/branch\n"), worktree: TIMEOUT });
+    expect(b).toContain("Git branch: new/branch");
+    expect(b).not.toContain("old/branch\n");
+    expect(b).toContain("- /repo  abc1234 [old/branch]");
+    expect(b).toContain("- /repo-wt  def5678 [side]");
+  });
+
+  test("worktree list ok, rev-parse times out: the new worktrees are taken, the old branch is kept", async () => {
+    const git = scripted();
+    const b = await blockAfterRefresh(git, { revParse: TIMEOUT, worktree: OK("/repo  9999999 [new/branch]\n") });
+    expect(b).toContain("Git branch: old/branch");
+    expect(b).toContain("- /repo  9999999 [new/branch]");
+    expect(b).not.toContain("/repo-wt  def5678 [side]");
+  });
+
+  test("a definite 'not a git repository' answer clears git info instead of keeping stale data", async () => {
+    const git = scripted();
+    const b = await blockAfterRefresh(git, { revParse: NOT_REPO, worktree: NOT_REPO });
+    expect(b).not.toContain("Git branch:");
+    expect(b).not.toContain("Worktrees:");
+    expect(b).not.toContain("old/branch");
+  });
+});
+
+// T15 acceptance 5: a native Anthropic compaction summary (providerPayload.type "anthropicCompaction") must open the
+// request and is folded into a directly following retained assistant turn whose signed thinking is bound to that
+// prefix; omp itself puts the notes after the summary, that assistant turn and its tool results
+// (session/session-context.ts:651-662). The native cut (agent/src/compaction/anthropic.ts:137-171) only cuts at an
+// assistant/non-assistant boundary and never between a tool call and its results, so in the cut's history the retained
+// assistant turn and its results are on the same side.
+describe("T15 acceptance 5: the native Anthropic summary fold is never split", () => {
+  const native = () => ({ ...t9Summary(), providerPayload: { type: "anthropicCompaction", provider: "anthropic", content: "c" } });
+  const call2 = () => ({
+    role: "assistant",
+    content: [{ type: "toolCall", id: "a", name: "read", arguments: {} }, { type: "toolCall", id: "b", name: "read", arguments: {} }],
+    timestamp: 5,
+  });
+  const res = (id: string) => ({ role: "toolResult", toolCallId: id, toolName: "read", content: [{ type: "text", text: "r" }], timestamp: 6 });
+
+  test("[native summary, assistant, toolResult, toolResult, notes custom, ...]: block after the tool results and the notes", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("session_compact", rolloverCompaction("r1"), ctx);
+    const msgs = [native(), call2(), res("a"), res("b"), t9Notes(), t9Skill(), t9Asst("next")];
+    const out = (await emit("context", { messages: msgs }, ctx))?.messages ?? msgs;
+    expect(out.findIndex(isRestoreBlock)).toBe(5);
+    expect(out.slice(0, 5)).toEqual(msgs.slice(0, 5));
+    expect(out.filter(isRestoreBlock)).toHaveLength(1);
+  });
+
+  test("native summary followed by a plain assistant turn, then a user message: block right after that assistant turn", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("session_compact", legacyCompaction("c1"), ctx);
+    const msgs = [native(), t9Asst("kept"), t9User("u"), t9Asst("b")];
+    const out = (await emit("context", { messages: msgs }, ctx))?.messages ?? msgs;
+    expect(out.findIndex(isRestoreBlock)).toBe(2);
+  });
+
+  test("native summary followed directly by a user message: block at index 1", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("session_compact", legacyCompaction("c1"), ctx);
+    const msgs = [native(), t9User("u"), t9Asst("b")];
+    const out = (await emit("context", { messages: msgs }, ctx))?.messages ?? msgs;
+    expect(out.findIndex(isRestoreBlock)).toBe(1);
+  });
+
+  test("regression guard: a non-native summary keeps the block right after it", async () => {
+    const { emit } = setup();
+    const ctx = makeCtx();
+    await emit("session_compact", legacyCompaction("c1"), ctx);
+    const msgs = [t9Summary(), call2(), res("a"), res("b"), t9Notes(), t9Asst("next")];
+    const out = (await emit("context", { messages: msgs }, ctx))?.messages ?? msgs;
+    expect(out.findIndex(isRestoreBlock)).toBe(1);
+  });
+
+  describe("cut alignment for the native shape", () => {
+    // [name, history, retained]; history is the rebuilt native summary plus entries (compaction.ts:2026-2070).
+    const cases: [string, () => any[], () => any[]][] = [
+      ["retained assistant turn with its tool results in history, cut at the next assistant", () => [native(), call2(), res("a"), res("b")], () => [t9Asst("next"), t9User("u2")]],
+      ["retained plain assistant turn in history, cut at a user message", () => [native(), t9Asst("kept")], () => [t9User("u2"), t9Asst("done")]],
+      ["retained assistant turn and results, then more turns in history", () => [native(), call2(), res("a"), res("b"), t9Asst("x"), t9User("u1")], () => [t9Asst("y")]],
+      ["native summary then a user message in history", () => [native(), t9User("u1"), t9Asst("a1")], () => [t9User("u2"), t9Asst("a2")]],
+    ];
+    for (const [name, mkHistory, mkRetained] of cases) {
+      test(`prefix of convert(history+retained) equals convert(history), block in history: ${name}`, async () => {
+        const { emit } = setup();
+        const ctx = makeCtx();
+        await emit("session_compact", legacyCompaction("c1"), ctx);
+        const history = mkHistory();
+        const retained = mkRetained();
+        const run = async (msgs: any[]) => (await emit("context", { messages: msgs }, ctx))?.messages ?? msgs;
+        const convertH = await run(history);
+        const convertHR = await run([...history, ...retained]);
+        expect(convertHR.slice(0, convertH.length)).toEqual(convertH);
+        expect(convertHR[convertH.length]).toBe(retained[0]);
+        expect(convertH.filter(isRestoreBlock)).toHaveLength(1);
+        // the fold is intact: the assistant turn right after the summary is never separated from it
+        if (history[1]?.role === "assistant") expect(convertH[1]).toBe(history[1]);
+      });
+    }
+  });
+});
