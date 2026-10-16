@@ -127,7 +127,11 @@ const isRecon = (input: any): boolean => {
 
 // The task ids a plan_set_tasks result says landed (`written`, mcp/main.go batchOutput), or undefined when the
 // result is not readable. A batch the board refuses lands nothing: written is empty, failed lists every task.
-const writtenIds = (content: unknown): Set<string> | undefined => {
+// omp keeps the server's structured result in details.structuredContent for programmatic use and only renders it
+// into the text content (mcp/tool-bridge.ts:237-300), so that copy is read first, the text JSON second.
+const writtenIds = (content: unknown, details?: any): Set<string> | undefined => {
+  const structured = details?.structuredContent?.written
+  if (Array.isArray(structured)) return new Set(structured.map(String))
   const text = Array.isArray(content) ? content.find((b: any) => b?.type === "text" && typeof b.text === "string")?.text : undefined
   if (typeof text !== "string") return undefined
   try {
@@ -139,7 +143,7 @@ const writtenIds = (content: unknown): Set<string> | undefined => {
 }
 
 // Update the state for one finished tool call. Returns whether anything changed. `content` is the tool result.
-export function observe(state: State, tool: unknown, input: any, content?: unknown): boolean {
+export function observe(state: State, tool: unknown, input: any, content?: unknown, details?: unknown): boolean {
   let changed = false
   if (tool === "task" && isRecon(input) && !state.recon) (state.recon = true), (changed = true)
   for (const [name, text] of boardCalls(tool, input)) {
@@ -153,7 +157,7 @@ export function observe(state: State, tool: unknown, input: any, content?: unkno
     if (name === "plan_set_task" || name === "plan_set_tasks") {
       // Distinct ids: a batch that re-sends tasks already done does not count them again. For a batch, only tasks
       // the board reports as written count.
-      const landed = name === "plan_set_tasks" ? writtenIds(content) : undefined
+      const landed = name === "plan_set_tasks" ? writtenIds(content, details) : undefined
       for (const [id, status] of taskWrites(name, input))
         if ((status === "done" || status === "blocked") && (!landed || landed.has(id)) && !state.closedIds.includes(id))
           state.closedIds.push(id)
@@ -273,7 +277,7 @@ export default function planMemory(pi: ExtensionAPI): void {
       if (event.isError) return
       const sid = ctx.sessionManager.getSessionId()
       const state = stateOf(sid)
-      if (observe(state, event.toolName, event.input, event.content)) trySave(sid, state)
+      if (observe(state, event.toolName, event.input, event.content, event.details)) trySave(sid, state)
     } catch (error) {
       logOnce("handler", sidOf(ctx), error)
     }

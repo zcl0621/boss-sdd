@@ -1997,6 +1997,16 @@ describe("review fixes (2026-10-16)", () => {
     }
   });
 
+  test("bold markup around the Status value is dropped too", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    await emit("tool_result", { toolName: "read", input: { path: "docs/plans/v.md" }, content: text("# P\nStatus: **in progress**\n"), isError: false }, ctx);
+    await emit("session_compact", legacyCompaction(), ctx);
+    const body = String(sent[0].message.content);
+    expect(body).toContain("\nStatus: in progress");
+    expect(body).not.toContain("**");
+  });
+
   test("only a repeat of the latest compaction entry is dropped; nothing older is remembered", async () => {
     const { emit, sent } = setup();
     const ctx = makeCtx();

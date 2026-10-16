@@ -89,9 +89,14 @@ export function cleanupLive(): void {
 }
 
 // ---------- locations ----------
-/** The installed extension dir; derived from `env.HOME` (falls back to os.homedir()). Only ever computed here. */
+/**
+ * The installed extension dir, inside omp's agent directory as omp resolves it (utils/src/dirs.ts):
+ * `PI_CODING_AGENT_DIR`, else `<HOME>/<PI_CONFIG_DIR or .omp>/agent`, HOME falling back to os.homedir().
+ * Only ever computed here.
+ */
 export function defaultTargetDir(env: Record<string, string | undefined> = process.env): string {
-  return join(env.HOME || homedir(), ".omp", "agent", "extensions", "omp-context");
+  const agent = env.PI_CODING_AGENT_DIR || join(env.HOME || homedir(), env.PI_CONFIG_DIR || ".omp", "agent");
+  return join(agent, "extensions", "omp-context");
 }
 
 // ---------- journals ----------

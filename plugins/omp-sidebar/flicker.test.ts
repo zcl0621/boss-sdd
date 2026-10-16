@@ -71,6 +71,35 @@ function paintedAfter(written: string, core: string): boolean {
   return after.includes("side 0") && after.includes(`side ${ROWS - 1}`);
 }
 
+describe("sidebar render work", () => {
+  test("a core write that touches no row and no data change does not re-render the sidebar", () => {
+    const terminal = new FakeTerminal();
+    let renders = 0;
+    const tui = { terminal, nativeRendering: false, synchronizedOutput: false, requestRender() {}, hasOverlay: () => false };
+    const compositor = new SidebarCompositor(
+      tui as never,
+      (_width, rows) => {
+        renders++;
+        return Array.from({ length: rows }, (_, row) => `side ${row}`);
+      },
+      { width: WIDTH, getTheme: () => theme },
+    );
+    terminal.write("\x1b[1;1Hfirst frame");
+    const afterFirst = renders;
+    terminal.write("\x1b[?25l\x1b[3;1H\x1b[?25h");
+    terminal.write("\x1b[5;1H");
+    expect(renders).toBe(afterFirst);
+    // A data change (requestRender) renders once; the next idle core write does not render again.
+    compositor.requestRender();
+    expect(renders).toBe(afterFirst + 1);
+    terminal.write("\x1b[6;1H");
+    expect(renders).toBe(afterFirst + 1);
+    // A write that prints renders, since the printed row is repainted.
+    terminal.write("\x1b[7;1Htext");
+    expect(renders).toBe(afterFirst + 2);
+  });
+});
+
 describe("sidebar does not flash on writes without synchronized output", () => {
   test("a diff paint (cursor-addressed rows, no line feed) erases nothing and repaints only the rows it erased into", () => {
     const { terminal } = setup();

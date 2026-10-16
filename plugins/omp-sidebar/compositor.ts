@@ -49,6 +49,8 @@ interface SidebarState {
   bounds: SidebarBounds | undefined;
   lastUnsupported: string | undefined;
   mouse: MouseState;
+  /** Sidebar data may have changed since the last render (set by requestRender). */
+  dirty: boolean;
 }
 
 /**
@@ -363,6 +365,12 @@ function paintSidebar(
     return "";
   }
   const width = region.width - 1;
+  // Nothing on screen to restore and no data change: skip rendering entirely (the hot path while streaming).
+  if (sameRegion(adapter.painted, region) && adapter.paintedLines && touched !== "all" && touched.size === 0 && !state.dirty) {
+    state.bounds = { column: region.column + 1, width, rows: region.rows };
+    return "";
+  }
+  state.dirty = false;
   const lines = state.renderSidebar(width, region.rows);
   const divider = state.getTheme().fg("borderMuted", "│");
   const blank = fitLayoutLine("", width);
@@ -395,6 +403,7 @@ function repaintSidebar(state: SidebarState): void {
   // rows on every data refresh is wasted output.
   const same = sameRegion(adapter.painted, region);
   const clear = same ? "" : clearSidebar(adapter, region);
+  state.dirty = true; // called because sidebar data changed
   const buffer = clear + paintSidebar(state, adapter, region, same ? new Set() : "all");
   if (!buffer) return;
   // Preserve the host's explicit opt-out on terminals with broken DEC 2026.
@@ -600,6 +609,7 @@ export class SidebarCompositor {
       adapter: undefined,
       bounds: undefined,
       lastUnsupported: undefined,
+      dirty: false,
       mouse: {
         wanted: false,
         ompOwns: options.ompOwnsMouse?.() === true,

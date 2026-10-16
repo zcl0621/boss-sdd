@@ -213,10 +213,13 @@ function textOf(content: unknown): string {
 }
 
 // The plan-level Status starts its line (plan-spec.md: the header block), plain or Markdown-bold (`**Status:** x`,
-// `**Status**: x`); a task's `- Status:` line does not count. Returned as `Status: <value>`, without the markup.
+// `**Status**: x`); a task's `- Status:` line does not count. Returned as `Status: <value>`, without the markup on
+// the label or around the value (`Status: **x**`).
 function statusOf(text: string): string | undefined {
   const m = /^(?:\*\*|__)?Status(?:\*\*|__)?:(?:\*\*|__)?([^\n]*)/m.exec(text);
-  return m ? `Status: ${m[1].trim()}`.trim() : undefined;
+  if (!m) return undefined;
+  const value = m[1].trim().replace(/^(\*\*|__)(.*)\1$/, "$2").trim();
+  return `Status: ${value}`.trim();
 }
 
 // omp read selectors: :raw, :-N, :N, :A-B, :A+C, :5-10,20-30, :range:raw, :raw:range (docs/tools/read.md:33-49).

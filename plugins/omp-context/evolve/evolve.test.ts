@@ -994,6 +994,16 @@ describe("install decision", () => {
       expect(defaultTargetDir({})).toBe(join(homedir(), ".omp", "agent", "extensions", "omp-context"));
     });
 
+    test("defaultTargetDir follows omp's agent directory: PI_CODING_AGENT_DIR, then HOME/PI_CONFIG_DIR/agent", () => {
+      const home = tmp("home");
+      expect(defaultTargetDir({ HOME: home, PI_CODING_AGENT_DIR: "/work/omp-agent" })).toBe(
+        join("/work/omp-agent", "extensions", "omp-context"),
+      );
+      expect(defaultTargetDir({ HOME: home, PI_CONFIG_DIR: ".omp-work" })).toBe(
+        join(home, ".omp-work", "agent", "extensions", "omp-context"),
+      );
+    });
+
     test("with no targetDir, evolve installs under HOME from the given env, never the real home", async () => {
       const home = tmp("home");
       const real = join(homedir(), ".omp", "agent", "extensions", "omp-context", "guidance.md");
