@@ -282,7 +282,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T12 omp-context: restore block ready before the next request; nudge and input from settled state  [fix: phase 3 review C1, C3, C4, C2-doc, D3-doc]  [complexity: high]
-- Status: pending
+- Status: done (merged; integration gate exit 0, 260 pass; red-test audit x2, review, post-repair audit, adversary; open nits for T15: latch test, failed git overwriting good git)
 - depends_on: [T5, T7, T8]
 - write_scope: plugins/omp-context/index.ts, plugins/omp-context/index.test.ts, plugins/omp-context/README.md
 - exclusive_resources: []
