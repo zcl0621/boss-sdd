@@ -330,7 +330,7 @@ Status vocabulary: pending, running, review, blocked, done. Gates for each task 
 - Obstacle ledger: empty. Rounds: 0.
 
 ### T15 omp-context + omp-plan-memory: anchor after a rollover; the skill task counts as user words  [fix: T9 F1, F3]  [complexity: high]
-- Status: pending
+- Status: done (merged; integration ctx 298 / pm 57 pass; red-test audit, review, post-repair audit, adversary)
 - depends_on: [T12, T13]
 - write_scope: plugins/omp-context/index.ts, plugins/omp-context/index.test.ts, plugins/omp-context/README.md, plugins/omp-plan-memory/index.ts, plugins/omp-plan-memory/index.test.ts, plugins/omp-plan-memory/README.md
 - exclusive_resources: []
