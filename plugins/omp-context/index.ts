@@ -61,6 +61,12 @@
 //   shortcut becomes a synthetic developer message (input-controller.ts:985-998). Agent-attributed or synthetic user
 //   messages (session/agent-session.ts:7545, :11448) are skipped.
 // Read selectors stripped from read paths: docs/tools/read.md:33-49.
+// xd:// devices: a tool omp mounts as a device (MCP tools by default) is run by `write` with path `xd://<tool>` and the
+//   JSON args as content (tools/xdev.ts header). `write` is wrapped like every tool (sdk.ts:3603), so its tool_result
+//   carries that path. Only these outer writes are recorded: the inner tool's own tool_result has the same name whether
+//   it was mounted or called directly. The block names them with the route, because the system prompt documents mounted
+//   devices under `## <tool>` headings that a model can take for callable functions once the rollover has dropped its
+//   last device call (docs/e2e/2026-10-16-omp-e2e-recheck2.md, finding 4).
 // session_before_compact is deliberately NOT registered: it would disable async speculative compaction.
 // Nudge: decided at turn_end (settings and usage read there) and stored; a compaction clears it and drops any decision
 //   still in flight, so nothing re-arms it before the next turn_end.
@@ -77,6 +83,7 @@ const MAX_WORDS = 8;
 const MAX_WORD_CHARS = 1000;
 const GIT_TIMEOUT_MS = 3000;
 const MAX_SESSIONS = 32;
+const MAX_DEVICES = 8;
 const NUDGE_ENV = "OMP_CONTEXT_NUDGE_FRACTION";
 const DEFAULT_NUDGE_FRACTION = 0.85;
 const ROLLOVER_KIND = "experimental-context-rollover";
@@ -195,12 +202,17 @@ interface State {
   gitApplied: number;
   plan?: { path: string; status?: string };
   skills: Set<string>;
+  /** `xd://` devices executed through `write`, most recent first, each once. */
+  devices: string[];
   /** Id of the latest compaction announced: omp may emit session_compact twice for one entry. */
   announced?: string;
 }
 
 const PLAN_RE = /(^|[\\/])docs[\\/]plans[\\/][^\\/]+\.md$/;
 const isPlanPath = (p: unknown): p is string => typeof p === "string" && PLAN_RE.test(p);
+
+// A device execute is `write` with path `xd://<tool>` (tools/xdev.ts header); bare `xd://` is not a device.
+const XD_DEVICE_RE = /^xd:\/\/([A-Za-z0-9_.-]+)$/;
 
 function textOf(content: unknown): string {
   if (typeof content === "string") return content;
@@ -321,7 +333,7 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
     }
     let s = states.get(id);
     if (s) states.delete(id); // re-insert below: Map order is least recently used first
-    else s = { words: [], generation: 0, gitStarted: 0, gitApplied: 0, skills: new Set() };
+    else s = { words: [], generation: 0, gitStarted: 0, gitApplied: 0, skills: new Set(), devices: [] };
     states.set(id, s);
     while (states.size > MAX_SESSIONS) states.delete(states.keys().next().value as string);
     return s;
@@ -374,6 +386,9 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
         if (!status && s.plan?.path === p) status = s.plan.status;
         trackPlan(s, p, status);
       }
+    } else if (e.toolName === "write" && typeof input.path === "string" && XD_DEVICE_RE.test(input.path.trim())) {
+      const name = XD_DEVICE_RE.exec(input.path.trim())![1];
+      s.devices = [name, ...s.devices.filter(d => d !== name)].slice(0, MAX_DEVICES);
     } else if (e.toolName === "write" && isPlanPath(input.path)) {
       trackPlan(s, input.path, statusOf(typeof input.content === "string" ? input.content : ""));
     } else if (e.toolName === "edit") {
@@ -443,6 +458,13 @@ export default function ompContext(pi: any, options: OmpContextOptions = {}): vo
     if (s.plan) {
       head.push("", `Active plan: ${s.plan.path}`);
       if (s.plan.status) head.push(s.plan.status);
+    }
+    if (s.devices.length) {
+      head.push(
+        "",
+        "Tools called as xd:// devices before this point (not in the function list; call each with the write tool, path xd://<name>, the JSON arguments as content):",
+        ...s.devices.map(d => `- xd://${d}`),
+      );
     }
     const tail: string[] = !rollover && s.skills.size ? ["", `Loaded skills: ${[...s.skills].join(", ")}`] : [];
     const build = (git: GitInfo | undefined) => [...head, ...gitPart(git), ...tail].join("\n");

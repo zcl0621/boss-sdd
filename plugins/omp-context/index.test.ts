@@ -265,6 +265,76 @@ describe("restore block after rollover", () => {
     expect(body).toContain("Status: Approved");
     expect(body).toContain("feature/x");
     expect(body).not.toContain("plan-sdd");
+    expect(body).not.toContain("xd://");
+  });
+});
+
+// docs/e2e/2026-10-16-omp-e2e-recheck2.md finding 4: after a rollover dropped the last `write xd://mcp__plan_sdd_*`
+// call from the tail, Kimi took the system prompt's `## mcp__plan_sdd_*` device docs for functions it could call and
+// asked the user five times whether the board was available. The device route is restated in the block.
+describe("xd:// devices used before the compaction", () => {
+  const xdWrite = (name: string, over: Record<string, any> = {}) => ({
+    toolName: "write",
+    input: { path: `xd://${name}`, content: "{}" },
+    content: text("{}"),
+    details: { xdev: { tool: name, mode: "execute" } },
+    isError: false,
+    ...over,
+  });
+  const ROUTE = "call each with the write tool, path xd://<name>, the JSON arguments as content";
+
+  test("a rollover block names each device written to and how to call it", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    await emit("tool_result", xdWrite("mcp__plan_sdd_plan_create_run"), ctx);
+    await emit("tool_result", xdWrite("mcp__plan_sdd_plan_set_tasks"), ctx);
+    await emit("session_compact", rolloverCompaction(), ctx);
+    const body = String(sent[0].message.content);
+    expect(body).toContain(ROUTE);
+    expect(body).toContain("not in the function list");
+    expect(body).toContain("- xd://mcp__plan_sdd_plan_set_tasks\n- xd://mcp__plan_sdd_plan_create_run");
+  });
+
+  test("a legacy compaction block carries them too", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    await emit("tool_result", xdWrite("mcp__plan_sdd_plan_board_status"), ctx);
+    await emit("session_compact", legacyCompaction(), ctx);
+    expect(String(sent[0].message.content)).toContain("- xd://mcp__plan_sdd_plan_board_status");
+  });
+
+  test("only successful device executes count: not errors, file writes, reads of xd://, or the inner tool's own event", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    await emit("tool_result", xdWrite("mcp__a_fail", { isError: true }), ctx);
+    await emit("tool_result", { toolName: "write", input: { path: "src/x.ts", content: "x" }, content: text("ok"), isError: false }, ctx);
+    await emit("tool_result", { toolName: "read", input: { path: "xd://mcp__b_read" }, content: text("docs"), isError: false }, ctx);
+    await emit("tool_result", { toolName: "write", input: { path: "xd://", content: "{}" }, content: text("x"), isError: false }, ctx);
+    await emit("tool_result", { toolName: "mcp__c_inner", input: {}, content: text("{}"), details: { serverName: "c" }, isError: false }, ctx);
+    await emit("message_end", said("go"), ctx);
+    await emit("session_compact", rolloverCompaction(), ctx);
+    expect(String(sent[0].message.content)).not.toContain("xd://");
+  });
+
+  test("most recent first, each once, at most eight", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    for (let i = 1; i <= 10; i++) await emit("tool_result", xdWrite(`dev_${i}`), ctx);
+    await emit("tool_result", xdWrite("dev_3"), ctx);
+    await emit("session_compact", rolloverCompaction(), ctx);
+    const lines = String(sent[0].message.content).split("\n").filter(l => l.startsWith("- xd://"));
+    expect(lines).toEqual(["dev_3", "dev_10", "dev_9", "dev_8", "dev_7", "dev_6", "dev_5", "dev_4"].map(n => `- xd://${n}`));
+  });
+
+  test("the device list survives into the next window's block", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    await emit("tool_result", xdWrite("mcp__plan_sdd_plan_set_task"), ctx);
+    await emit("session_compact", rolloverCompaction("r1"), ctx);
+    await emit("message_end", said("next"), ctx);
+    await emit("session_compact", rolloverCompaction("r2"), ctx);
+    expect(sent).toHaveLength(2);
+    expect(String(sent[1].message.content)).toContain("- xd://mcp__plan_sdd_plan_set_task");
   });
 });
 
