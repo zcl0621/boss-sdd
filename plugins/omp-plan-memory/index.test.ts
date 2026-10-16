@@ -824,4 +824,24 @@ describe("review fixes (2026-10-16)", () => {
     await batch(["T3", "T4", "T5"], ["T3", "T4", "T5"])
     expect(await note()).toMatch(/5 tasks reached done\/blocked/)
   })
+  test("state goes to the agent dir omp reports (pi.pi.getAgentDir), ahead of PI_CODING_AGENT_DIR", async () => {
+    const ompDir = mkdtempSync(path.join(tmpdir(), "omp-plan-memory-profile-"))
+    try {
+      const handlers: Record<string, Handler[]> = {}
+      const pi = {
+        on: (name: string, h: Handler) => void (handlers[name] ??= []).push(h),
+        logger: { warn() {} },
+        // A named profile: omp's own resolver, not the env rule.
+        pi: { getAgentDir: () => path.join(ompDir, "profiles", "work", "agent") },
+      }
+      extension(pi as any)
+      const ctx = { sessionManager: { getSessionId: () => `ses_profile_${Date.now()}` } }
+      for (const h of handlers.tool_result ?? [])
+        await h({ type: "tool_result", toolCallId: "p1", toolName: "mcp__plan_sdd_plan_create_run", input: {}, content: [], isError: false }, ctx)
+      const dir = path.join(ompDir, "profiles", "work", "agent", "omp-plan-memory")
+      expect(existsSync(dir) && readdirSync(dir).some((f) => /^omp-plan-memory-.*\.json$/.test(f))).toBe(true)
+    } finally {
+      rmSync(ompDir, { recursive: true, force: true })
+    }
+  })
 })

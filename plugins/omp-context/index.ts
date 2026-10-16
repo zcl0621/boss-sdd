@@ -218,7 +218,8 @@ function textOf(content: unknown): string {
 function statusOf(text: string): string | undefined {
   const m = /^(?:\*\*|__)?Status(?:\*\*|__)?:(?:\*\*|__)?([^\n]*)/m.exec(text);
   if (!m) return undefined;
-  const value = m[1].trim().replace(/^(\*\*|__)(.*)\1$/, "$2").trim();
+  // Unwrap one bold span around the whole value only; `**blocked** on **T7**` keeps its spans.
+  const value = m[1].trim().replace(/^(\*\*|__)((?:(?!\*\*|__).)*)\1$/, "$2").trim();
   return `Status: ${value}`.trim();
 }
 

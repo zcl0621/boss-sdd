@@ -3,7 +3,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cleanupLive, main, parseArgs, runCommand } from "./evolve";
+import { cleanupLive, defaultTargetDir, main, parseArgs, runCommand } from "./evolve";
 
 const made: string[] = [];
 const tmp = (n: string) => {
@@ -152,6 +152,17 @@ describe("main", () => {
       await main(["--sessions", "/s", "--bank", bankFile(), "--model", "p/m"], d as any);
       expect(h.removed.sort()).toEqual(["SIGHUP", "SIGINT", "SIGTERM"]);
     });
+  });
+
+  test("--profile installs into that omp profile's agent dir; it cannot be combined with --target", async () => {
+    const d = deps();
+    const code = await main(["--sessions", "/s", "--bank", bankFile(), "--model", "p/m", "--profile=work", "--dry-run"], d as any);
+    expect(code).toBe(0);
+    expect(d.calls[0].targetDir).toBe(defaultTargetDir({ ...process.env, OMP_PROFILE: "work" }));
+    expect(d.calls[0].targetDir).toContain(join("profiles", "work", "agent", "extensions", "omp-context"));
+    const both = deps();
+    expect(await main(["--sessions", "/s", "--bank", bankFile(), "--model", "p/m", "--profile=work", "--target=/t"], both as any)).toBe(2);
+    expect(both.calls).toHaveLength(0);
   });
 
   test("valid arguments run evolve once with the parsed options and exit 0", async () => {

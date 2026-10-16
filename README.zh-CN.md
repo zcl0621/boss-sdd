@@ -412,7 +412,7 @@ cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
        --bank ./questions.json --model opus-5.5 --dialect anthropic --dry-run
    ```
 
-   去掉 `--dry-run` 才会写文件。`opus-5.5` 这种短别名，evolve 自己认不出是 Anthropic 模型，要加 `--dialect anthropic`。默认写到 `~/.omp/agent/extensions/omp-context/guidance.md`（如果用 `$PI_CODING_AGENT_DIR` 改过 omp 的 agent 目录，就写到那个目录下），用 `--target` 可以写到别处。每次调模型会在 `~/.omp/logs/` 留一个日志，在 `~/.omp/agent/custom-session-files/` 留一个指针文件，可以删。
+   去掉 `--dry-run` 才会写文件。`opus-5.5` 这种短别名，evolve 自己认不出是 Anthropic 模型，要加 `--dialect anthropic`。默认写到 `~/.omp/agent/extensions/omp-context/guidance.md`（写在 omp 的 agent 目录里：用命名 profile 时加 `--profile <名字>` 或设 `OMP_PROFILE`；用 `$PI_CODING_AGENT_DIR` 改过目录的，就写到那个目录下），用 `--target` 可以写到别处。每次调模型会在 `~/.omp/logs/` 留一个日志，在 `~/.omp/agent/custom-session-files/` 留一个指针文件，可以删。
 
    guidance 只对走摘要器的 compact 生效：`soft` 和 `remote`（含 Anthropic 原生 compact）；`handoff`、`snapcompact`、`shake` 和 rollover 都不用它。`experimentalContextManagement` 打开时，每次自动 compact 和不带说明文字的 `/compact` 都是 rollover（omp `session-maintenance.ts:4680-4681`），所以只有 `/compact <说明文字>` 和 `/compact soft|remote` 用得上 guidance，evolve 也只能从这几种里找用例；这种用例少，"什么都没装"是预期结果。omp 默认的 `compaction.methodOrder` 是 `remote, snapcompact, handoff, shake, soft`，所以在没有原生 `remote` compact 的线路上，`handoff` 排在 `soft` 前面。把 `soft` 放到 `handoff` 前面，只在 `experimentalContextManagement` 关着时才有意义。恢复块不依赖这些。详见 `omp-context` README 的 Evolve 一节。
 

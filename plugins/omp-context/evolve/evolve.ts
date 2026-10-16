@@ -90,12 +90,16 @@ export function cleanupLive(): void {
 
 // ---------- locations ----------
 /**
- * The installed extension dir, inside omp's agent directory as omp resolves it (utils/src/dirs.ts):
- * `PI_CODING_AGENT_DIR`, else `<HOME>/<PI_CONFIG_DIR or .omp>/agent`, HOME falling back to os.homedir().
- * Only ever computed here.
+ * The installed extension dir, inside omp's agent directory as omp resolves it (utils/src/dirs.ts): a named profile
+ * (`OMP_PROFILE`, else `PI_PROFILE`; empty or "default" means none) uses `<root>/profiles/<name>/agent` and ignores
+ * `PI_CODING_AGENT_DIR`; otherwise `PI_CODING_AGENT_DIR`, else `<root>/agent`, with root `<HOME>/<PI_CONFIG_DIR or
+ * .omp>`, HOME falling back to os.homedir(). Only ever computed here.
  */
 export function defaultTargetDir(env: Record<string, string | undefined> = process.env): string {
-  const agent = env.PI_CODING_AGENT_DIR || join(env.HOME || homedir(), env.PI_CONFIG_DIR || ".omp", "agent");
+  const root = join(env.HOME || homedir(), env.PI_CONFIG_DIR || ".omp");
+  const raw = (env.OMP_PROFILE !== undefined ? env.OMP_PROFILE : env.PI_PROFILE)?.trim();
+  const profile = raw && raw !== "default" ? raw : undefined;
+  const agent = profile ? join(root, "profiles", profile, "agent") : env.PI_CODING_AGENT_DIR || join(root, "agent");
   return join(agent, "extensions", "omp-context");
 }
 
@@ -758,6 +762,8 @@ export interface CliOptions {
   bank: string;
   model: string;
   target?: string;
+  /** omp profile whose agent dir to install into (as `omp --profile`); exclusive with target. */
+  profile?: string;
   baselineFile?: string;
   dialect?: Dialect;
   rounds: number;
@@ -766,7 +772,7 @@ export interface CliOptions {
   dryRun: boolean;
 }
 
-const VALUE_FLAGS = ["sessions", "bank", "model", "target", "baseline-file", "dialect", "rounds", "samples", "margin"];
+const VALUE_FLAGS = ["sessions", "bank", "model", "target", "profile", "baseline-file", "dialect", "rounds", "samples", "margin"];
 
 export function parseArgs(argv: string[]): { ok: true; value: CliOptions } | { ok: false; error: string } {
   const raw: Record<string, string> = {};
@@ -802,6 +808,7 @@ export function parseArgs(argv: string[]): { ok: true; value: CliOptions } | { o
   const samples = int("samples", 1);
   const margin = int("margin", 1);
   for (const v of [rounds, samples, margin]) if (typeof v === "string") return { ok: false, error: v };
+  if (raw.profile !== undefined && raw.target !== undefined) return { ok: false, error: "--profile and --target cannot be combined" };
   if (raw.dialect !== undefined && raw.dialect !== "anthropic" && raw.dialect !== "generic") return { ok: false, error: `--dialect must be anthropic or generic, got "${raw.dialect}"` };
   return {
     ok: true,
@@ -810,6 +817,7 @@ export function parseArgs(argv: string[]): { ok: true; value: CliOptions } | { o
       bank: raw.bank,
       model: raw.model,
       target: raw.target,
+      profile: raw.profile,
       baselineFile: raw["baseline-file"],
       dialect: raw.dialect as Dialect | undefined,
       rounds: rounds as number,
@@ -874,7 +882,7 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
       bank,
       model: a.model,
       dialect: a.dialect,
-      targetDir: a.target,
+      targetDir: a.target ?? (a.profile !== undefined ? defaultTargetDir({ ...process.env, OMP_PROFILE: a.profile }) : undefined),
       baseline,
       rounds: a.rounds,
       samples: a.samples,

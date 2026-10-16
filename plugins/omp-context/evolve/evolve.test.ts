@@ -994,6 +994,17 @@ describe("install decision", () => {
       expect(defaultTargetDir({})).toBe(join(homedir(), ".omp", "agent", "extensions", "omp-context"));
     });
 
+    test("a named profile (OMP_PROFILE, else PI_PROFILE) wins over PI_CODING_AGENT_DIR, as in omp's dirs.ts", () => {
+      const home = tmp("home");
+      const profiled = join(home, ".omp", "profiles", "work", "agent", "extensions", "omp-context");
+      expect(defaultTargetDir({ HOME: home, OMP_PROFILE: "work", PI_CODING_AGENT_DIR: "/x" })).toBe(profiled);
+      expect(defaultTargetDir({ HOME: home, PI_PROFILE: "work" })).toBe(profiled);
+      expect(defaultTargetDir({ HOME: home, OMP_PROFILE: " work " })).toBe(profiled);
+      // An explicitly empty OMP_PROFILE, or "default", selects the default profile and does not inherit PI_PROFILE.
+      expect(defaultTargetDir({ HOME: home, OMP_PROFILE: "", PI_PROFILE: "work" })).toBe(join(home, ".omp", "agent", "extensions", "omp-context"));
+      expect(defaultTargetDir({ HOME: home, OMP_PROFILE: "default", PI_CODING_AGENT_DIR: "/x" })).toBe(join("/x", "extensions", "omp-context"));
+    });
+
     test("defaultTargetDir follows omp's agent directory: PI_CODING_AGENT_DIR, then HOME/PI_CONFIG_DIR/agent", () => {
       const home = tmp("home");
       expect(defaultTargetDir({ HOME: home, PI_CODING_AGENT_DIR: "/work/omp-agent" })).toBe(

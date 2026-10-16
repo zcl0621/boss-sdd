@@ -26,9 +26,10 @@
 // `write xd://<tool>` fires an outer `write` event and an inner event with the registered name; only the inner one
 // counts, so one call is never counted twice. Do not dedupe by toolCallId: the two events share it.
 //
-// State: $OMP_PLAN_MEMORY_STATE_DIR, else omp-plan-memory/ in omp's agent directory ($PI_CODING_AGENT_DIR, else
-// ~/$PI_CONFIG_DIR/agent with PI_CONFIG_DIR defaulting to .omp, as omp's utils/src/dirs.ts resolves it), one
-// omp-plan-memory-<session>.json each.
+// State: $OMP_PLAN_MEMORY_STATE_DIR, else omp-plan-memory/ in omp's agent directory as omp itself reports it
+// (pi.pi.getAgentDir, exported from coding-agent/src/index.ts; it follows named profiles, PI_CODING_AGENT_DIR and
+// PI_CONFIG_DIR). Only when that is unavailable: $PI_CODING_AGENT_DIR, else ~/$PI_CONFIG_DIR/agent (default ~/.omp).
+// One omp-plan-memory-<session>.json each.
 import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
@@ -53,9 +54,11 @@ interface State {
   tidyDue: boolean
 }
 
-const agentDir = () =>
+const envAgentDir = () =>
   process.env.PI_CODING_AGENT_DIR || path.join(process.env.HOME || homedir(), process.env.PI_CONFIG_DIR || ".omp", "agent")
-const stateDir = () => process.env.OMP_PLAN_MEMORY_STATE_DIR || path.join(agentDir(), "omp-plan-memory")
+// Set by the extension from omp's own resolver; tests and other hosts fall back to the env rule.
+let ompAgentDir: () => string | undefined = () => undefined
+const stateDir = () => process.env.OMP_PLAN_MEMORY_STATE_DIR || path.join(ompAgentDir() || envAgentDir(), "omp-plan-memory")
 const FILE_PREFIX = "omp-plan-memory-"
 const file = (sid: string) => path.join(stateDir(), `${FILE_PREFIX}${sid.replace(/[^\w.-]/g, "_")}.json`)
 const empty = (): State => ({ run: false, listed: false, recon: false, graph: false, added: 0, writeShows: 0, closedIds: [], tidyDue: false })
@@ -239,6 +242,14 @@ export function insertReminder(messages: any[], text: string): any[] | null {
 }
 
 export default function planMemory(pi: ExtensionAPI): void {
+  ompAgentDir = () => {
+    try {
+      const dir = (pi as any).pi?.getAgentDir?.()
+      return typeof dir === "string" && dir ? dir : undefined
+    } catch {
+      return undefined
+    }
+  }
   pruneOld()
   // Per-session state is read from disk once, then kept here: a failed save (unwritable state dir) must not lose a
   // transition. Saving is best-effort; the disk copy only lets a restarted omp pick the session up again.

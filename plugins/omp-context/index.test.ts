@@ -2007,6 +2007,14 @@ describe("review fixes (2026-10-16)", () => {
     expect(body).not.toContain("**");
   });
 
+  test("a Status value with several bold spans keeps its spans intact", async () => {
+    const { emit, sent } = setup();
+    const ctx = makeCtx();
+    await emit("tool_result", { toolName: "read", input: { path: "docs/plans/w.md" }, content: text("# P\nStatus: **blocked** on **T7**\n"), isError: false }, ctx);
+    await emit("session_compact", legacyCompaction(), ctx);
+    expect(String(sent[0].message.content)).toContain("\nStatus: **blocked** on **T7**");
+  });
+
   test("only a repeat of the latest compaction entry is dropped; nothing older is remembered", async () => {
     const { emit, sent } = setup();
     const ctx = makeCtx();
