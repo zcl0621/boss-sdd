@@ -10,18 +10,30 @@ It is the omp port of `plugins/plan-memory` (OpenCode) and uses the same rules:
 - **tidy**: 5 tasks reached done/blocked since memory was last listed, or the run moved to `review`.
 
 The reminder is a `<memory>` block added to each provider request through omp's `context` event. It is never
-stored in the session history. Placement: at index 1 when the first message is a `compactionSummary`; otherwise immediately after the first user
-message that is not synthetic; if there is neither, no block is added. Never at the tail, and never at index 0 (omp's
-date/cwd reminder root, `date-cwd-reminder.ts:66`). Why not the tail: omp's `compact()` builds the summarizer request
+stored in the session history. Placement: right after a `compactionSummary` that appears among the leading messages
+(scanning from the start past `custom` and synthetic user messages); otherwise right after the earliest user turn, that
+is the first non-synthetic user message or user-attributed `skill-prompt` custom message (a `/skill:<name>`
+invocation), whichever comes first; if there is neither, no block is added. Never at the tail, and never at index 0
+(omp's date/cwd reminder root, `date-cwd-reminder.ts:66`). After a rollover omp's `buildSessionContext` puts the
+summary first (`session/session-context.ts:540-545`), re-appends the latest user request, which for a run started
+with `/skill:plan-sdd` is the skill-prompt (`:547-569`), and splices the `<experimental-context-notes>` custom message
+in at index 0 (`:646-670`); the real run in `docs/e2e/2026-10-16-omp-e2e.md` (item 3a) saw `[custom notes,
+compactionSummary, custom skill-prompt, custom todo reminder, assistant, toolResult, …]` with no `user` role. A run
+started with `/skill:plan-sdd` has the skill-prompt as its only user turn even before any compaction, so without the
+skill-prompt rule the reminder would have no anchor there. Why not the tail: omp's `compact()` builds the summarizer request
 with `buildLiveProviderContext` (`session/agent-session.ts:2380-2403`), which converts `history` (giving a prefix
 length) and `history + retained` through the `context` handler, then cuts the second result at that length. A tail
 block would move the cut one message too far and could split a tool_use/tool_result pair. With this rule the first
-`len(handler(history))` messages of `handler(history + retained)` equal `handler(history)` in every case (when
-history has neither a summary nor a user message, the block lands in the retained part, after the cut). A "user
+`len(handler(history))` messages of `handler(history + retained)` equal `handler(history)` in every case (the cut's
+history is the rebuilt summary plus entries after the previous compaction, `agent/src/compaction/compaction.ts:2051-2070`;
+when history has neither a summary nor a user turn, the block lands in the retained part, after the cut). A "user
 message only" rule would hide the reminder when the retained tail after a compaction holds no user message, and
-falling back to the summary only in that case would misalign the cut. Known cost: an Anthropic native summary
-followed by an assistant turn is no longer merged by the provider (`ai/src/providers/anthropic.ts:6190-6208`); role
-alternation stays valid. Whether the block appears and its text depend
+falling back to the summary only in that case, or trying user messages before skill-prompts, would misalign the cut.
+A native Anthropic summary (`providerPayload.type === "anthropicCompaction"`) must open the request and is folded into
+a directly following retained assistant turn whose signed thinking is bound to that prefix; the block then goes after
+that assistant turn, its `toolResult` messages and the notes message, where omp itself puts the notes
+(`session/session-context.ts:651-662`), so the fold is never split. The native cut never separates a tool call from its
+results (`agent/src/compaction/anthropic.ts:137-171`), so the cut stays aligned. Whether the block appears and its text depend
 only on the plugin state (the `context` event fires once per conversion, so it counts nothing), and its timestamp
 is constant, so requests are byte-stable while the state is unchanged. It only reminds; what to read, write or delete is the skill's call.
 

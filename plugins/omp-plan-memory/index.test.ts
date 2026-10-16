@@ -565,3 +565,173 @@ describe("handler error logging", () => {
     expect(await handlers2.turn_start![0]({}, bad)).toBeUndefined()
   })
 })
+
+// T15 (fix: T9 F1). The request omp builds after a rollover (session/session-context.ts:540-569 summary first, then the
+// re-appended user request; :646-670 the context-notes custom message spliced in at index 0) starts, in the T9
+// capture (docs/e2e/2026-10-16-omp-e2e.md item 3a): [0] custom notes, [1] compactionSummary, [2] custom skill-prompt,
+// [3] custom todo reminder, then assistant/toolResult, with no `user` role. A plan-sdd run started with
+// `/skill:plan-sdd <task>` has the skill-prompt custom message (attribution "user", modes/skill-command.ts:63-87) as
+// its only user turn, before and after a compaction.
+describe("T15 (F1): anchor in the request shapes of a /skill-started run and after a rollover", () => {
+  const notes = () => ({ role: "custom", customType: "experimental_context_notes", content: "<experimental-context-notes>\nPIN\n</experimental-context-notes>", display: false })
+  const summary = () => ({ role: "compactionSummary", summary: "rolled over", tokensBefore: 69719 })
+  const skill = (attribution: string | undefined = "user") => ({
+    role: "custom",
+    customType: "skill-prompt",
+    content: '[IMPORTANT: User invoked the "plan-sdd" skill; follow its instructions. Full skill below.]',
+    display: true,
+    details: { name: "plan-sdd", path: "/skills/plan-sdd/SKILL.md", args: "Goal mode: add farewell(name)", lineCount: 120 },
+    ...(attribution === undefined ? {} : { attribution }),
+  })
+  const todo = () => ({ role: "custom", customType: "mid-run-todo-nudge", content: "<system-reminder> 4 todo items still open </system-reminder>", display: false, attribution: "agent" })
+  const call = () => ({ role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "read", arguments: {} }] })
+  const result = () => ({ role: "toolResult", toolCallId: "tc1", content: [{ type: "text", text: "r" }] })
+  const user = (text: string) => ({ role: "user", content: [{ type: "text", text }] })
+  const asst = (text: string) => ({ role: "assistant", content: [{ type: "text", text }] })
+  const textOf = (m: any) => (typeof m.content === "string" ? m.content : m.content?.[0]?.text)
+  const isBlock = (m: any) => m?.synthetic === true && String(textOf(m)).startsWith(BLOCK)
+  const setup = async () => {
+    const b = fresh()
+    await b.mcp("plan_create_run", {}) // read reminder due
+    const handler = async (messages: any[]) => (await b.fire("context", { type: "context", messages }))?.messages ?? messages
+    return { handler, ...b }
+  }
+
+  test("T9 shape [custom notes, compactionSummary, custom skill-prompt, custom todo, assistant, toolResult]: block right after the summary", async () => {
+    const { handler } = await setup()
+    const msgs = [notes(), summary(), skill(), todo(), call(), result(), asst("next")]
+    expect(msgs.map((m: any) => m.role)).toEqual(["custom", "compactionSummary", "custom", "custom", "assistant", "toolResult", "assistant"])
+    const out = await handler(msgs)
+    expect(out).toHaveLength(msgs.length + 1)
+    expect(out[1]).toBe(msgs[1])
+    expect(isBlock(out[2])).toBe(true)
+    expect(out.slice(3)).toEqual(msgs.slice(2))
+  })
+
+  test("summary after leading custom messages wins over a later user message", async () => {
+    const { handler } = await setup()
+    for (const lead of [[notes()], [notes(), todo()]]) {
+      const out = await handler([...lead, summary(), asst("a"), user("u"), asst("b")])
+      expect(out.findIndex(isBlock)).toBe(lead.length + 1)
+      expect(out.filter(isBlock)).toHaveLength(1)
+    }
+  })
+
+  test("a /skill-started run before any compaction (no summary, no user message): right after the skill-prompt", async () => {
+    const { handler } = await setup()
+    const out = await handler([skill(), call(), result(), asst("next")])
+    expect(out.findIndex(isBlock)).toBe(1)
+    const withNotes = await handler([notes(), skill(), todo(), call(), result()])
+    expect(withNotes.findIndex(isBlock)).toBe(2)
+  })
+
+  test("no summary: the skill-prompt anchors when it comes before the first user message", async () => {
+    const { handler } = await setup()
+    const out = await handler([skill(), asst("a"), user("later"), asst("b")])
+    expect(out.findIndex(isBlock)).toBe(1)
+  })
+
+  test("regression guard: a user message before the skill-prompt still anchors", async () => {
+    const { handler } = await setup()
+    const out = await handler([user("first"), skill(), asst("a")])
+    expect(out.findIndex(isBlock)).toBe(1)
+  })
+
+  test("regression guard: a skill-prompt not attributed to the user is no anchor", async () => {
+    const { handler } = await setup()
+    for (const a of ["agent", undefined]) {
+      const sk: any = skill("agent")
+      if (a === undefined) delete sk.attribution // a default parameter would turn undefined back into "user"
+      const msgs = [notes(), sk, call(), result()]
+      expect((await handler(msgs)).some(isBlock)).toBe(false)
+    }
+  })
+
+  test("a user-attributed custom of another type (collab-prompt, accepted by omp's isUserTurnInitiator) is no anchor", async () => {
+    const { handler } = await setup()
+    const collab = { role: "custom", customType: "collab-prompt", content: "peer prompt", details: { args: "collab peer args" }, attribution: "user" }
+    expect((await handler([notes(), collab, call(), result()])).some(isBlock)).toBe(false)
+  })
+
+  test("simulated buildLiveProviderContext cut for the new shapes: prefix of handler(history+retained) equals handler(history)", async () => {
+    // [name, history, retained, history alone holds an anchor]
+    const cases: [string, () => any[], () => any[], boolean][] = [
+      ["T9 live shape", () => [notes(), summary(), skill(), todo(), call()], () => [result(), asst("done"), user("u2")], true],
+      ["summary, skill-prompt, todo, no user anywhere", () => [summary(), skill(), todo(), call()], () => [result(), asst("done")], true],
+      ["no summary, skill-prompt in history, user only in retained", () => [skill(), call()], () => [result(), user("u2"), asst("done")], true],
+      ["no summary, agent custom in history, skill-prompt only in retained", () => [todo(), call()], () => [result(), skill(), asst("done")], false],
+      ["notes then skill-prompt", () => [notes(), skill(), call()], () => [result(), asst("done")], true],
+      // What buildLiveProviderContext actually sees after the T9 rollover (summary plus entries after the compaction;
+      // notes and the re-appended request come only from buildSessionContext). The notes-at-0 rows are stricter.
+      ["cut's own view after the T9 rollover: summary, todo, tool call", () => [summary(), todo(), call()], () => [result(), asst("done")], true],
+    ]
+    for (const [name, mkHistory, mkRetained, historyAnchored] of cases) {
+      const { handler } = await setup()
+      const history = mkHistory()
+      const retained = mkRetained()
+      const prefix = await handler(history)
+      const full = await handler([...history, ...retained])
+      expect(full.slice(0, prefix.length), name).toEqual(prefix)
+      expect(full[prefix.length], name).toBe(retained[0])
+      expect(full.filter(isBlock).length, name).toBe(1)
+      expect(prefix.filter(isBlock).length, name).toBe(historyAnchored ? 1 : 0)
+    }
+  })
+})
+
+// T15 acceptance 5: native Anthropic summary fold (omp session/session-context.ts:651-662: the notes go after the
+// summary, a directly following assistant turn and its tool results; the native cut, agent/src/compaction/
+// anthropic.ts:137-171, never separates a tool call from its results).
+describe("T15 acceptance 5: the native Anthropic summary fold is never split", () => {
+  const native = { role: "compactionSummary", summary: "s", providerPayload: { type: "anthropicCompaction", provider: "anthropic", content: "c" } }
+  const plain = { role: "compactionSummary", summary: "s" }
+  const notes = { role: "custom", customType: "experimental_context_notes", content: "<experimental-context-notes>\nPIN\n</experimental-context-notes>", display: false }
+  const call2 = { role: "assistant", content: [{ type: "toolCall", id: "a", name: "read", arguments: {} }, { type: "toolCall", id: "b", name: "read", arguments: {} }] }
+  const res = (id: string) => ({ role: "toolResult", toolCallId: id, content: [{ type: "text", text: "r" }] })
+  const user = (text: string) => ({ role: "user", content: [{ type: "text", text }] })
+  const asst = (text: string) => ({ role: "assistant", content: [{ type: "text", text }] })
+  const textOf = (m: any) => (typeof m.content === "string" ? m.content : m.content?.[0]?.text)
+  const isBlock = (m: any) => m?.synthetic === true && String(textOf(m)).startsWith(BLOCK)
+  const setup = async () => {
+    const b = fresh()
+    await b.mcp("plan_create_run", {})
+    return async (messages: any[]) => (await b.fire("context", { type: "context", messages }))?.messages ?? messages
+  }
+
+  test("[native summary, assistant, toolResult, toolResult, notes custom, ...]: block after the tool results and the notes", async () => {
+    const handler = await setup()
+    const msgs = [native, call2, res("a"), res("b"), notes, asst("next")]
+    const out = await handler(msgs)
+    expect(out.findIndex(isBlock)).toBe(5)
+    expect(out.slice(0, 5)).toEqual(msgs.slice(0, 5))
+  })
+
+  test("native summary, plain assistant, user: block right after the assistant turn; directly a user: index 1", async () => {
+    const handler = await setup()
+    expect((await handler([native, asst("kept"), user("u")])).findIndex(isBlock)).toBe(2)
+    expect((await handler([native, user("u"), asst("b")])).findIndex(isBlock)).toBe(1)
+  })
+
+  test("regression guard: a non-native summary keeps the block right after it", async () => {
+    const handler = await setup()
+    expect((await handler([plain, call2, res("a"), res("b"), notes, asst("next")])).findIndex(isBlock)).toBe(1)
+  })
+
+  test("cut alignment for the native shape, including the retained assistant turn in history", async () => {
+    const cases: [string, any[], any[]][] = [
+      ["retained assistant turn with its tool results in history", [native, call2, res("a"), res("b")], [asst("next"), user("u2")]],
+      ["retained plain assistant turn in history", [native, asst("kept")], [user("u2"), asst("done")]],
+      ["assistant turn and results, then more turns in history", [native, call2, res("a"), res("b"), asst("x"), user("u1")], [asst("y")]],
+      ["native summary then a user message", [native, user("u1"), asst("a1")], [user("u2"), asst("a2")]],
+    ]
+    for (const [name, history, retained] of cases) {
+      const handler = await setup()
+      const prefix = await handler(history)
+      const full = await handler([...history, ...retained])
+      expect(full.slice(0, prefix.length), name).toEqual(prefix)
+      expect(full[prefix.length], name).toBe(retained[0])
+      expect(prefix.filter(isBlock).length, name).toBe(1)
+      if (history[1]?.role === "assistant") expect(prefix[1], name).toBe(history[1])
+    }
+  })
+})
