@@ -4,11 +4,13 @@
 
 用 agent 把一个跨好几步的改动做完：先摸清项目，写出带依赖关系的任务图（DAG），然后按依赖顺序给每个节点派独立的实现者和审查者，最后整体复查、交付。本仓库包含：
 
-- **`plan-sdd` skill**，两份完全独立，互不引用，各自装各自的：
+- **`plan-sdd` skill**，三份完全独立，互不引用，各自装各自的：
   - `skills/claude-code/`：给 Claude Code 用。todo 和无人值守用 Claude Code 自带的任务列表和 `/goal`。
   - `skills/opencode/`：给 OpenCode 2.x 用。todo 和无人值守靠下面的插件。
+  - `skills/omp/`：给 omp（oh-my-pi）18.x 用。角色是 omp agent，用 `task` 派发；todo 和 `/goal` 用 omp 自带的；每个角色用哪个模型由 `modelRoles` 决定。
 
-  两份的流程是同一套：先跟用户讨论（Phase P），再 recon、写 spec 和 DAG；每个节点在自己的 worktree 里先写红测试、审红测试、再修；gate 先跑，绿了才审查；同一个原因修两次不好才升级一次模型。角色数量和平台细节不同：Claude Code 版 10 个角色，OpenCode 版 5 个。
+  三份的流程是同一套：先跟用户讨论（Phase P），再 recon、写 spec 和 DAG；每个节点在自己的 worktree 里先写红测试、审红测试、再修；gate 先跑，绿了才审查；同一个原因修两次不好才升级一次模型。角色数量和平台细节不同：Claude Code 版和 omp 版 10 个角色，OpenCode 版 5 个。
+- **三个 omp 扩展**（`plugins/omp-sidebar`、`plugins/omp-context`、`plugins/omp-plan-memory`），可选，只给 omp 版用。见 安装 一节的 omp。
 - **六个 OpenCode 插件**（`plugins/`），Claude Code 都用不着：
   - `context-keeper`：上下文管理。解决长会话 compact 之后丢失项目信息、skill 规则、worktree 进度的问题。
   - `pin`：`pin_context` 工具。agent 把长期有用的事实（worktree、部署目标、决定）钉住，不再成立时自己删掉。
@@ -16,8 +18,8 @@
   - `todo`：`todowrite` / `todoread` 工具。编排 agent 把正在跑的 task 写进去。
   - `plan-memory`：在 skill 规定的时间点，提醒读、写、整理看板里的项目记忆。
   - `sidebar`：TUI 侧边栏，显示上下文用量、goal、todo、正在跑的子 agent、git 状态。
-- **看板**：一个 macOS 菜单栏 app（Swift），把任务图存进 SQLite；再加一个 Go 写的 MCP server，agent 通过它读写看板和项目记忆。两套包装都能接，不接也能跑。
-- **两个辅助 skill**：`skills/shuorenhua/`（中文去 AI 味改写，Phase P 跟用户说话时用）和 `skills/prompt-engineer/`（派活前检查派活指令）。两个版本都会用，没装也能跑。
+- **看板**：一个 macOS 菜单栏 app（Swift），把任务图存进 SQLite；再加一个 Go 写的 MCP server，agent 通过它读写看板和项目记忆。三套包装都能接，不接也能跑。
+- **两个辅助 skill**：`skills/shuorenhua/`（中文去 AI 味改写，Phase P 跟用户说话时用）和 `skills/prompt-engineer/`（派活前检查派活指令）。三个版本都会用，没装也能跑。
 - **Phase P 可选的第三方 skill（只有 Claude Code 版用）**：[`show-me`](https://github.com/charlie947/show-me)，不在本仓库里。装了的话，Phase P 复述理解时把改前改后画出来，选方案时把架构师给的几种做法摆成一页让人挑。算数的仍然是文字版 Discussion outcome 和用户明确的确认，点页面只算挑了哪个方案。没装就照旧用文字。
 
 ## 为什么 Claude Code 只要一个 skill，OpenCode 还要一个插件
@@ -348,6 +350,91 @@ cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
 
    确认 `recon`、`implementer`、`qa`、`reviewer`、`spec-auditor` 都在，`mode` 是 `subagent`。
 
+### omp
+
+照着 [`skills/omp/INSTALL.md`](skills/omp/INSTALL.md) 做，重装和检查也在里面。测试对象是 omp 18.11.1。以下命令都在仓库根目录跑。
+
+1. skill 和 10 个角色文件（omp 从 `~/.omp/agent/agents/` 读 agent，不读 `.claude/agents/`）。首次安装：
+
+   ```bash
+   rm -rf ~/.omp/agent/skills/plan-sdd
+   mkdir -p ~/.omp/agent/skills/plan-sdd ~/.omp/agent/agents
+   cp -R skills/omp/. ~/.omp/agent/skills/plan-sdd/
+   for f in skills/omp/agents/*.md; do
+     [ -e ~/.omp/agent/agents/$(basename "$f") ] && echo "exists: $(basename "$f")"
+   done
+   ```
+
+   `rm -rf` 让装上的 skill 和仓库一致；对已装副本做过的修改会被丢掉。循环会列出已经存在的角色文件，同名文件（比如 `implementer`）可能是你自己写的，先看过再往下走。没有输出，或者已经处理完：
+
+   ```bash
+   cp -n skills/omp/agents/*.md ~/.omp/agent/agents/ || true
+   ```
+
+   `cp -n` 跳过已存在的文件（`|| true` 是给 macOS 用的，它跳过文件时退出码是 1）。重装这个 skill 时改用普通的 `cp skills/omp/agents/*.md ~/.omp/agent/agents/`，前提是同一个循环显示已存在的文件都是这个 skill 自己的。审查者角色的 agent 叫 `plan-reviewer`，因为 omp 自带一个叫 `reviewer` 的 agent，同名文件会把它盖掉。用法是 `/skill:plan-sdd`。详见 `INSTALL.md` 第 1、2 步。
+
+2. 模型角色。每个角色文件里的模型写成别名（`model: "@sdd-implementer"`），omp 通过 `~/.omp/agent/config.yml` 里的 `modelRoles` 解析。把 `skills/omp/config.example.yml` 里的条目合并进你的配置，不要整个替换。下面是精简后的例子，带 500k 上限：
+
+   ```yaml
+   modelRoles:
+     sdd-implementer: openai/gpt-6.1-sol
+     sdd-reviewer: anthropic/opus-5.5
+     # ……其余 sdd-* 别名见 config.example.yml
+
+   compaction:
+     modelThresholds:
+       openai/gpt-6.1-sol: "f500000"
+       anthropic/opus-5.5: "f500000"
+     experimentalContextManagement: true
+   ```
+
+   `modelThresholds` 里带 `f` 前缀的是固定触发值，500k 上限就是这么设的。`experimentalContextManagement: true` 打开 omp 的 `context_notes`（侧栏 Pins 区读的就是它），但有代价：打开后每次自动 compact 都是 rollover，rollover 不调用摘要器，所以摘要要求（以及 evolve 装上的内容）在自动 compact 时用不上。打开后不带说明文字的 `/compact` 也是 rollover；`/compact <说明文字>` 和 `/compact soft|remote` 会走摘要器（`snapcompact` 没有摘要器）。也就是在 Pins 和自动 compact 时的摘要要求之间二选一。rollover 还要求会话的工具集里同时有 `context_notes`、`new_context`、`read`、`grep`，缺一个 omp 就留在旧的 compact 模式（omp `docs/compaction.md:184-186`）。`omp-context` 的恢复块两种情况下都有效。别名没定义时 omp 不报错，而是当成字面的模型匹配串往下传，所以要跑 `INSTALL.md` 第 3 步的别名检查。
+
+3. 扩展，都是可选的。每个都是一个目录，`package.json` 里有 `"omp": { "extensions": ["./index.ts"] }`：
+
+   ```bash
+   mkdir -p ~/.omp/agent/extensions/sidebar ~/.omp/agent/extensions/omp-context ~/.omp/agent/extensions/omp-plan-memory
+   rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-sidebar/ ~/.omp/agent/extensions/sidebar/
+   rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-context/ ~/.omp/agent/extensions/omp-context/
+   rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-plan-memory/ ~/.omp/agent/extensions/omp-plan-memory/
+   ```
+
+   复制时不带 `node_modules`、`bun.lock`、`.gitignore` 和测试。在已有的安装上再跑，会原地覆盖文件；上游已经删掉的文件会留着。想干净重装，先删掉目标目录，但 `~/.omp/agent/extensions/omp-context/` 里还放着 evolve 写的 `guidance.md`：先备份，或者让 evolve 用 `--target` 写到别处。
+
+   - `omp-sidebar`：全高的右侧侧边栏，显示上下文用量（分类）、正在跑的 agent、job、Git / Worktree、Directory、Todo、Pins（来自 `context_notes`）和 Goal。命令 `/sidebar on|off|toggle|width <16-80>|focus|refresh|status`；`Alt+Shift+B` 开关，`Alt+Shift+S` 切换键盘焦点。Git、Worktree 和 Directory 自动跟着 agent 正在干活的 checkout 走，不用手动切。要用鼠标（滚轮滚动、点击执行行上的动作），在 omp 配置里设 `tui.mouse: true`；这样 omp 会接管鼠标，选文字要按住 Shift 拖，滚终端自己的回滚区要 Shift+滚轮。终端自己的回滚区里，侧边栏那一列是空白的；它只在当前实时屏幕上画。详见 [`plugins/omp-sidebar/README.md`](plugins/omp-sidebar/README.md)。
+   - `omp-context`：compact 或 rollover 之后，把用户最近的原话、当前 plan 和它的状态、已加载的 skill、git 分支和 worktree 放回上下文。它还通过 `session.compacting` 给摘要器提要求（`index.ts` 旁边的 `guidance.md`，没有就用内置默认），在旧 compact 模式下接近阈值时提醒。详见 [`plugins/omp-context/README.md`](plugins/omp-context/README.md)。
+   - `omp-plan-memory`：`plan-memory` 的 omp 版：提醒编排者读、写、整理看板里的项目记忆。它要求看板 server 以 `plan-sdd` 为 key 注册（第 4 步）。详见 [`plugins/omp-plan-memory/README.md`](plugins/omp-plan-memory/README.md)。
+
+   evolve 用你自己的 omp 会话记录调 `guidance.md`。它重放 compact，数新摘要保住了题库里多少条事实，只有候选在训练用例上胜过基线、且在留出用例上不更差时才写 `guidance.md`；否则什么都不写，并打印原因。把 `plugins/omp-context/evolve/questions.example.json` 复制成 `./questions.json` 再改，当题库用：
+
+   ```bash
+   bun plugins/omp-context/evolve/evolve.ts --sessions ~/.omp/agent/sessions \
+       --bank ./questions.json --model opus-5.5 --dialect anthropic --dry-run
+   ```
+
+   去掉 `--dry-run` 才会写文件。`opus-5.5` 这种短别名，evolve 自己认不出是 Anthropic 模型，要加 `--dialect anthropic`。默认写到 `~/.omp/agent/extensions/omp-context/guidance.md`，用 `--target` 可以写到别处。每次调模型会在 `~/.omp/logs/` 留一个日志，在 `~/.omp/agent/custom-session-files/` 留一个指针文件，可以删。
+
+   guidance 只对走摘要器的 compact 生效：`soft` 和 `remote`（含 Anthropic 原生 compact）；`handoff`、`snapcompact`、`shake` 和 rollover 都不用它。`experimentalContextManagement` 打开时，每次自动 compact 和不带说明文字的 `/compact` 都是 rollover（omp `session-maintenance.ts:4680-4681`），所以只有 `/compact <说明文字>` 和 `/compact soft|remote` 用得上 guidance，evolve 也只能从这几种里找用例；这种用例少，"什么都没装"是预期结果。omp 默认的 `compaction.methodOrder` 是 `remote, snapcompact, handoff, shake, soft`，所以在没有原生 `remote` compact 的线路上，`handoff` 排在 `soft` 前面。把 `soft` 放到 `handoff` 前面，只在 `experimentalContextManagement` 关着时才有意义。恢复块不依赖这些。详见 `omp-context` README 的 Evolve 一节。
+
+4. 看板 MCP（可选）。先装看板 app（见下文），再把 server 加到 `~/.omp/agent/mcp.json` 的 `mcpServers` 下，key 必须是 `plan-sdd`：
+
+   ```json
+   {
+     "mcpServers": {
+       "plan-sdd": { "command": "/Applications/BossSDD.app/Contents/Resources/plan-sdd-mcp" }
+     }
+   }
+   ```
+
+   `INSTALL.md` 第 5 步有个用 `jq` 合并进已有文件的版本。
+
+5. 检查：在项目里启动 omp，确认 `/skill:plan-sdd` 可选。再把装好的副本和仓库对一遍（没输出就是一致；角色文件缺失 `diff` 也会报）：
+
+   ```bash
+   diff -r skills/omp/ ~/.omp/agent/skills/plan-sdd
+   for f in skills/omp/agents/*.md; do diff -q "$f" ~/.omp/agent/agents/; done
+   ```
+
 ## 看板
 
 macOS 菜单栏 app（Swift 6、SwiftPM），用 SQLite 存任务图，在本机回环地址上提供 HTTP；Go 写的 MCP server 转发这个 HTTP，agent 通过它以结构化 JSON 读写看板。只支持 Apple silicon、macOS 14 及以上。
@@ -417,6 +504,18 @@ sh plugins/plan-memory/test/run.sh
 (cd plugins/sidebar && bun install && bun test)
 ```
 
+omp 的（用 bun；侧边栏要先装开发依赖）：
+
+```bash
+(cd plugins/omp-sidebar && bun install --frozen-lockfile && bun test)
+(cd plugins/omp-context && bun test)
+(cd plugins/omp-plan-memory && bun test)
+bun test skills/omp/test/roles.test.ts
+bun test skills/omp/test/skill.test.ts
+```
+
+omp 扩展的测试用假的 `pi` / `ctx` 和临时目录，不碰 `~/.omp`；`omp-context` 的测试里包含 evolve 的测试，它用假的生成器，不会启动 `omp`。
+
 context-keeper、pin、goal 和 plan-memory 用 node 跑，状态写到临时目录，不碰 `~/.local/state`。sidebar 的测试用 mock 数据把侧边栏渲染成文本，需要先 `bun install` 装开发依赖。
 
 ## 目录
@@ -425,13 +524,17 @@ context-keeper、pin、goal 和 plan-memory 用 node 跑，状态写到临时目
 | --- | --- |
 | `skills/claude-code/` | Claude Code 版：`SKILL.md`（平台绑定）、`PLAYBOOK.md`（流程）、`roles.md`、10 个角色、references、`INSTALL.md` |
 | `skills/opencode/` | OpenCode 版：`SKILL.md`、`ADAPT.md`、5 个角色、references |
-| `skills/shuorenhua/`、`skills/prompt-engineer/` | 两个版本都会用的辅助 skill |
+| `skills/omp/` | omp 版：`SKILL.md`、`PLAYBOOK.md`、`roles.md`、`agents/` 里 10 个角色、`config.example.yml`、references、`INSTALL.md`、测试 |
+| `skills/shuorenhua/`、`skills/prompt-engineer/` | 三个版本都会用的辅助 skill |
 | `plugins/context-keeper/` | 上下文管理插件、compact 审计脚本、测试 |
 | `plugins/pin/` | `pin_context` 插件和测试 |
 | `plugins/goal/` | 无人值守目标插件和测试 |
 | `plugins/plan-memory/` | 项目记忆提醒插件和测试 |
 | `plugins/todo/` | todo 工具插件和测试 |
 | `plugins/sidebar/` | TUI 侧边栏插件和渲染测试 |
+| `plugins/omp-sidebar/` | omp 右侧侧边栏扩展和测试 |
+| `plugins/omp-context/` | omp 扩展：compact 之后恢复、摘要要求；`evolve/` 调这份要求；测试 |
+| `plugins/omp-plan-memory/` | 项目记忆提醒的 omp 版和测试 |
 | `Sources/BoardKit` | 数据模型、DAG 投影、SQLite 存储、HTTP API，无第三方依赖 |
 | `Sources/BossSDD` | SwiftUI app：菜单栏和看板窗口 |
 | `mcp/` | Go MCP server，stdio，转发到 app 的本地 HTTP |

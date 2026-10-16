@@ -3,11 +3,13 @@ English | [中文](README.zh-CN.md)
 
 boss-sdd uses agents to carry a multi-step change through to the end. It surveys the project, writes a task graph (DAG) with dependencies, dispatches a separate implementer and reviewer to each node in dependency order, then reviews the whole result and hands it over. The repository contains:
 
-- **The `plan-sdd` skill**, in two fully independent copies. Neither references the other, and each installs on its own:
+- **The `plan-sdd` skill**, in three fully independent copies. None references another, and each installs on its own:
   - `skills/claude-code/`: for Claude Code. Todos and unattended runs use Claude Code's built-in task list and `/goal`.
   - `skills/opencode/`: for OpenCode 2.x. Todos and unattended runs depend on the plugins below.
+  - `skills/omp/`: for omp (oh-my-pi) 18.x. Roles are omp agents dispatched with `task`; todos and `/goal` are omp's own; the model per role comes from `modelRoles`.
 
-  Both copies follow the same process. They discuss the change with the user first (Phase P), then do recon and write the spec and the DAG. Each node works in its own worktree: write a red test, review the red test, then fix. Gates run first, and review starts only once they are green. The model gets upgraded once only after two failed fixes for the same cause. The number of roles and the platform details differ: the Claude Code version has 10 roles, the OpenCode version has 5.
+  All three follow the same process. They discuss the change with the user first (Phase P), then do recon and write the spec and the DAG. Each node works in its own worktree: write a red test, review the red test, then fix. Gates run first, and review starts only once they are green. The model gets upgraded once only after two failed fixes for the same cause. The number of roles and the platform details differ: the Claude Code and omp versions have 10 roles, the OpenCode version has 5.
+- **Three omp extensions** (`plugins/omp-sidebar`, `plugins/omp-context`, `plugins/omp-plan-memory`), optional, for the omp version only. See Installation, omp.
 - **Six OpenCode plugins** (`plugins/`). Claude Code needs none of them:
   - `context-keeper`: context management. It fixes the loss of project information, skill rules, and worktree progress after a long session compacts.
   - `pin`: the `pin_context` tool. The agent pins durable facts (worktree, deploy target, decisions) and removes them once they no longer hold.
@@ -15,8 +17,8 @@ boss-sdd uses agents to carry a multi-step change through to the end. It surveys
   - `todo`: the `todowrite` / `todoread` tools. The orchestrating agent records the tasks that are running.
   - `plan-memory`: reminders to read, write and tidy the board's project memory at the points the skill names.
   - `sidebar`: a TUI sidebar showing context usage, the goal, todos, running subagents, and git status.
-- **The board**: a macOS menu bar app (Swift) that stores the task graph in SQLite, plus an MCP server written in Go that agents use to read and write the board and project memory. Both packagings can connect to it, and both run without it.
-- **Two helper skills**: `skills/shuorenhua/` (rewrites Chinese text to remove AI tone, used when talking to the user in Phase P) and `skills/prompt-engineer/` (checks dispatch instructions before work is handed out). Both versions use them, and both run without them.
+- **The board**: a macOS menu bar app (Swift) that stores the task graph in SQLite, plus an MCP server written in Go that agents use to read and write the board and project memory. All three packagings can connect to it, and all run without it.
+- **Two helper skills**: `skills/shuorenhua/` (rewrites Chinese text to remove AI tone, used when talking to the user in Phase P) and `skills/prompt-engineer/` (checks dispatch instructions before work is handed out). All three versions use them, and all run without them.
 - **An optional third-party skill for Phase P (Claude Code only)**: [`show-me`](https://github.com/charlie947/show-me), not carried in this repo. When it is installed, Phase P draws the change as before/after when restating it, and lays the architects' options out on one page to pick from. The written Discussion outcome and the user's explicit confirmation are still what count; a click on the page only picks an option. Without it, Phase P stays text.
 
 ## Why Claude Code needs only a skill and OpenCode also needs a plugin
@@ -347,6 +349,91 @@ Run these from the repository root.
 
    Confirm that `recon`, `implementer`, `qa`, `reviewer`, and `spec-auditor` are all there with `mode` set to `subagent`.
 
+### omp
+
+Follow [`skills/omp/INSTALL.md`](skills/omp/INSTALL.md); it also covers re-installs and checks. Tested against omp 18.11.1. Run these from the repository root.
+
+1. The skill and the 10 role files (omp reads agents from `~/.omp/agent/agents/`, not `.claude/agents/`). First install:
+
+   ```bash
+   rm -rf ~/.omp/agent/skills/plan-sdd
+   mkdir -p ~/.omp/agent/skills/plan-sdd ~/.omp/agent/agents
+   cp -R skills/omp/. ~/.omp/agent/skills/plan-sdd/
+   for f in skills/omp/agents/*.md; do
+     [ -e ~/.omp/agent/agents/$(basename "$f") ] && echo "exists: $(basename "$f")"
+   done
+   ```
+
+   The `rm -rf` makes the installed skill match the repository; it discards any edit made to the installed copy. The loop lists role files that already exist, and a file of the same name, say `implementer`, may be one you wrote: read those before going on. If nothing printed, or you have dealt with what did:
+
+   ```bash
+   cp -n skills/omp/agents/*.md ~/.omp/agent/agents/ || true
+   ```
+
+   `cp -n` skips files that exist (the `|| true` is for macOS, where it exits 1 on a skip). On a re-install of this skill, use plain `cp skills/omp/agents/*.md ~/.omp/agent/agents/` instead, after the same loop shows the existing files are this skill's own. The reviewer role is the agent `plan-reviewer`, because omp bundles an agent called `reviewer` and a same-named file would shadow it. Use the skill as `/skill:plan-sdd`. Details: `INSTALL.md` steps 1 and 2.
+
+2. Model roles. Every role file names its model as an alias (`model: "@sdd-implementer"`), and omp resolves it through `modelRoles` in `~/.omp/agent/config.yml`. Merge the entries from `skills/omp/config.example.yml` into your config; do not replace the file. A trimmed example with a 500k cap:
+
+   ```yaml
+   modelRoles:
+     sdd-implementer: openai/gpt-6.1-sol
+     sdd-reviewer: anthropic/opus-5.5
+     # ...the other sdd-* aliases from config.example.yml
+
+   compaction:
+     modelThresholds:
+       openai/gpt-6.1-sol: "f500000"
+       anthropic/opus-5.5: "f500000"
+     experimentalContextManagement: true
+   ```
+
+   `modelThresholds` with an `f` prefix is a fixed trigger, which is how the 500k cap is set. `experimentalContextManagement: true` turns on omp's `context_notes` (the sidebar's Pins section reads them), and it has a cost: with it on, every automatic compaction is a rollover, which never calls the summarizer, so the summary guidance (and anything evolve installs) is not used on automatic compaction. With it on, plain `/compact` is a rollover too; `/compact <focus>` and `/compact soft|remote` reach a summarizer (`snapcompact` has none). So you choose between Pins and guidance on automatic compaction. Rollover also needs `context_notes`, `new_context`, `read` and `grep` in the session's tool set; without all four omp stays on legacy compaction (omp `docs/compaction.md:184-186`). The restore block of `omp-context` works either way. An undefined `@sdd-*` alias is not an error in omp, it is passed on as a literal model pattern, so run the alias check in `INSTALL.md` step 3.
+
+3. Extensions, all optional. Each is a directory with `"omp": { "extensions": ["./index.ts"] }` in its `package.json`:
+
+   ```bash
+   mkdir -p ~/.omp/agent/extensions/sidebar ~/.omp/agent/extensions/omp-context ~/.omp/agent/extensions/omp-plan-memory
+   rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-sidebar/ ~/.omp/agent/extensions/sidebar/
+   rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-context/ ~/.omp/agent/extensions/omp-context/
+   rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-plan-memory/ ~/.omp/agent/extensions/omp-plan-memory/
+   ```
+
+   The copy leaves out `node_modules`, `bun.lock`, `.gitignore` and the tests. Run over an existing install it overwrites files in place; files that no longer exist upstream remain. For a clean install remove the destination directory first, but `~/.omp/agent/extensions/omp-context/` also holds the `guidance.md` that evolve writes: back it up first, or run evolve with `--target` pointing elsewhere.
+
+   - `omp-sidebar`: a full-height right sidebar with context usage (per-category), running agents, jobs, Git / Worktree, Directory, Todo, Pins (from `context_notes`) and Goal. `/sidebar on|off|toggle|width <16-80>|focus|refresh|status`; `Alt+Shift+B` toggles it and `Alt+Shift+S` moves keyboard focus. Git, Worktree and Directory follow the checkout the agent is working in, with no manual step. For the mouse (wheel scrolls, click acts on a row) set `tui.mouse: true` in omp's config; omp then captures the mouse, so selecting text needs Shift+drag and scrolling the terminal's own scrollback needs Shift+wheel. In the terminal's own scrollback the sidebar column is blank; it only draws in the live screen. Details: [`plugins/omp-sidebar/README.md`](plugins/omp-sidebar/README.md).
+   - `omp-context`: after a compaction or rollover it puts the user's recent words, the active plan and its status, loaded skills, and the git branch and worktrees back into context. Through `session.compacting` it also gives the summarizer requirements (`guidance.md` next to `index.ts`, or a built-in default), and in legacy compaction mode it nudges near the threshold. Details: [`plugins/omp-context/README.md`](plugins/omp-context/README.md).
+   - `omp-plan-memory`: the omp port of `plan-memory`: reminds the orchestrator to read, write and tidy the board's project memory. It needs the board server registered under the key `plan-sdd` (step 4). Details: [`plugins/omp-plan-memory/README.md`](plugins/omp-plan-memory/README.md).
+
+   Evolve tunes `guidance.md` from your own omp session journals. It replays compactions, scores how many bank facts the new summary keeps, and writes `guidance.md` only when the candidate beats the baseline on the train cases and does no worse on the holdout ones; otherwise it writes nothing and prints why. Copy `plugins/omp-context/evolve/questions.example.json` to `./questions.json` and edit it as the bank:
+
+   ```bash
+   bun plugins/omp-context/evolve/evolve.ts --sessions ~/.omp/agent/sessions \
+       --bank ./questions.json --model opus-5.5 --dialect anthropic --dry-run
+   ```
+
+   Drop `--dry-run` to let it write. `--dialect anthropic` is needed for a short alias like `opus-5.5`, which evolve does not recognise as an Anthropic model by itself. By default it writes `~/.omp/agent/extensions/omp-context/guidance.md`; `--target` writes elsewhere. Each model call leaves one log under `~/.omp/logs/` and one pointer file under `~/.omp/agent/custom-session-files/`; you may delete them.
+
+   The guidance reaches only compactions that go through the summarizer: `soft` and `remote` (including Anthropic native compaction); `handoff`, `snapcompact`, `shake` and rollover ignore it. With `experimentalContextManagement` on, every automatic compaction and plain `/compact` is a rollover (omp `session-maintenance.ts:4680-4681`), so only `/compact <focus>` and `/compact soft|remote` use the guidance, and evolve finds cases only from those forms; with few of them, "nothing installed" is the expected result. omp's default `compaction.methodOrder` is `remote, snapcompact, handoff, shake, soft`, so on a route without native `remote` compaction `handoff` comes before `soft`. Putting `soft` before `handoff` matters only with `experimentalContextManagement` off. The restore block does not depend on any of this. See the Evolve section of the `omp-context` README.
+
+4. Board MCP (optional). Install the board app first (see below), then add the server under `mcpServers` in `~/.omp/agent/mcp.json`. The key must be `plan-sdd`:
+
+   ```json
+   {
+     "mcpServers": {
+       "plan-sdd": { "command": "/Applications/BossSDD.app/Contents/Resources/plan-sdd-mcp" }
+     }
+   }
+   ```
+
+   `INSTALL.md` step 5 has a `jq` version that merges into an existing file.
+
+5. Check: start omp in a project and confirm `/skill:plan-sdd` is offered. Then compare the installed copy with the repository (silence means they match; `diff` also reports a role file that is missing):
+
+   ```bash
+   diff -r skills/omp/ ~/.omp/agent/skills/plan-sdd
+   for f in skills/omp/agents/*.md; do diff -q "$f" ~/.omp/agent/agents/; done
+   ```
+
 ## Board
 
 A macOS menu bar app (Swift 6, SwiftPM) that stores the task graph in SQLite and serves HTTP on the local loopback address. An MCP server written in Go forwards that HTTP, and agents use it to read and write the board as structured JSON. Apple silicon and macOS 14 or later only.
@@ -416,6 +503,18 @@ sh plugins/plan-memory/test/run.sh
 (cd plugins/sidebar && bun install && bun test)
 ```
 
+omp (bun; the sidebar needs its dev dependencies installed first):
+
+```bash
+(cd plugins/omp-sidebar && bun install --frozen-lockfile && bun test)
+(cd plugins/omp-context && bun test)
+(cd plugins/omp-plan-memory && bun test)
+bun test skills/omp/test/roles.test.ts
+bun test skills/omp/test/skill.test.ts
+```
+
+The omp extension tests drive a fake `pi` / `ctx` and temporary directories and never touch `~/.omp`; the `omp-context` run includes the evolve tests, which use a fake generator and never start `omp`.
+
 context-keeper, pin, goal and plan-memory run under node and write state to a temporary directory, without touching `~/.local/state`. The sidebar tests render the sidebar to text with mock data and need `bun install` first for the dev dependencies.
 
 ## Layout
@@ -424,13 +523,17 @@ context-keeper, pin, goal and plan-memory run under node and write state to a te
 | --- | --- |
 | `skills/claude-code/` | Claude Code version: `SKILL.md` (platform bindings), `PLAYBOOK.md` (process), `roles.md`, 10 roles, references, `INSTALL.md` |
 | `skills/opencode/` | OpenCode version: `SKILL.md`, `ADAPT.md`, 5 roles, references |
-| `skills/shuorenhua/`, `skills/prompt-engineer/` | Helper skills used by both versions |
+| `skills/omp/` | omp version: `SKILL.md`, `PLAYBOOK.md`, `roles.md`, 10 roles in `agents/`, `config.example.yml`, references, `INSTALL.md`, tests |
+| `skills/shuorenhua/`, `skills/prompt-engineer/` | Helper skills used by all three versions |
 | `plugins/context-keeper/` | Context management plugin, compact audit script, tests |
 | `plugins/pin/` | `pin_context` plugin and tests |
 | `plugins/goal/` | Unattended goal plugin and tests |
 | `plugins/plan-memory/` | Project memory reminder plugin and tests |
 | `plugins/todo/` | todo tool plugin and tests |
 | `plugins/sidebar/` | TUI sidebar plugin and render tests |
+| `plugins/omp-sidebar/` | omp right sidebar extension and tests |
+| `plugins/omp-context/` | omp extension: restore after compaction, summary guidance; `evolve/` tunes the guidance; tests |
+| `plugins/omp-plan-memory/` | omp port of the project memory reminder, and tests |
 | `Sources/BoardKit` | Data model, DAG projection, SQLite storage, HTTP API; no third-party dependencies |
 | `Sources/BossSDD` | SwiftUI app: menu bar and board window |
 | `mcp/` | Go MCP server, stdio, forwarding to the app's local HTTP |

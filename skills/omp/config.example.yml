@@ -1,0 +1,71 @@
+# Example omp config for the plan-sdd skill. Copy the parts you want into
+# ~/.omp/agent/config.yml, or into <project>/.omp/config.yml for one repository.
+# Every alias below is used by skills/omp/agents/*.md (model: "@alias") and by
+# the Model bindings table in skills/omp/roles.md. The model ids are examples;
+# put your own provider/model ids here, they are the only thing to retune.
+# After copying, check that every @sdd-* alias used by the agent files is defined
+# under modelRoles: omp passes an undefined alias on as a literal model pattern
+# (model-resolver.ts:1203-1204).
+
+modelRoles:
+  # recon.default: recon-rules, recon-code. Cheap tier: wrong answers are cheap to catch.
+  sdd-recon: anthropic/haiku-5.5
+  # recon.product: recon-product. Strong tier: it decides the non-goals.
+  sdd-recon-product: anthropic/opus-5.5
+  # implementer.default / .high_complexity: implementer, ui-designer. Mid tier.
+  sdd-implementer: openai/gpt-6.1-sol
+  sdd-implementer-high: openai/gpt-6.1-sol
+  # implementer.obstacle_escalation: the one escalated repair.
+  sdd-escalation: anthropic/opus-5.5
+  # qa.default
+  sdd-qa: openai/gpt-6.1-sol
+  # reviewer.default: plan-reviewer (the reviewer role), branch-reviewer.
+  sdd-reviewer: anthropic/opus-5.5
+  # spec_auditor.default
+  sdd-spec-auditor: anthropic/opus-5.5
+  # adversary.default
+  sdd-adversary: openai/gpt-6.1-sol
+  # explore.research / general.architect: phase P.
+  sdd-explore: anthropic/haiku-5.5
+  sdd-architect: anthropic/opus-5.5
+  # human.max: only when the user asks for the strongest model.
+  sdd-max: anthropic/opus-5.5:xhigh
+
+# Per-agent overrides. omp's task call has no model field, so the escalated or
+# high-complexity implementer, and phase P's bundled agents, are routed with
+# task.agentModelOverrides (see roles.md). The override outranks the agent's own
+# model for EVERY dispatch of that agent while it is set. Put it only in
+# <project>/.omp/config.yml, dispatch that implementer alone, keep the line until
+# that subagent has FINISHED (its result collected: the `wait` result, or the
+# synchronous task result when async is off; a `wait` snapshot after its
+# 30-minute cap is not the result; async spawns pick their model
+# after `task` returns), and only then remove it. Uncomment only what you need, and keep
+# it one `task:` block:
+# task:
+#   agentModelOverrides:
+#     scout: "@sdd-explore"
+#     # implementer (or ui-designer): pick ONE for the single dispatch
+#     implementer: "@sdd-implementer-high"   # implementer.high_complexity
+#     # implementer: "@sdd-escalation"       # implementer.obstacle_escalation
+
+compaction:
+  # Floor: keep any threshold well above what the skill reads at start. PLAYBOOK.md
+  # plus the references it points to at the start came to about 40K tokens in the
+  # T9 walkthrough (observed there). Re-measured as bytes / 4: PLAYBOOK.md alone is
+  # 56751 bytes, about 14K; with board, memory, goal-mode, recon, plan-spec and
+  # dag-contract it is 130389 bytes, about 32.6K. The rest of T9's figure is not
+  # itemised (likely system prompt, tools and SKILL.md; not verified). thresholdTokens: 30000 made omp roll over 18 times in 2m10s and pause
+  # automatic maintenance; 70000 did not loop. Use 70000 or more.
+  #
+  # Cap a long plan-sdd run at 500k tokens: compaction.modelThresholds keys a
+  # model id to a fixed trigger "f500000" (omp's docs/settings.md, compaction.modelThresholds;
+  # a bare number is a base the policy scales, not a cap), or set thresholdTokens
+  # for every model.
+  # modelThresholds:
+  #   openai/gpt-6.1-sol: "f500000"
+  #   anthropic/opus-5.5: "f500000"
+  # thresholdTokens: 500000
+  #
+  # Recommended for long runs. It trades summary guidance on automatic
+  # compaction for Pins (context_notes); see plugins/omp-context/README.md.
+  experimentalContextManagement: true

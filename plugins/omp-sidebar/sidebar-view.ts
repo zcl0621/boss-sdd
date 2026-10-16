@@ -1,4 +1,11 @@
-import { matchesKey, sliceWithWidth, truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
+import {
+  extractPrintableText,
+  isKeyRelease,
+  matchesKey,
+  sliceWithWidth,
+  truncateToWidth,
+  visibleWidth,
+} from "@oh-my-pi/pi-tui";
 import { sanitizeDisplaySingleLine } from "@oh-my-pi/pi-tui/overlays/extensions/display-text";
 import type { Theme } from "@oh-my-pi/pi-tui/theme";
 import { renderContextMeter } from "./context-meter";
@@ -155,8 +162,15 @@ export class SidebarView {
       : label;
   }
 
+  /**
+   * Keys while the sidebar has explicit focus. Returns false for input that
+   * belongs to omp: Ctrl+C and Ctrl+D always; a printable key the sidebar does
+   * not bind, which also hands focus back to the editor; and any other unbound
+   * input (key releases, terminal reports, Tab, F-keys), which keeps focus.
+   */
   handleInput(data: string): boolean {
-    if (!this.#focused) return false;
+    if (!this.#focused || isKeyRelease(data)) return false;
+    if (matchesKey(data, "ctrl+c") || matchesKey(data, "ctrl+d")) return false;
     if (matchesKey(data, "escape")) this.setFocused(false);
     else if (matchesKey(data, "up")) this.#move(this.#selected - 1);
     else if (matchesKey(data, "down")) this.#move(this.#selected + 1);
@@ -167,13 +181,17 @@ export class SidebarView {
     else if (matchesKey(data, "left")) this.#setCollapsed(true);
     else if (matchesKey(data, "right")) this.#setCollapsed(false);
     else if (matchesKey(data, "enter") || data === " ") this.#run(this.#all[this.#selected]);
+    else {
+      if (extractPrintableText(data) !== undefined) this.setFocused(false);
+      return false;
+    }
     return true;
   }
 
+  /** A click acts on the row without taking keyboard focus from the editor. */
   click(row: number): void {
     const target = this.#visible[row];
     if (!target?.action) return;
-    this.#focused = true;
     this.#selected = this.#offset + row;
     this.#run(target);
   }
