@@ -187,6 +187,107 @@ function clearSidebar(adapter: TerminalAdapter, region: SidebarBounds | undefine
   return buffer + "\x1b8";
 }
 
+function sameRegion(a: SidebarBounds | undefined, b: SidebarBounds | undefined): boolean {
+  return !!a && !!b && a.column === b.column && a.width === b.width && a.rows === b.rows;
+}
+
+/**
+ * Upper bound on how many rows `data` scrolls off the top of a `rows`-high
+ * screen, or Infinity when it cannot be bounded (a scroll region, or a full
+ * erase that tmux implements by scrolling). The cursor is assumed on the
+ * bottom row until an absolute position says otherwise, so the count never
+ * falls short.
+ */
+function scrollCount(data: string, rows: number): number {
+  const bottom = rows - 1;
+  let row = bottom;
+  let saved = bottom;
+  let scrolls = 0;
+  const lineFeed = () => {
+    if (row >= bottom) scrolls++;
+    else row++;
+  };
+  for (let i = 0; i < data.length; i++) {
+    const ch = data[i];
+    if (ch === "\n" || ch === "\v" || ch === "\f") {
+      lineFeed();
+      continue;
+    }
+    if (ch !== "\x1b") continue;
+    const next = data[++i];
+    if (next === "[") {
+      let end = i + 1;
+      while (end < data.length && (data.charCodeAt(end) < 0x40 || data.charCodeAt(end) > 0x7e)) end++;
+      const params = data.slice(i + 1, end);
+      const final = data[end];
+      i = end;
+      if (/^[?<>=]/.test(params)) continue;
+      const first = Number.parseInt(params.split(";")[0] ?? "", 10);
+      const n = Number.isNaN(first) || first < 1 ? 1 : first;
+      switch (final) {
+        case "H":
+        case "f":
+        case "d":
+          row = Math.min(bottom, n - 1);
+          break;
+        case "A":
+        case "F":
+          row = Math.max(0, row - n);
+          break;
+        case "B":
+        case "E":
+          row = Math.min(bottom, row + n);
+          break;
+        case "S":
+          scrolls += n;
+          break;
+        case "J":
+          if (first === 2) return Number.POSITIVE_INFINITY;
+          break;
+        case "r":
+          return Number.POSITIVE_INFINITY;
+        case "s":
+          saved = row;
+          break;
+        case "u":
+          row = saved;
+          break;
+      }
+    } else if (next === "]" || next === "P" || next === "_" || next === "^") {
+      // String sequences end at BEL (OSC only) or ST.
+      while (++i < data.length) {
+        if (data[i] === "\x07" && next === "]") break;
+        if (data[i] === "\x1b" && data[i + 1] === "\\") {
+          i++;
+          break;
+        }
+      }
+    } else if (next === "7") saved = row;
+    else if (next === "8") row = saved;
+    else if (next === "D" || next === "E") lineFeed();
+    else if (next === "M") row = Math.max(0, row - 1);
+    else if (next !== undefined && next >= " " && next <= "/") i++; // ESC ( B and friends
+  }
+  return scrolls;
+}
+
+/** Erase the sidebar cells of the top `count` rows, the ones a scroll pushes into scrollback. */
+function clearScrolledRows(
+  adapter: TerminalAdapter,
+  region: SidebarBounds,
+  count: number,
+): string {
+  if (count <= 0) return "";
+  if (count >= region.rows) return clearSidebar(adapter, region);
+  const width = physicalColumns(adapter) - region.column;
+  if (width <= 0) return "";
+  let buffer = "\x1b7" + SEGMENT_RESET;
+  for (let row = 0; row < count; row++) {
+    buffer += `\x1b[${row + 1};${region.column + 1}H\x1b[${width}X`;
+  }
+  return buffer + "\x1b8";
+}
+
 function paintSidebar(
   state: SidebarState,
   adapter: TerminalAdapter,
@@ -219,7 +320,10 @@ function repaintSidebar(state: SidebarState): void {
   const adapter = state.adapter;
   if (!adapter || nativeSurfaceActive(state)) return;
   const region = sidebarRegion(state, adapter);
-  const buffer = clearSidebar(adapter, region) + paintSidebar(state, adapter, region);
+  // The paint overwrites every cell of an unchanged region; erasing first
+  // only makes it flash on terminals without synchronized output.
+  const clear = sameRegion(adapter.painted, region) ? "" : clearSidebar(adapter, region);
+  const buffer = clear + paintSidebar(state, adapter, region);
   if (!buffer) return;
   // Preserve the host's explicit opt-out on terminals with broken DEC 2026.
   const synchronized = state.tui.synchronizedOutput !== false;
@@ -344,8 +448,14 @@ function installAdapter(state: SidebarState): string | undefined {
       const wrapOff = data.lastIndexOf(AUTOWRAP_OFF);
       if (wrapOn >= 0 || wrapOff >= 0) adapter.autowrapEnabled = wrapOn > wrapOff;
       // Clear existing sidebar cells BEFORE the core emits any newline or
-      // scroll. Otherwise yesterday's sidebar becomes native scrollback.
-      const clear = clearSidebar(adapter, region);
+      // scroll. Otherwise yesterday's sidebar becomes native scrollback. Over
+      // an unchanged region only the rows this write can scroll off the top
+      // are cleared: the paint below overwrites the rest, and erasing them
+      // first makes the sidebar flash where DEC 2026 is off (Apple Terminal).
+      const clear =
+        region && sameRegion(adapter.painted, region)
+          ? clearScrolledRows(adapter, region, scrollCount(data, region.rows))
+          : clearSidebar(adapter, region);
       const synchronized = state.tui.synchronizedOutput !== false;
       const core =
         synchronized && data.includes("\x1b[?2026") ? data.replace(SYNC_WRAPPERS, "") : data;
