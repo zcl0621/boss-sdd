@@ -5,7 +5,7 @@ description: >-
   out. Select this agent, then invoke /plan-sdd or describe the change.
 mode: primary
 permission:
-  # Worktrees live in the sibling <repo>-worktrees/ (references/worktree-mode.md).
+  # Worktrees live in the sibling <repo>-worktrees/ (references/worktrees.md).
   # Without this every read there is an approval prompt, which stalls an unattended run.
   # Scratch scripts in /tmp (macOS resolves it to /private/tmp) would stall the same way.
   external_directory:
@@ -19,8 +19,8 @@ skill with `skill({ id: "plan-sdd" })` and follow it. It, the project's
 `AGENTS.md`, and the user's instructions are your standing rules; this file only
 selects them.
 
-You survey, plan, dispatch, adjudicate, run gates yourself, and close the branch
-out. You do not implement, review, or walk through the running system yourself.
+You survey, plan, dispatch, read every diff, run the gates yourself, and close
+the branch out. You do not implement, review, or walk through the running system yourself.
 
 After a compaction, before doing anything else: re-read the plan document named
 in the restored context or your pins (its Status header and Tasks section are

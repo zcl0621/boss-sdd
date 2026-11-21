@@ -5,29 +5,10 @@ import { join } from "node:path";
 const OMP = join(import.meta.dir, "..");
 const AGENTS = join(OMP, "agents");
 
-// The ten roles. Nine keep the name used in skills/claude-code/agents/; the
+// The five roles. Four keep the name used in skills/claude-code/agents/; the
 // reviewer role is `plan-reviewer` because omp bundles an agent named `reviewer`.
-const ROLES = [
-  "adversary",
-  "branch-reviewer",
-  "implementer",
-  "plan-reviewer",
-  "qa",
-  "recon-code",
-  "recon-product",
-  "recon-rules",
-  "spec-auditor",
-  "ui-designer",
-];
-const READ_ONLY = [
-  "recon-rules",
-  "recon-code",
-  "recon-product",
-  "plan-reviewer",
-  "spec-auditor",
-  "branch-reviewer",
-  "adversary",
-];
+const ROLES = ["adversary", "implementer", "plan-reviewer", "qa", "recon"];
+const READ_ONLY = ["recon", "plan-reviewer", "adversary"];
 
 // Copied from omp 18.11.1 packages/coding-agent/src/task/agents.ts:44-73
 // (EMBEDDED_AGENT_DEFS: scout.md, reviewer.md, security-reviewer.md at :45-47,
@@ -50,16 +31,16 @@ const BUILTIN_TOOL_NAMES = [
 // whose rename/code_actions apply workspace edits (omp lsp/tool.ts:1352-1402).
 const WRITE_TOOLS = ["edit", "write", "ast_edit", "memory_edit", "lsp"];
 
-// The matching Claude Code template for a role (skills/claude-code/agents/).
+// The matching Claude Code file for a role (skills/claude-code/agents/).
 const TEMPLATE_OF = (role: string) => (role === "plan-reviewer" ? "reviewer" : role);
 const CC_AGENTS = join(OMP, "..", "claude-code", "agents");
 
-function readAgent(role: string): { fm: Record<string, any>; body: string } {
-  const text = readFileSync(join(AGENTS, `${role}.md`), "utf8");
+function split(text: string, what: string): { fm: Record<string, any>; body: string } {
   const m = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!m) throw new Error(`${role}.md has no frontmatter`);
+  if (!m) throw new Error(`${what} has no frontmatter`);
   return { fm: Bun.YAML.parse(m[1]) as Record<string, any>, body: m[2] };
 }
+const readAgent = (role: string) => split(readFileSync(join(AGENTS, `${role}.md`), "utf8"), `${role}.md`);
 
 function toolList(fm: Record<string, any>): string[] {
   const t = fm.tools;
@@ -73,23 +54,23 @@ function configAliases(): string[] {
   return Object.keys(cfg?.modelRoles ?? {});
 }
 
-function tableAliases(): string[] {
-  const md = readFileSync(join(OMP, "roles.md"), "utf8");
-  const section = md.split(/^## Model bindings\s*$/m)[1];
-  if (!section) throw new Error("roles.md has no 'Model bindings' section");
-  const table = section.split(/^## /m)[0];
-  const rows = table.split("\n").filter(l => /^\|/.test(l)).slice(2);
+// Rows of the "Roles and models" table in SKILL.md: [agent name, alias].
+function tableRows(): [string, string][] {
+  const md = readFileSync(join(OMP, "SKILL.md"), "utf8");
+  const section = md.split(/^## Roles and models\s*$/m)[1];
+  if (!section) throw new Error("SKILL.md has no 'Roles and models' section");
+  const rows = section.split(/^## /m)[0].split("\n").filter(l => /^\|/.test(l)).slice(2);
   return rows.map(r => {
     const cells = r.split("|").map(c => c.trim());
-    const model = cells[cells.length - 2];
-    const m = model.match(/^`@([A-Za-z0-9_-]+)`$/);
-    if (!m) throw new Error(`binding row has no single \`@alias\` in the Model column: ${r}`);
-    return m[1];
+    const agent = cells[2].match(/^`([a-z-]+)`$/);
+    const alias = cells[cells.length - 2].match(/^`@([A-Za-z0-9_-]+)`$/);
+    if (!agent || !alias) throw new Error(`role row needs a backticked agent name and \`@alias\`: ${r}`);
+    return [agent[1], alias[1]];
   });
 }
 
 describe("skills/omp agents", () => {
-  test("exactly the ten role files", () => {
+  test("exactly the five role files", () => {
     expect(existsSync(AGENTS)).toBe(true);
     const files = readdirSync(AGENTS).filter(f => !f.startsWith(".")).sort();
     expect(files).toEqual(ROLES.map(r => `${r}.md`).sort());
@@ -108,27 +89,24 @@ describe("skills/omp agents", () => {
     for (const t of toolList(readAgent(role).fm)) expect(BUILTIN_TOOL_NAMES).toContain(t);
   });
 
-  test.each(ROLES)("%s: carries every ## heading of the claude-code template", role => {
-    const tpl = readFileSync(join(CC_AGENTS, `${TEMPLATE_OF(role)}.md`), "utf8");
-    const headings = tpl.split("\n").filter(l => /^## /.test(l)).map(l => l.trim());
-    expect(headings.length).toBeGreaterThan(0);
-    const ownLines = new Set(readAgent(role).body.split("\n").map(l => l.trim()));
-    for (const h of headings) expect(ownLines.has(h)).toBe(true);
+  // The standing rules are the same on both platforms; only the frontmatter differs.
+  test.each(ROLES)("%s: same rules and description as the claude-code role file", role => {
+    const cc = split(readFileSync(join(CC_AGENTS, `${TEMPLATE_OF(role)}.md`), "utf8"), "template");
+    const mine = readAgent(role);
+    expect(mine.body).toBe(cc.body);
+    expect(mine.fm.description).toBe(cc.fm.description);
   });
 
   test.each(READ_ONLY)("%s: read-only by allowlist, keeps bash", role => {
     const tools = toolList(readAgent(role).fm);
     expect(tools).toContain("bash");
-    for (const w of WRITE_TOOLS) expect(tools).not.toContain(w);
     expect(tools.filter(t => WRITE_TOOLS.includes(t))).toEqual([]);
   });
 
-  test("implementer and ui-designer can write", () => {
-    for (const role of ["implementer", "ui-designer"]) {
-      const tools = toolList(readAgent(role).fm);
-      expect(tools).toContain("edit");
-      expect(tools).toContain("write");
-    }
+  test("implementer can write", () => {
+    const tools = toolList(readAgent("implementer").fm);
+    expect(tools).toContain("edit");
+    expect(tools).toContain("write");
   });
 
   test("no agent name collides with an omp bundled or reserved agent", () => {
@@ -140,30 +118,23 @@ describe("skills/omp agents", () => {
   });
 });
 
-describe("roles.md and config.example.yml", () => {
-  test("every alias used by an agent file is defined under modelRoles", () => {
-    const defined = configAliases();
-    expect(defined.length).toBeGreaterThan(0);
-    for (const role of ROLES) {
-      const alias = String(readAgent(role).fm.model).replace(/^@/, "");
-      expect(defined).toContain(alias);
+describe("SKILL.md role table and config.example.yml", () => {
+  test("the table lists exactly the five agents, each with the alias its file carries", () => {
+    const rows = tableRows();
+    expect(rows.map(r => r[0]).sort()).toEqual([...ROLES].sort());
+    for (const [agent, alias] of rows) expect(readAgent(agent).fm.model).toBe(`@${alias}`);
+  });
+
+  test("every alias used by an agent file is defined under modelRoles, and no other", () => {
+    const used = ROLES.map(r => String(readAgent(r).fm.model).replace(/^@/, "")).sort();
+    expect(configAliases().sort()).toEqual(used);
+  });
+
+  test("SKILL.md explains modelRoles resolution, the rename and the bundled list", () => {
+    const md = readFileSync(join(OMP, "SKILL.md"), "utf8");
+    for (const n of ["modelRoles", "~/.omp/agent/config.yml", ".omp/config.yml", "plan-reviewer", "task/agents.ts", "`security-reviewer`"]) {
+      expect(md).toContain(n);
     }
-  });
-
-  test("every alias in the Model bindings table is defined under modelRoles", () => {
-    const defined = configAliases();
-    const aliases = tableAliases();
-    expect(aliases.length).toBeGreaterThanOrEqual(10);
-    for (const a of aliases) expect(defined).toContain(a);
-  });
-
-  test("roles.md explains modelRoles resolution, the rename and the bundled list", () => {
-    const md = readFileSync(join(OMP, "roles.md"), "utf8");
-    expect(md).toContain("modelRoles");
-    expect(md).toContain("~/.omp/agent/config.yml");
-    expect(md).toContain(".omp/config.yml");
-    expect(md).toContain("plan-reviewer");
-    expect(md).toContain("task/agents.ts");
   });
 
   test("example model ids include a gpt-6.1-sol and an opus-5.5 id", () => {
@@ -174,11 +145,8 @@ describe("roles.md and config.example.yml", () => {
   });
 
   test("config.example.yml sets experimentalContextManagement: true", () => {
-    const raw = readFileSync(join(OMP, "config.example.yml"), "utf8");
-    const cfg = Bun.YAML.parse(raw) as any;
-    const parsed = cfg?.compaction?.experimentalContextManagement === true;
-    const shown = /^\s*#?\s*experimentalContextManagement:\s*true\b/m.test(raw);
-    expect(parsed || shown).toBe(true);
+    const cfg = Bun.YAML.parse(readFileSync(join(OMP, "config.example.yml"), "utf8")) as any;
+    expect(cfg?.compaction?.experimentalContextManagement).toBe(true);
   });
 
   test("config.example.yml documents the 500k cap via modelThresholds or thresholdTokens", () => {

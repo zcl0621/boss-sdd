@@ -32,71 +32,49 @@ function h2(text: string): string[] {
   return out;
 }
 
-const CC_REFERENCES = readdirSync(join(CC, "references")).filter((f) => f.endsWith(".md")).sort();
-const FILES = [
-  "SKILL.md",
-  "PLAYBOOK.md",
-  "INSTALL.md",
-  ...CC_REFERENCES.map((f) => `references/${f}`),
-];
+const mdIn = (dir: string) => readdirSync(dir).filter((f) => f.endsWith(".md")).sort();
+const CC_REFERENCES = mdIn(join(CC, "references"));
+// References with nothing platform-specific in them: byte-identical on both.
+const SHARED = ["board.md", "plan.md", "worktrees.md"];
 
-describe("claude-code reference set is the 16 files the plan names", () => {
-  test("16 references to port", () => expect(CC_REFERENCES.length).toBe(16));
+describe("the two skills carry the same reference set", () => {
+  test("six references, same names", () => {
+    expect(CC_REFERENCES).toEqual(["board.md", "dispatch.md", "goal-mode.md", "plan.md", "review.md", "worktrees.md"]);
+    expect(mdIn(join(OMP, "references"))).toEqual(CC_REFERENCES);
+  });
+  test("no retired file is left behind", () => {
+    for (const f of ["roles.md", "references/memory.md", "references/worktree-mode.md", "references/dag-contract.md"]) {
+      expect(existsSync(join(OMP, f))).toBe(false);
+    }
+  });
+  for (const f of SHARED) {
+    test(`references/${f} is identical to the claude-code copy`, () => {
+      expect(read(join(OMP, "references", f))).toBe(read(join(CC, "references", f)));
+    });
+  }
 });
 
 describe("SKILL.md frontmatter", () => {
   test("name is plan-sdd, description non-empty", () => {
-    const p = join(OMP, "SKILL.md");
-    expect(existsSync(p)).toBe(true);
-    const m = read(p).match(/^---\n([\s\S]*?)\n---\n/);
+    const m = read(join(OMP, "SKILL.md")).match(/^---\n([\s\S]*?)\n---\n/);
     expect(m).not.toBeNull();
     const fm = m![1];
     expect(fm).toMatch(/^name:\s*plan-sdd\s*$/m);
     const d = fm.match(/^description:[ \t]*(.*)$/m);
     expect(d).not.toBeNull();
-    // inline value, or a block scalar / continuation lines
     const rest = fm.slice(fm.indexOf(d![0]) + d![0].length);
     const cont = rest.split("\n").filter((l) => /^\s+\S/.test(l)).join(" ");
-    const value = (d![1].replace(/^[>|][+-]?$/, "") + " " + cont).trim();
-    expect(value.length).toBeGreaterThan(0);
+    expect((d![1].replace(/^[>|][+-]?$/, "") + " " + cont).trim().length).toBeGreaterThan(0);
+  });
+  test("same description as the claude-code skill", () => {
+    const desc = (p: string) => read(p).match(/^description:[\s\S]*?(?=^[a-z-]+:|^---$)/m)![0];
+    expect(desc(join(OMP, "SKILL.md"))).toBe(desc(join(CC, "SKILL.md")));
   });
 });
 
-describe("required files exist", () => {
-  for (const f of FILES) {
-    test(f, () => expect(existsSync(join(OMP, f))).toBe(true));
-  }
-});
-
-// Headings that name a Claude Code mechanism may be reworded; every other
-// heading must match its claude-code counterpart verbatim. A reworded heading
-// must not keep `/code-review` (omp's commands are `/review` and
-// `/annotate code-review`, omp docs/slash-command-internals.md:433-449).
-const CC_ONLY_HEADING = /\/code-review|SendMessage|subagent_type|\.claude\/agents|`Agent`/;
-
-describe("same `##` structure as skills/claude-code (acceptance 3)", () => {
+describe("same `##` structure as skills/claude-code", () => {
   for (const f of ["PLAYBOOK.md", ...CC_REFERENCES.map((r) => `references/${r}`)]) {
-    test(f, () => {
-      const mine = join(OMP, f);
-      expect(existsSync(mine)).toBe(true);
-      const want = h2(read(join(CC, f)));
-      const got = h2(read(mine));
-      expect(got.length).toBe(want.length);
-      // native-review.md is about Claude Code's reviewer (incl. /code-review
-      // --fix/--comment, which omp's /review lacks): every heading may be reworded.
-      const freeform = f === "references/native-review.md";
-      want.forEach((w, i) => {
-        if (freeform) {
-          expect(got[i]).not.toMatch(CC_ONLY_HEADING);
-          expect(got[i].length).toBeGreaterThan(3);
-        } else if (CC_ONLY_HEADING.test(w)) {
-          expect(got[i]).not.toMatch(CC_ONLY_HEADING);
-          expect(got[i].length).toBeGreaterThan(3);
-        } else {
-          expect(got[i]).toBe(w);
-        }
-      });
-    });
+    test(f, () => expect(h2(read(join(OMP, f)))).toEqual(h2(read(join(CC, f)))));
   }
 });
 
@@ -146,86 +124,63 @@ describe("the reviewer role is dispatched as plan-reviewer", () => {
   test("PLAYBOOK.md and references/", () => {
     const bad: string[] = [];
     for (const file of [join(OMP, "PLAYBOOK.md"), ...walkMd(join(OMP, "references"))]) {
-      if (!existsSync(file)) continue;
       read(file).split("\n").forEach((line, i) => {
         if (/`reviewer`/.test(line) && !/role|bundled|plan-reviewer/i.test(line)) bad.push(`${rel(file)}:${i + 1}: ${line.trim()}`);
       });
     }
     expect(bad).toEqual([]);
   });
+  test("the playbook and review.md dispatch plan-reviewer", () => {
+    expect(read(join(OMP, "PLAYBOOK.md"))).toContain("`plan-reviewer`");
+    expect(read(join(OMP, "references/review.md"))).toContain("`plan-reviewer`");
+  });
 });
 
-describe("content the review asked for", () => {
+describe("omp-specific content", () => {
   const has = (f: string, needles: string[]) => {
-    expect(existsSync(join(OMP, f))).toBe(true);
     const t = read(join(OMP, f));
     for (const n of needles) expect(t).toContain(n);
     return t;
   };
   test("SKILL.md: read-only by instruction, allowlist only a partial guard", () => {
-    const t = has("SKILL.md", ["read-only by instruction", "partial guard"]);
-    expect(t).not.toMatch(/^#+ .*by tool allowlist/m);
+    has("SKILL.md", ["read-only by instruction", "partial guard"]);
   });
-  test("SKILL.md: architects are read-only by instruction; scout has no bash", () => {
-    has("SKILL.md", ["architects", "`scout`", "no `bash`"]);
-    has("references/greenfield-architect.md", ["read-only by instruction"]);
-  });
-  test("SKILL.md: todo ops and the auto-promote rule", () => {
-    has("SKILL.md", ["`unblock`", "`rm`", "`view`", "`block`", "tools/todo.ts:128-141", "single op per call"]);
-  });
-  test("SKILL.md: citations for async contract and the warm/cold revive paths", () => {
-    has("SKILL.md", ["task-async-contract.md", "createWarmSubagentReviver", "persisted-revive.ts:180-183"]);
-    expect(read(join(OMP, "SKILL.md"))).not.toContain("174-177");
-    expect(read(join(OMP, "SKILL.md"))).not.toMatch(/[a-z`] The reply is an owner-routed job/);
-  });
-  test("SKILL.md and native-review.md agree: /review is typed by the user", () => {
+  test("SKILL.md and review.md agree: /review is typed by the user", () => {
     has("SKILL.md", ["`/review`", "typed by the user"]);
-    has("references/native-review.md", ["`/review`", "typed by the user"]);
+    has("references/review.md", ["`/review`", "typed by the user"]);
   });
   test("no unsupported claim that the native reviewer is better", () => {
     for (const f of walkMd(OMP)) expect(read(f)).not.toMatch(/better at (this|that|the)\b[^.]*\bjob/i);
   });
-  test("skills are loaded with read skill://, not a Skill tool", () => {
-    has("references/greenfield-discussion.md", ["skill://"]);
-    has("references/greenfield-prelude.md", ["skill://"]);
+  test("skills are read with skill://, and the playbook path is spelled out", () => {
+    has("SKILL.md", ["read skill://plan-sdd/PLAYBOOK.md", "read skill://show-me"]);
   });
-  test("Form A failure falls back to Form B (SKILL.md resume row, dispatch.md)", () => {
-    for (const f of ["SKILL.md", "references/dispatch.md"]) {
-      const t = has(f, ["Peer messaging is unavailable", "is not running", "Form B"]);
-      expect(t).toMatch(/revive/i);
-    }
-  });
-  test("SKILL.md todo: dispatch order, start-before-done, display artefact", () => {
-    has("SKILL.md", ["in the order you will dispatch", "display artefact", "`done`, `block` or `drop`"]);
-    has("PLAYBOOK.md", ["in the order you will dispatch", "display artefact"]);
-  });
-  test("INSTALL.md: mkdir before mcp.json, cp -n exit, flow-style and config.yaml, compaction", () => {
-    const t = has("INSTALL.md", ["|| true", "config.yaml", "flow-style", "experimentalContextManagement"]);
-    expect(t).toMatch(/mkdir -p ~\/\.omp\/agent\n/);
+  test("SKILL.md resume row: a failed resume falls back to a fresh dispatch", () => {
+    const t = has("SKILL.md", ["agent://<id>", "Peer messaging is unavailable", "is not running", "fresh"]);
+    expect(t).toMatch(/revive/i);
   });
   // docs/e2e/2026-10-16-omp-e2e-recheck2.md finding 4: after a rollover Kimi read the system prompt's device docs as
   // "the top-level function list shows them" and called `ask` five times instead of `write xd://…`.
-  test("SKILL.md board row: device docs are not the function list; no function-call escape hatch", () => {
-    const t = has("SKILL.md", ["`# xd:// Tool Devices`", "not your function list"]);
-    expect(t).not.toContain("When the top-level function list shows them directly, call them as functions");
-  });
-  test("SKILL.md board: call form kept in context_notes; a doubt after rollover is a read xd://, never ask", () => {
-    const t = has("SKILL.md", ["context_notes", "write xd://mcp__plan_sdd_<tool>"]);
-    const board = t.slice(t.indexOf("## The board"), t.indexOf("## Not established"));
+  test("SKILL.md board: device docs are not the function list; call form kept in context_notes", () => {
+    const t = has("SKILL.md", ["`# xd:// Tool Devices`", "not your function list", "write xd://mcp__plan_sdd_<tool>"]);
+    const board = t.slice(t.indexOf("## The board on omp"), t.indexOf("## Tools you need"));
     expect(board).toContain("context_notes");
     expect(board).toContain("`read xd://`");
-    expect(board).toMatch(/never .*`ask`/i);
+    expect(board).toMatch(/never use `ask`/i);
   });
-  test("INSTALL.md: merge, overwrite, profile and Claude Code skill notes", () => {
-    const t = has("INSTALL.md", ["cp -n", "--profile", ".claude/skills/plan-sdd", "plugins/omp-context", "~/.omp/profiles/"]);
-    expect(t).not.toContain("landing");
+  test("goal-mode.md: user-started, the goal tool, and print runs", () => {
+    has("references/goal-mode.md", ["/goal <objective>", "omp --goal", "`goal` tool", "`-p`"]);
+  });
+  test("the skill no longer uses project memory, and INSTALL.md says so", () => {
+    has("references/board.md", ["plan_memory_", "does not use"]);
+    has("INSTALL.md", ["extensions/omp-plan-memory", "remove that directory"]);
+    expect(existsSync(join(REPO, "plugins/omp-plan-memory"))).toBe(false);
   });
 });
 
-describe("INSTALL.md (acceptance 4)", () => {
+describe("INSTALL.md", () => {
   const p = join(OMP, "INSTALL.md");
-  test("exists and names the omp install targets", () => {
-    expect(existsSync(p)).toBe(true);
+  test("names the omp install targets", () => {
     const t = read(p);
     for (const needle of [
       "~/.omp/agent/skills/plan-sdd/",
@@ -235,8 +190,20 @@ describe("INSTALL.md (acceptance 4)", () => {
       "config.example.yml",
     ]) expect(t).toContain(needle);
   });
+  test("mkdir before mcp.json, cp -n exit, flow-style and config.yaml, profile, Claude Code skill", () => {
+    const t = read(p);
+    for (const n of ["|| true", "cp -n", "config.yaml", "flow-style", "experimentalContextManagement", "--profile", "~/.omp/profiles/", ".claude/skills/plan-sdd", "plugins/omp-context"]) {
+      expect(t).toContain(n);
+    }
+    expect(t).toMatch(/mkdir -p ~\/\.omp\/agent\n/);
+  });
+  test("lists the five agent files and the retired ones to remove", () => {
+    const t = read(p);
+    for (const n of ["`recon`", "`implementer`", "`plan-reviewer`", "`qa`", "`adversary`", "spec-auditor.md", "recon-rules.md"]) {
+      expect(t).toContain(n);
+    }
+  });
   test("every repo-relative path it names exists (backticks, links, fenced blocks)", () => {
-    expect(existsSync(p)).toBe(true);
     const t = read(p);
     // A real repo path starts skills/, plugins/, docs/, mcp/, Scripts/ or is README.md.
     const ROOTED = /(?<![\w~./-])((?:skills|plugins|docs|mcp|Scripts)\/[\w.\-/]*|README\.md)/g;
@@ -248,46 +215,37 @@ describe("INSTALL.md (acceptance 4)", () => {
       if (path.includes("/") || path === "README.md") found.add(path);
     }
     expect(found.size).toBeGreaterThan(0);
-    const bad = [...found].filter((c) => !existsSync(join(REPO, c)));
-    expect(bad).toEqual([]);
+    expect([...found].filter((c) => !existsSync(join(REPO, c)))).toEqual([]);
   });
 });
 
-// Left-column phrases of the bindings table in skills/claude-code/SKILL.md.
+// Left-column phrases of the bindings table in a SKILL.md.
 function leftPhrases(text: string): string[] {
   const out: string[] = [];
   let inTable = false;
   for (const line of text.split("\n")) {
-    if (/^## The bindings/.test(line)) { inTable = true; continue; }
+    if (/^## Bindings/.test(line)) { inTable = true; continue; }
     if (inTable && /^## /.test(line)) break;
     if (!inTable || !line.startsWith("|") || /^\|\s*-/.test(line)) continue;
     const cell = line.split("|")[1].trim();
-    if (/^Where the playbook says/i.test(cell)) continue;
-    const q = cell.match(/^"([^"]+)"/);
-    out.push((q ? q[1] : cell.replace(/\s*\(.*$/, "")).replace(/`/g, "").trim());
+    if (/^The playbook says/i.test(cell)) continue;
+    out.push(cell);
   }
   return out;
 }
 // Phrases that name a Claude Code mechanism are mapped to their omp wording.
 const PHRASE_MAP: Record<string, string> = {
-  "Claude Code's own branch reviewer": "branch reviewer",
+  "Claude Code's own reviewer": "omp's own reviewer",
 };
 
-describe("SKILL.md bindings (acceptance 1-2)", () => {
+describe("SKILL.md bindings", () => {
   const skill = () => read(join(OMP, "SKILL.md"));
   const phrases = leftPhrases(read(join(CC, "SKILL.md")));
-  test("claude-code bindings table was parsed", () => expect(phrases.length).toBeGreaterThanOrEqual(14));
-  for (const ph of phrases) {
-    const want = PHRASE_MAP[ph] ?? ph;
-    test(`covers: ${ph}`, () => {
-      expect(existsSync(join(OMP, "SKILL.md"))).toBe(true);
-      expect(skill().replace(/`/g, "").toLowerCase()).toContain(want.toLowerCase());
-    });
-  }
-  for (const needle of ["`wait`", "`tasks`", "~/.omp/agent/mcp.json", "tools/todo.ts:128", "/goal", "--goal", "`-p`", "isolated"]) {
-    test(`mentions ${needle}`, () => {
-      expect(existsSync(join(OMP, "SKILL.md"))).toBe(true);
-      expect(skill()).toContain(needle);
-    });
+  test("claude-code bindings table was parsed", () => expect(phrases.length).toBeGreaterThanOrEqual(9));
+  test("omp binds exactly the mechanisms claude-code binds", () => {
+    expect(leftPhrases(skill())).toEqual(phrases.map((p) => PHRASE_MAP[p] ?? p));
+  });
+  for (const needle of ["`wait`", "`tasks`", "`context`", "~/.omp/agent/mcp.json", "/goal", "--goal", "`-p`", "isolated", "`solutionSpace`"]) {
+    test(`mentions ${needle}`, () => expect(skill()).toContain(needle));
   }
 });

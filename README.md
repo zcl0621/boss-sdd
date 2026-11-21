@@ -4,23 +4,22 @@ English | [中文](README.zh-CN.md)
 boss-sdd uses agents to carry a multi-step change through to the end. It surveys the project, writes a task graph (DAG) with dependencies, dispatches a separate implementer and reviewer to each node in dependency order, then reviews the whole result and hands it over. The repository contains:
 
 - **The `plan-sdd` skill**, in three fully independent copies. None references another, and each installs on its own:
-  - `skills/claude-code/`: for Claude Code. Todos and unattended runs use Claude Code's built-in task list and `/goal`.
+  - `skills/claude-code/`: for Claude Code. Unattended runs use Claude Code's `/goal`.
   - `skills/opencode/`: for OpenCode 2.x. Todos and unattended runs depend on the plugins below.
-  - `skills/omp/`: for omp (oh-my-pi) 18.x. Roles are omp agents dispatched with `task`; todos and `/goal` are omp's own; the model per role comes from `modelRoles`.
+  - `skills/omp/`: for omp (oh-my-pi) 18.x. Roles are omp agents dispatched with `task`; `/goal` is omp's own; the model per role comes from `modelRoles`.
 
-  All three follow the same process. They discuss the change with the user first (Phase P), then do recon and write the spec and the DAG. Each node works in its own worktree: write a red test, review the red test, then fix. Gates run first, and review starts only once they are green. The model gets upgraded once only after two failed fixes for the same cause. The number of roles and the platform details differ: the Claude Code and omp versions have 10 roles, the OpenCode version has 5.
-- **Four omp extensions** (`plugins/omp-sidebar`, `plugins/omp-context`, `plugins/omp-plan-memory`, `plugins/omp-sound`), optional, for the omp version only. See Installation, omp.
+  All three share the same skeleton. They discuss the change with the user first (Phase P), then do recon and write the spec and the DAG. Each node works in its own worktree, test first. Gates run first, and review starts only once they are green. Each node gets one implementer dispatch and one independent reviewer, at most three rework rounds, and is `done` only after it is merged and gated again. A bug fix writes its reproduction first, and the orchestrator runs it on the unfixed code before the fix. Each version has 5 roles: recon, implementer, reviewer, qa, adversary.
+- **Three omp extensions** (`plugins/omp-sidebar`, `plugins/omp-context`, `plugins/omp-sound`), optional, for the omp version only. See Installation, omp.
 - **A Claude Code mod** (`plugins/claude-sounds`), optional: opencode's sounds for subagents, finished turns, permission prompts and questions, in the CLI and the desktop app's Code tab. Load it by adding `"CLAUDE_CODE_PLUGIN_DIRS": "<repo>/plugins/claude-sounds"` to `env` in `~/.claude/settings.json`; details in [`plugins/claude-sounds/README.md`](plugins/claude-sounds/README.md).
 - **Six OpenCode plugins** (`plugins/`). Claude Code needs none of them:
   - `context-keeper`: context management. It fixes the loss of project information, skill rules, and worktree progress after a long session compacts.
   - `pin`: the `pin_context` tool. The agent pins durable facts (worktree, deploy target, decisions) and removes them once they no longer hold.
   - `goal`: unattended goals. When the session stops, it sends a "continue" message until the goal is done or a human is needed.
   - `todo`: the `todowrite` / `todoread` tools. The orchestrating agent records the tasks that are running.
-  - `plan-memory`: reminders to read, write and tidy the board's project memory at the points the skill names.
   - `sidebar`: a TUI sidebar showing context usage, the goal, todos, running subagents, and git status.
 - **The board**: a macOS menu bar app (Swift) that stores the task graph in SQLite, plus an MCP server written in Go that agents use to read and write the board and project memory. All three packagings can connect to it, and all run without it.
-- **Two helper skills**: `skills/shuorenhua/` (rewrites Chinese text to remove AI tone, used when talking to the user in Phase P) and `skills/prompt-engineer/` (checks dispatch instructions before work is handed out). All three versions use them, and all run without them.
-- **An optional third-party skill for Phase P (Claude Code only)**: [`show-me`](https://github.com/charlie947/show-me), not carried in this repo. When it is installed, Phase P draws the change as before/after when restating it, and lays the architects' options out on one page to pick from. The written Discussion outcome and the user's explicit confirmation are still what count; a click on the page only picks an option. Without it, Phase P stays text.
+- **An optional third-party skill for Phase P (Claude Code only)**: [`show-me`](https://github.com/charlie947/show-me), not carried in this repo. When it is installed, Phase P draws the change as before/after when restating it, and lays the real options out on one page to pick from. The written outcome and the user's explicit confirmation are still what count; a click on the page only picks an option. Without it, Phase P stays text.
+- **Two helper skills**: `skills/shuorenhua/` (rewrites Chinese text to remove AI tone, used when talking to the user in Phase P) and `skills/prompt-engineer/` (reviews prompts and agent instructions). plan-sdd no longer loads either; they are standalone skills.
 
 ## Why Claude Code needs only a skill and OpenCode also needs a plugin
 
@@ -60,7 +59,7 @@ Usage is an estimate over the serialized request (a CJK character counts as one 
 
 Each time an orchestrating agent sends a request, the plugin also writes a `meter` to the state file: estimated usage, window, clearing levels already triggered, and how many outputs were cleared. The sidebar reads this for display.
 
-## pin, goal, todo, plan-memory, sidebar
+## pin, goal, todo, sidebar
 
 pin, goal and todo each add a short block of their own state as the last message of every request: `<pins>`, `<goal>`, `<todos>`. The block is added per request and never stored, so it survives compaction and clearing without being restored, and the cached prefix of the conversation is unaffected. Each plugin owns its own reminders and cleanup.
 
@@ -75,13 +74,6 @@ pin, goal and todo each add a short block of their own state as the last message
 While a background subagent is still running, it waits 30 minutes before continuing, because OpenCode wakes the session itself when the subagent finishes. When the user sends a new message, a waiting goal goes back to active. Until the goal is complete, every request carries a `<goal>` block with the objective and its status.
 
 **todo** (`plugins/todo/`). `todowrite` takes the whole list every time and `todoread` reads it back. Lists are stored per session in `~/.config/opencode/state/todos/`. The plan-sdd rules: once the DAG is confirmed, one item per task; mark it `in_progress` when dispatched, and a parallel batch can have several at once; mark it `completed` when `done`; if it disagrees with the plan document, the plan wins. Every request carries the open items in a `<todos>` block; if subagents were dispatched after the last `todowrite`, the block says how many and asks for an update.
-
-**plan-memory** (`plugins/plan-memory/plan-memory.js`). The skill already says when to read, write and tidy the board's project memory; in recorded runs the orchestrator nearly always read it, almost never filed what recon confirmed, and never tidied. This plugin watches board calls and, only while a reminder is due, adds a `<memory>` block:
-- read: a run is open and `plan_memory_list` has not been called since the previous run finished;
-- write: recon was dispatched and the task graph written, but nothing was filed with `plan_memory_add` (shown for 3 requests, since recon may have found nothing new);
-- tidy: 5 tasks reached `done`/`blocked` since memory was last listed, or the run moved to `review` (close-out).
-
-It only reminds; what to read, write or delete is still the skill's call.
 
 **sidebar** (`plugins/sidebar/`). Replaces OpenCode's built-in Context block (which has only three lines: token count, percentage, cost). Rendered with mock data it looks like this (36 columns wide):
 
@@ -261,12 +253,11 @@ Follow [`skills/claude-code/INSTALL.md`](skills/claude-code/INSTALL.md). The ess
 rm -rf ~/.claude/skills/plan-sdd
 mkdir -p ~/.claude/skills/plan-sdd
 cp -R skills/claude-code/. ~/.claude/skills/plan-sdd/
-cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
 ```
 
 Optionally, for the Phase P renders, copy `skills/show-me/SKILL.md` from [charlie947/show-me](https://github.com/charlie947/show-me) into `~/.claude/skills/show-me/`.
 
-Copy the 10 role files into the target project's `.claude/agents/`. If an older install put `spec-reviewer.md` there, delete it; it was renamed to `spec-auditor.md`. Which model each purpose uses is set in the "Model bindings" table in `skills/claude-code/roles.md`. It doesn't switch models automatically when quota runs short. The board is an optional step 4.
+Copy the 5 role files into the target project's `.claude/agents/`. If an older install is there, delete the retired roles (`recon-rules`, `recon-product`, `recon-code`, `ui-designer`, `spec-auditor`, `spec-reviewer`, `branch-reviewer`); INSTALL.md has the command. Which model each role uses is set in the "Roles and models" table in `skills/claude-code/SKILL.md`. It doesn't switch models automatically when quota runs short. The board is an optional step 3.
 
 Unattended runs: the skill can't start `/goal` by itself. It gives you a `/goal ...` line to type. It still runs if you don't, but it stops at the end of each turn and waits for you to say something. Claude Code needs none of the six plugins above.
 
@@ -293,17 +284,19 @@ Run these from the repository root.
 
    `agents/plan-sdd.md` is the orchestrating agent (`mode: primary`). Switch to it in the TUI before you start.
 
-2. The two skills it depends on:
+2. Optional standalone skills (plan-sdd does not load them):
 
    ```bash
    cp -R skills/shuorenhua skills/prompt-engineer ~/.config/opencode/skills/
    ```
 
+   If an older install is there, remove the retired role and the retired plan-memory plugin: `rm -f ~/.config/opencode/agents/spec-auditor.md ~/.config/opencode/plugins/plan-memory.js`.
+
 3. Plugins. The six are independent; install what you need. Without pin there is no `pin_context`, without goal there is no auto-continue, without todo there are no todos, and the matching sidebar blocks don't show:
 
    ```bash
    mkdir -p ~/.config/opencode/plugins
-   cp plugins/context-keeper/context-keeper.js plugins/pin/pin.js plugins/goal/goal.js plugins/plan-memory/plan-memory.js ~/.config/opencode/plugins/
+   cp plugins/context-keeper/context-keeper.js plugins/pin/pin.js plugins/goal/goal.js ~/.config/opencode/plugins/
    rm -rf ~/.config/opencode/plugins/todo ~/.config/opencode/plugins/sidebar
    mkdir -p ~/.config/opencode/plugins/todo ~/.config/opencode/plugins/sidebar
    cp plugins/todo/package.json plugins/todo/index.ts plugins/todo/store.ts ~/.config/opencode/plugins/todo/
@@ -356,13 +349,13 @@ Run these from the repository root.
    opencode debug agents
    ```
 
-   Confirm that `recon`, `implementer`, `qa`, `reviewer`, and `spec-auditor` are all there with `mode` set to `subagent`.
+   Confirm that `recon`, `implementer`, `qa`, `reviewer`, and `adversary` are all there with `mode` set to `subagent`.
 
 ### omp
 
 Follow [`skills/omp/INSTALL.md`](skills/omp/INSTALL.md); it also covers re-installs and checks. Tested against omp 18.11.1. Run these from the repository root.
 
-1. The skill and the 10 role files (omp reads agents from `~/.omp/agent/agents/`, not `.claude/agents/`). First install:
+1. The skill and the 5 role files (omp reads agents from `~/.omp/agent/agents/`, not `.claude/agents/`). First install:
 
    ```bash
    rm -rf ~/.omp/agent/skills/plan-sdd
@@ -401,10 +394,9 @@ Follow [`skills/omp/INSTALL.md`](skills/omp/INSTALL.md); it also covers re-insta
 3. Extensions, all optional. Each is a directory with `"omp": { "extensions": ["./index.ts"] }` in its `package.json`:
 
    ```bash
-   mkdir -p ~/.omp/agent/extensions/sidebar ~/.omp/agent/extensions/omp-context ~/.omp/agent/extensions/omp-plan-memory ~/.omp/agent/extensions/omp-sound
+   mkdir -p ~/.omp/agent/extensions/sidebar ~/.omp/agent/extensions/omp-context ~/.omp/agent/extensions/omp-sound
    rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-sidebar/ ~/.omp/agent/extensions/sidebar/
    rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-context/ ~/.omp/agent/extensions/omp-context/
-   rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-plan-memory/ ~/.omp/agent/extensions/omp-plan-memory/
    rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-sound/ ~/.omp/agent/extensions/omp-sound/
    ```
 
@@ -412,7 +404,7 @@ Follow [`skills/omp/INSTALL.md`](skills/omp/INSTALL.md); it also covers re-insta
 
    - `omp-sidebar`: a full-height right sidebar with context usage (per-category), running agents, jobs, Git / Worktree, Directory, Todo, Pins (from `context_notes`) and Goal. `/sidebar on|off|toggle|width <16-80>|focus|refresh|status`; `Alt+Shift+B` toggles it and `Alt+Shift+S` moves keyboard focus. Git, Worktree and Directory follow the checkout the agent is working in, with no manual step. For the mouse (wheel scrolls, click acts on a row) set `tui.mouse: true` in omp's config; omp then captures the mouse, so selecting text needs Shift+drag and scrolling the terminal's own scrollback needs Shift+wheel. In the terminal's own scrollback the sidebar column is blank; it only draws in the live screen. Details: [`plugins/omp-sidebar/README.md`](plugins/omp-sidebar/README.md).
    - `omp-context`: after a compaction or rollover it puts the user's recent words, the active plan and its status, loaded skills, and the git branch and worktrees back into context. Through `session.compacting` it also gives the summarizer requirements (`guidance.md` next to `index.ts`, or a built-in default), and in legacy compaction mode it nudges near the threshold. Details: [`plugins/omp-context/README.md`](plugins/omp-context/README.md).
-   - `omp-plan-memory`: the omp port of `plan-memory`: reminds the orchestrator to read, write and tidy the board's project memory. It needs the board server registered under the key `plan-sdd` (step 4). Details: [`plugins/omp-plan-memory/README.md`](plugins/omp-plan-memory/README.md).
+   - The plan-memory reminder extension is gone: the omp skill no longer uses the board's project memory, since omp has its own memory tools. If an older install left `~/.omp/agent/extensions/omp-plan-memory/`, remove it.
    - `omp-sound`: opencode's sounds (bundled, MIT) on macOS when a subagent starts, finishes or fails, when the main agent finishes, when it asks you a question, and when a tool waits for approval. `/sound on|off|test [key]|status`. Details: [`plugins/omp-sound/README.md`](plugins/omp-sound/README.md).
 
    Evolve tunes `guidance.md` from your own omp session journals. It replays compactions, scores how many bank facts the new summary keeps, and writes `guidance.md` only when the candidate beats the baseline on the train cases and does no worse on the holdout ones; otherwise it writes nothing and prints why. Copy `plugins/omp-context/evolve/questions.example.json` to `./questions.json` and edit it as the bank:
@@ -509,7 +501,6 @@ Plugin tests:
 sh plugins/context-keeper/test/run.sh
 sh plugins/pin/test/run.sh
 sh plugins/goal/test/run.sh
-sh plugins/plan-memory/test/run.sh
 (cd plugins/todo && bun test)
 (cd plugins/sidebar && bun install && bun test)
 ```
@@ -519,7 +510,6 @@ omp (bun; the sidebar needs its dev dependencies installed first):
 ```bash
 (cd plugins/omp-sidebar && bun install --frozen-lockfile && bun test)
 (cd plugins/omp-context && bun test)
-(cd plugins/omp-plan-memory && bun test)
 (cd plugins/omp-sound && bun test)
 claude plugin validate plugins/claude-sounds && claude plugin test plugins/claude-sounds
 bun test skills/omp/test/roles.test.ts
@@ -528,25 +518,23 @@ bun test skills/omp/test/skill.test.ts
 
 The omp extension tests drive a fake `pi` / `ctx` and temporary directories and never touch `~/.omp`; the `omp-context` run includes the evolve tests, which use a fake generator and never start `omp`.
 
-context-keeper, pin, goal and plan-memory run under node and write state to a temporary directory, without touching `~/.local/state`. The sidebar tests render the sidebar to text with mock data and need `bun install` first for the dev dependencies.
+context-keeper, pin and goal run under node and write state to a temporary directory, without touching `~/.local/state`. The sidebar tests render the sidebar to text with mock data and need `bun install` first for the dev dependencies.
 
 ## Layout
 
 | Directory | Contents |
 | --- | --- |
-| `skills/claude-code/` | Claude Code version: `SKILL.md` (platform bindings), `PLAYBOOK.md` (process), `roles.md`, 10 roles, references, `INSTALL.md` |
-| `skills/opencode/` | OpenCode version: `SKILL.md`, `ADAPT.md`, 5 roles, references |
-| `skills/omp/` | omp version: `SKILL.md`, `PLAYBOOK.md`, `roles.md`, 10 roles in `agents/`, `config.example.yml`, references, `INSTALL.md`, tests |
-| `skills/shuorenhua/`, `skills/prompt-engineer/` | Helper skills used by all three versions |
+| `skills/claude-code/` | Claude Code version: `SKILL.md` (platform bindings and models), `PLAYBOOK.md` (process), 5 roles in `agents/`, references, `INSTALL.md` |
+| `skills/opencode/` | OpenCode version: `SKILL.md` (bindings and the whole method), 5 roles and the orchestrator agent in `agents/`, references |
+| `skills/omp/` | omp version: `SKILL.md` (platform bindings and model aliases), `PLAYBOOK.md`, 5 roles in `agents/`, `config.example.yml`, references, `INSTALL.md`, tests |
+| `skills/shuorenhua/`, `skills/prompt-engineer/` | Standalone helper skills; plan-sdd no longer loads them |
 | `plugins/context-keeper/` | Context management plugin, compact audit script, tests |
 | `plugins/pin/` | `pin_context` plugin and tests |
 | `plugins/goal/` | Unattended goal plugin and tests |
-| `plugins/plan-memory/` | Project memory reminder plugin and tests |
 | `plugins/todo/` | todo tool plugin and tests |
 | `plugins/sidebar/` | TUI sidebar plugin and render tests |
 | `plugins/omp-sidebar/` | omp right sidebar extension and tests |
 | `plugins/omp-context/` | omp extension: restore after compaction, summary guidance; `evolve/` tunes the guidance; tests |
-| `plugins/omp-plan-memory/` | omp port of the project memory reminder, and tests |
 | `plugins/omp-sound/` | omp extension: sounds for subagents, finished runs and approvals, and tests |
 | `plugins/claude-sounds/` | Claude Code mod: the same opencode sounds, and tests |
 | `Sources/BoardKit` | Data model, DAG projection, SQLite storage, HTTP API; no third-party dependencies |

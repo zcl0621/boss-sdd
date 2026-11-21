@@ -5,23 +5,22 @@
 用 agent 把一个跨好几步的改动做完：先摸清项目，写出带依赖关系的任务图（DAG），然后按依赖顺序给每个节点派独立的实现者和审查者，最后整体复查、交付。本仓库包含：
 
 - **`plan-sdd` skill**，三份完全独立，互不引用，各自装各自的：
-  - `skills/claude-code/`：给 Claude Code 用。todo 和无人值守用 Claude Code 自带的任务列表和 `/goal`。
+  - `skills/claude-code/`：给 Claude Code 用。无人值守用 Claude Code 自带的 `/goal`。
   - `skills/opencode/`：给 OpenCode 2.x 用。todo 和无人值守靠下面的插件。
-  - `skills/omp/`：给 omp（oh-my-pi）18.x 用。角色是 omp agent，用 `task` 派发；todo 和 `/goal` 用 omp 自带的；每个角色用哪个模型由 `modelRoles` 决定。
+  - `skills/omp/`：给 omp（oh-my-pi）18.x 用。角色是 omp agent，用 `task` 派发；`/goal` 用 omp 自带的；每个角色用哪个模型由 `modelRoles` 决定。
 
-  三份的流程是同一套：先跟用户讨论（Phase P），再 recon、写 spec 和 DAG；每个节点在自己的 worktree 里先写红测试、审红测试、再修；gate 先跑，绿了才审查；同一个原因修两次不好才升级一次模型。角色数量和平台细节不同：Claude Code 版和 omp 版 10 个角色，OpenCode 版 5 个。
-- **四个 omp 扩展**（`plugins/omp-sidebar`、`plugins/omp-context`、`plugins/omp-plan-memory`、`plugins/omp-sound`），可选，只给 omp 版用。见 安装 一节的 omp。
+  三份的骨架相同：先跟用户讨论（Phase P），再 recon、写 spec 和 DAG；每个节点在自己的 worktree 里测试先行；gate 先跑，绿了才审查。每个节点派一次 implementer、一个独立的 reviewer，最多返工 3 轮，合并后重跑 gate 通过才算 `done`。修 bug 时先写复现测试，编排者在未修复的代码上亲自跑一遍，再修。三个版本都是 5 个角色：recon、implementer、reviewer、qa、adversary。
+- **三个 omp 扩展**（`plugins/omp-sidebar`、`plugins/omp-context`、`plugins/omp-sound`），可选，只给 omp 版用。见 安装 一节的 omp。
 - **一个 Claude Code mod**（`plugins/claude-sounds`），可选：在 CLI 和桌面版 Code 标签页里，用 opencode 的音效提示 subagent、一轮跑完、权限弹窗和提问。在 `~/.claude/settings.json` 的 `env` 里加 `"CLAUDE_CODE_PLUGIN_DIRS": "<仓库路径>/plugins/claude-sounds"` 就会加载，详见 [`plugins/claude-sounds/README.md`](plugins/claude-sounds/README.md)。
 - **六个 OpenCode 插件**（`plugins/`），Claude Code 都用不着：
   - `context-keeper`：上下文管理。解决长会话 compact 之后丢失项目信息、skill 规则、worktree 进度的问题。
   - `pin`：`pin_context` 工具。agent 把长期有用的事实（worktree、部署目标、决定）钉住，不再成立时自己删掉。
   - `goal`：无人值守目标。会话停下来时自动发一句"继续"，直到目标完成或者需要人。
   - `todo`：`todowrite` / `todoread` 工具。编排 agent 把正在跑的 task 写进去。
-  - `plan-memory`：在 skill 规定的时间点，提醒读、写、整理看板里的项目记忆。
   - `sidebar`：TUI 侧边栏，显示上下文用量、goal、todo、正在跑的子 agent、git 状态。
 - **看板**：一个 macOS 菜单栏 app（Swift），把任务图存进 SQLite；再加一个 Go 写的 MCP server，agent 通过它读写看板和项目记忆。三套包装都能接，不接也能跑。
-- **两个辅助 skill**：`skills/shuorenhua/`（中文去 AI 味改写，Phase P 跟用户说话时用）和 `skills/prompt-engineer/`（派活前检查派活指令）。三个版本都会用，没装也能跑。
-- **Phase P 可选的第三方 skill（只有 Claude Code 版用）**：[`show-me`](https://github.com/charlie947/show-me)，不在本仓库里。装了的话，Phase P 复述理解时把改前改后画出来，选方案时把架构师给的几种做法摆成一页让人挑。算数的仍然是文字版 Discussion outcome 和用户明确的确认，点页面只算挑了哪个方案。没装就照旧用文字。
+- **Phase P 可选的第三方 skill（只有 Claude Code 版用）**：[`show-me`](https://github.com/charlie947/show-me)，不在本仓库里。装了的话，Phase P 复述理解时把改前改后画出来，有真实的方案选择时把几种做法摆成一页让人挑。算数的仍然是文字版结论和用户明确的确认，点页面只算挑了哪个方案。没装就照旧用文字。
+- **两个辅助 skill**：`skills/shuorenhua/`（中文去 AI 味改写，Phase P 跟用户说话时用）和 `skills/prompt-engineer/`（审查提示词和 agent 指令）。plan-sdd 已经不再加载它们，它们是独立的 skill。
 
 ## 为什么 Claude Code 只要一个 skill，OpenCode 还要一个插件
 
@@ -61,7 +60,7 @@ OpenCode 2.0.23 不这样做。干活过程中学到的东西（开头读到的 
 
 另外每次编排 agent 发请求时，它往状态文件里写一份 `meter`：估算用量、窗口、已触发的清理档位、清掉了多少条输出。sidebar 读这个显示。
 
-## pin、goal、todo、plan-memory、sidebar
+## pin、goal、todo、sidebar
 
 pin、goal、todo 三个插件各自在每次请求的最后附一小块自己的状态：`<pins>`、`<goal>`、`<todos>`。这块只在发请求时临时附上，不写进历史，所以压缩和分批清理都丢不掉它，也不用恢复，对话前缀的缓存不受影响。提醒和清理也由各插件自己负责。
 
@@ -76,13 +75,6 @@ pin、goal、todo 三个插件各自在每次请求的最后附一小块自己�
 还有后台子 agent 在跑时，等 30 分钟再续，因为子 agent 跑完 OpenCode 会自己唤醒会话。用户发新消息，waiting 的 goal 会变回 active。goal 没完成之前，每次请求都带一个 `<goal>` 块，写着目标和当前状态。
 
 **todo**（`plugins/todo/`）。`todowrite` 每次传整份列表，`todoread` 读回来，按会话存在 `~/.config/opencode/state/todos/`。plan-sdd 的规则是：DAG 确认后每个 task 一项；派出去就标 `in_progress`，并行的一批可以同时有几项；`done` 了标 `completed`；和 plan 文档对不上时以 plan 为准。每次请求都带一个 `<todos>` 块，列出没完成的项；如果在最后一次 `todowrite` 之后又派了子 agent，块里会写明派了几个，并提醒更新列表。
-
-**plan-memory**（`plugins/plan-memory/plan-memory.js`）。skill 里已经写了什么时候读、写、整理看板的项目记忆；但从实验记录看，编排者几乎每次都会读，却几乎从不把 recon 核实过的事实存进去，也从没整理过。这个插件盯着看板调用，只在该提醒的时候附一个 `<memory>` 块：
-- 读：有正在进行的 run，而上一个 run 结束以后还没调过 `plan_memory_list`；
-- 写：派过 recon、任务图也写好了，但一条 `plan_memory_add` 都没有（只提醒 3 次，因为 recon 也可能没查到新东西）；
-- 整理：上次读 memory 之后，累计 5 个任务变成 `done`/`blocked`，或者 run 进入 `review`（收尾）。
-
-它只负责提醒，读什么、写什么、删什么还是按 skill 来。
 
 **sidebar**（`plugins/sidebar/`）。替换 OpenCode 自带的 Context 区块（那个只有 token 数、百分比、花费三行）。用 mock 数据渲染出来是这样（36 列宽）：
 
@@ -262,12 +254,11 @@ python3 -I plugins/context-keeper/compaction-audit.py --last 30
 rm -rf ~/.claude/skills/plan-sdd
 mkdir -p ~/.claude/skills/plan-sdd
 cp -R skills/claude-code/. ~/.claude/skills/plan-sdd/
-cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
 ```
 
 想让 Phase P 出图的话，再把 [charlie947/show-me](https://github.com/charlie947/show-me) 里的 `skills/show-me/SKILL.md` 拷到 `~/.claude/skills/show-me/`，这一步可选。
 
-10 个角色文件拷到目标项目的 `.claude/agents/`。旧版装过 `spec-reviewer.md` 的要删掉，它改名成了 `spec-auditor.md`。每个用途用哪个模型，写在 `skills/claude-code/roles.md` 的 "Model bindings" 表里；额度不够时不会自动换模型。看板是可选的第 4 步。
+5 个角色文件拷到目标项目的 `.claude/agents/`。装过旧版的要删掉已经退役的角色（`recon-rules`、`recon-product`、`recon-code`、`ui-designer`、`spec-auditor`、`spec-reviewer`、`branch-reviewer`），命令在 INSTALL.md 里。每个角色用哪个模型，写在 `skills/claude-code/SKILL.md` 的 "Roles and models" 表里；额度不够时不会自动换模型。看板是可选的第 3 步。
 
 无人值守：skill 不能自己开 `/goal`，它会给你一行 `/goal ...` 让你输入。不输入也能跑，但一轮结束就停，要你说话才继续。上面六个插件 Claude Code 都不需要。
 
@@ -294,17 +285,19 @@ cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
 
    `agents/plan-sdd.md` 是编排 agent（`mode: primary`），在 TUI 里切到它再开始。
 
-2. 依赖的两个 skill：
+2. 可选的独立 skill（plan-sdd 不加载它们）：
 
    ```bash
    cp -R skills/shuorenhua skills/prompt-engineer ~/.config/opencode/skills/
    ```
 
+   装过旧版的，把退役的角色和 plan-memory 插件删掉：`rm -f ~/.config/opencode/agents/spec-auditor.md ~/.config/opencode/plugins/plan-memory.js`。
+
 3. 插件。六个互相独立，按需装；不装 pin 就没有 `pin_context`，不装 goal 就没有自动续跑，不装 todo 就没有 todo，sidebar 对应的区块不显示：
 
    ```bash
    mkdir -p ~/.config/opencode/plugins
-   cp plugins/context-keeper/context-keeper.js plugins/pin/pin.js plugins/goal/goal.js plugins/plan-memory/plan-memory.js ~/.config/opencode/plugins/
+   cp plugins/context-keeper/context-keeper.js plugins/pin/pin.js plugins/goal/goal.js ~/.config/opencode/plugins/
    rm -rf ~/.config/opencode/plugins/todo ~/.config/opencode/plugins/sidebar
    mkdir -p ~/.config/opencode/plugins/todo ~/.config/opencode/plugins/sidebar
    cp plugins/todo/package.json plugins/todo/index.ts plugins/todo/store.ts ~/.config/opencode/plugins/todo/
@@ -357,13 +350,13 @@ cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
    opencode debug agents
    ```
 
-   确认 `recon`、`implementer`、`qa`、`reviewer`、`spec-auditor` 都在，`mode` 是 `subagent`。
+   确认 `recon`、`implementer`、`qa`、`reviewer`、`adversary` 都在，`mode` 是 `subagent`。
 
 ### omp
 
 照着 [`skills/omp/INSTALL.md`](skills/omp/INSTALL.md) 做，重装和检查也在里面。测试对象是 omp 18.11.1。以下命令都在仓库根目录跑。
 
-1. skill 和 10 个角色文件（omp 从 `~/.omp/agent/agents/` 读 agent，不读 `.claude/agents/`）。首次安装：
+1. skill 和 5 个角色文件（omp 从 `~/.omp/agent/agents/` 读 agent，不读 `.claude/agents/`）。首次安装：
 
    ```bash
    rm -rf ~/.omp/agent/skills/plan-sdd
@@ -402,10 +395,9 @@ cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
 3. 扩展，都是可选的。每个都是一个目录，`package.json` 里有 `"omp": { "extensions": ["./index.ts"] }`：
 
    ```bash
-   mkdir -p ~/.omp/agent/extensions/sidebar ~/.omp/agent/extensions/omp-context ~/.omp/agent/extensions/omp-plan-memory ~/.omp/agent/extensions/omp-sound
+   mkdir -p ~/.omp/agent/extensions/sidebar ~/.omp/agent/extensions/omp-context ~/.omp/agent/extensions/omp-sound
    rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-sidebar/ ~/.omp/agent/extensions/sidebar/
    rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-context/ ~/.omp/agent/extensions/omp-context/
-   rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-plan-memory/ ~/.omp/agent/extensions/omp-plan-memory/
    rsync -a --exclude node_modules --exclude '*.test.ts' --exclude bun.lock --exclude .gitignore plugins/omp-sound/ ~/.omp/agent/extensions/omp-sound/
    ```
 
@@ -413,7 +405,7 @@ cp -R skills/shuorenhua skills/prompt-engineer ~/.claude/skills/
 
    - `omp-sidebar`：全高的右侧侧边栏，显示上下文用量（分类）、正在跑的 agent、job、Git / Worktree、Directory、Todo、Pins（来自 `context_notes`）和 Goal。命令 `/sidebar on|off|toggle|width <16-80>|focus|refresh|status`；`Alt+Shift+B` 开关，`Alt+Shift+S` 切换键盘焦点。Git、Worktree 和 Directory 自动跟着 agent 正在干活的 checkout 走，不用手动切。要用鼠标（滚轮滚动、点击执行行上的动作），在 omp 配置里设 `tui.mouse: true`；这样 omp 会接管鼠标，选文字要按住 Shift 拖，滚终端自己的回滚区要 Shift+滚轮。终端自己的回滚区里，侧边栏那一列是空白的；它只在当前实时屏幕上画。详见 [`plugins/omp-sidebar/README.md`](plugins/omp-sidebar/README.md)。
    - `omp-context`：compact 或 rollover 之后，把用户最近的原话、当前 plan 和它的状态、已加载的 skill、git 分支和 worktree 放回上下文。它还通过 `session.compacting` 给摘要器提要求（`index.ts` 旁边的 `guidance.md`，没有就用内置默认），在旧 compact 模式下接近阈值时提醒。详见 [`plugins/omp-context/README.md`](plugins/omp-context/README.md)。
-   - `omp-plan-memory`：`plan-memory` 的 omp 版：提醒编排者读、写、整理看板里的项目记忆。它要求看板 server 以 `plan-sdd` 为 key 注册（第 4 步）。详见 [`plugins/omp-plan-memory/README.md`](plugins/omp-plan-memory/README.md)。
+   - 项目记忆提醒扩展已经删除：omp 版 skill 不再用看板里的项目记忆，omp 有自己的记忆工具。旧版装过的，把 `~/.omp/agent/extensions/omp-plan-memory/` 删掉。
    - `omp-sound`：用 opencode 的音效（已打包，MIT）在 macOS 上提示：subagent 开始、完成、失败，主 agent 跑完，向你提问，工具等你批准时各响一声。命令 `/sound on|off|test [key]|status`。详见 [`plugins/omp-sound/README.md`](plugins/omp-sound/README.md)。
 
    evolve 用你自己的 omp 会话记录调 `guidance.md`。它重放 compact，数新摘要保住了题库里多少条事实，只有候选在训练用例上胜过基线、且在留出用例上不更差时才写 `guidance.md`；否则什么都不写，并打印原因。把 `plugins/omp-context/evolve/questions.example.json` 复制成 `./questions.json` 再改，当题库用：
@@ -510,7 +502,6 @@ app 会拒绝两种任务写入：依赖没完成就把任务设成 `running`；
 sh plugins/context-keeper/test/run.sh
 sh plugins/pin/test/run.sh
 sh plugins/goal/test/run.sh
-sh plugins/plan-memory/test/run.sh
 (cd plugins/todo && bun test)
 (cd plugins/sidebar && bun install && bun test)
 ```
@@ -520,7 +511,6 @@ omp 的（用 bun；侧边栏要先装开发依赖）：
 ```bash
 (cd plugins/omp-sidebar && bun install --frozen-lockfile && bun test)
 (cd plugins/omp-context && bun test)
-(cd plugins/omp-plan-memory && bun test)
 (cd plugins/omp-sound && bun test)
 claude plugin validate plugins/claude-sounds && claude plugin test plugins/claude-sounds
 bun test skills/omp/test/roles.test.ts
@@ -529,25 +519,23 @@ bun test skills/omp/test/skill.test.ts
 
 omp 扩展的测试用假的 `pi` / `ctx` 和临时目录，不碰 `~/.omp`；`omp-context` 的测试里包含 evolve 的测试，它用假的生成器，不会启动 `omp`。
 
-context-keeper、pin、goal 和 plan-memory 用 node 跑，状态写到临时目录，不碰 `~/.local/state`。sidebar 的测试用 mock 数据把侧边栏渲染成文本，需要先 `bun install` 装开发依赖。
+context-keeper、pin 和 goal 用 node 跑，状态写到临时目录，不碰 `~/.local/state`。sidebar 的测试用 mock 数据把侧边栏渲染成文本，需要先 `bun install` 装开发依赖。
 
 ## 目录
 
 | 目录 | 内容 |
 | --- | --- |
-| `skills/claude-code/` | Claude Code 版：`SKILL.md`（平台绑定）、`PLAYBOOK.md`（流程）、`roles.md`、10 个角色、references、`INSTALL.md` |
-| `skills/opencode/` | OpenCode 版：`SKILL.md`、`ADAPT.md`、5 个角色、references |
-| `skills/omp/` | omp 版：`SKILL.md`、`PLAYBOOK.md`、`roles.md`、`agents/` 里 10 个角色、`config.example.yml`、references、`INSTALL.md`、测试 |
-| `skills/shuorenhua/`、`skills/prompt-engineer/` | 三个版本都会用的辅助 skill |
+| `skills/claude-code/` | Claude Code 版：`SKILL.md`（平台绑定和模型）、`PLAYBOOK.md`（流程）、`agents/` 里 5 个角色、references、`INSTALL.md` |
+| `skills/opencode/` | OpenCode 版：`SKILL.md`（平台绑定和完整流程）、`agents/` 里 5 个角色和编排 agent、references |
+| `skills/omp/` | omp 版：`SKILL.md`（平台绑定和模型别名）、`PLAYBOOK.md`、`agents/` 里 5 个角色、`config.example.yml`、references、`INSTALL.md`、测试 |
+| `skills/shuorenhua/`、`skills/prompt-engineer/` | 独立的辅助 skill，plan-sdd 已不再加载 |
 | `plugins/context-keeper/` | 上下文管理插件、compact 审计脚本、测试 |
 | `plugins/pin/` | `pin_context` 插件和测试 |
 | `plugins/goal/` | 无人值守目标插件和测试 |
-| `plugins/plan-memory/` | 项目记忆提醒插件和测试 |
 | `plugins/todo/` | todo 工具插件和测试 |
 | `plugins/sidebar/` | TUI 侧边栏插件和渲染测试 |
 | `plugins/omp-sidebar/` | omp 右侧侧边栏扩展和测试 |
 | `plugins/omp-context/` | omp 扩展：compact 之后恢复、摘要要求；`evolve/` 调这份要求；测试 |
-| `plugins/omp-plan-memory/` | 项目记忆提醒的 omp 版和测试 |
 | `plugins/omp-sound/` | omp 扩展：subagent、跑完、等批准时的提示音，和测试 |
 | `plugins/claude-sounds/` | Claude Code mod：同一套 opencode 音效，和测试 |
 | `Sources/BoardKit` | 数据模型、DAG 投影、SQLite 存储、HTTP API，无第三方依赖 |
