@@ -19,8 +19,7 @@
 // Delivery: pi.sendMessage is NOT used. Even "nextTurn" waits for the next user prompt (session/agent-session.ts:8897-8899,
 //   drained :8018-8022), and "aside" at a post-turn compaction (isIdle() false inside agent_end) can wake an unrequested
 //   model turn just to deliver a hidden message (#resumeStrandedIrcAsides, agent-session.ts:1202-1317). Instead the
-//   restore block and the nudge are added, as ONE synthetic user message, to every `context` request (the way
-//   plugins/omp-plan-memory does). Nothing is persisted and no turn is triggered.
+//   restore block and the nudge are added, as ONE synthetic user message, to every `context` request. Nothing is persisted and no turn is triggered.
 // Placement (anchorIndex): right after a compactionSummary found among the LEADING custom (and synthetic user) messages;
 //   otherwise right after the EARLIEST USER TURN: the first non-synthetic user message or user-attributed `skill-prompt`
 //   custom message, whichever comes first; otherwise nothing. Never at the tail, never at index 0.
@@ -92,7 +91,6 @@ const SKILL_PROMPT = "skill-prompt";
 /** A user-invoked /skill:<name> message (omp's isUserInvokedSkillPrompt, tui/src/chat/messages.ts:273-275). */
 const isUserSkillPrompt = (m: any): boolean => m?.role === "custom" && m.customType === SKILL_PROMPT && m.attribution === "user";
 
-// Same body as anchorIndex in plugins/omp-plan-memory/index.ts; keep the two identical.
 /** Index of the message the block goes right after, or -1 for none (see Placement in the header). */
 function anchorIndex(messages: any[]): number {
   const isSyntheticUser = (m: any): boolean => m?.role === "user" && m.synthetic === true;

@@ -22,7 +22,7 @@ a child cannot launch children.
 Fresh child, result needed now (foreground, default):
 
 ```text
-subagent { agent: "recon", description: "Survey repo", prompt: "<READY brief>", model: "<resolved>" }
+subagent { agent: "recon", description: "Survey repo", prompt: "<brief>", model: "<resolved>" }
 ```
 
 The tool result is the finished reply. There is no `sessionID` to wait on.
@@ -55,7 +55,7 @@ subagent { agent: "implementer", description: "T1 follow-up", sessionID: "ses_�
 Behavior, observed:
 
 - **Child finished:** the child continues the same conversation with full prior
-  context. This is Form A rework. Omit `model`.
+  context. This is how a node is sent back for rework. Omit `model`.
 - **Child still running:** the call does **not** start a second child and does
   not error. The prompt is enqueued as a `steer` message in that session's
   inbox. The child reads it at its next step boundary, which is after its
@@ -70,12 +70,9 @@ Behavior, observed:
 
 Use steering for: a new fact the child lacks, a scope correction, a
 cancellation ("stop, the task is withdrawn"), or a clarified acceptance line.
-Send only the delta. Do not restate the context bundle; the child has it. If the
-steer would change goal, acceptance, write scope, or a hard rule, that is a
-`BLOCK` in the preflight, not a message.
-
-Run the dispatch-brief preflight on the steer text exactly as for any other
-child prompt.
+Send only the delta. Do not restate the brief; the child has it. A steer never
+changes the goal, the acceptance, the write scope or a hard rule: that is a
+plan change, not a message.
 
 To confirm a steer was delivered (optional):
 
@@ -93,8 +90,7 @@ Default answer: **yes until a completion message arrives.** Do not check on a
 timer. Silence for a few minutes is normal for an implementer.
 
 Check only when one of these is true: the user asks; a child has been silent far
-longer than its task warrants and you are about to declare it lost or start
-Form B; or you are about to steer and need to know whether it is running or
+longer than its task warrants and you are about to declare it lost; or you are about to steer and need to know whether it is running or
 finished.
 
 The one allowed check is a single read-only call through the shell tool:
@@ -110,7 +106,7 @@ Result: `{"data":{"ses_…":{"type":"running"}, …}}`. Read it as follows:
 | Present, `running` | Alive. Keep waiting. Do not re-check in the same turn |
 | Absent, completion message already delivered | Finished. Consume the return |
 | Absent, no completion message seen | Finished or stopped without delivery. Read the last message (below) before deciding |
-| Absent, and the OpenCode process restarted | Lost. The active list is per process. Use Form B with the current diff |
+| Absent, and the OpenCode process restarted | Lost. The active list is per process. Dispatch a fresh child with the full brief and the current diff |
 
 The list contains every running session of this OpenCode process, including your
 own parent session and other users of the process. Filter by your roster only.
@@ -148,7 +144,7 @@ after calling it. Interrupt only when the
 child is doing something wrong now (writing outside scope, runaway command).
 Record the reason on the node. After an interrupt, treat the child's last
 output as partial: read the diff, run the gates, and send a corrective message
-(Form A) or start Form B.
+or dispatch a fresh child.
 
 ## 5. Roster rules
 
@@ -160,7 +156,7 @@ completion message or from an explicit check above, never from a guess.
 - A steered child produces one completion message covering all steers. Do not
   wait for a second one per steer.
 - Before steering, a finished child and a running child need different
-  handling: finished means rework (Form A, gates, review); running means a delta
-  only.
+  handling: finished means rework (then your diff read, gates, review); running
+  means a delta only.
 - If a child that you steered completes without reflecting the steer, treat the
-  steer as undelivered, verify with the inbox call, and re-send as Form A.
+  steer as undelivered, verify with the inbox call, and send it again.

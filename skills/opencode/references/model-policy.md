@@ -1,8 +1,7 @@
 # Model policy
 
 `~/.config/opencode/model-policy.json` maps each dispatch purpose to exactly one
-concrete model. SKILL.md says when it is read (once per run) and what blocks.
-This file is its schema. An example sits next to it:
+concrete model. An example sits next to this file:
 [model-policy.example.json](model-policy.example.json).
 
 ## Fields
@@ -18,39 +17,37 @@ profiles         object. Profile name -> { purpose, level, model }.
 bindings         object. Binding name -> profile name.
 ```
 
-There is no fallback or exception table: a quota error never switches models
-(SKILL.md "Quota").
-
 ## Bindings the skill uses
 
 | Binding | Dispatch |
 | --- | --- |
-| `explore.research` | Phase P explorers, explicit research waves |
-| `general.architect` | Phase P architects |
-| `explore.post_commit_scan` | the project's post-commit scans; memory source checks |
-| `recon.default` | Phase 0 recon |
-| `implementer.default` | ordinary implementation and rework |
-| `implementer.high_complexity` | `[complexity: high]` tasks |
-| `implementer.obstacle_escalation` | the one escalated repair of an obstacle episode |
+| `recon.default` | the phase 0 survey |
+| `implementer.default` | implementation and rework |
+| `reviewer.default` | node review and branch review |
 | `qa.default` | runtime walkthrough |
-| `reviewer.default` | quality, branch and adversary lanes |
-| `spec_auditor.default` | red-test and post-repair spec audits |
-| `human.max` | only when the user explicitly names it |
+| `adversary.default` | the adversarial pass in phase 3 |
 
-A binding the run needs but the file does not define is `BLOCK` for that
-dispatch, not a reason to borrow another binding's model.
+A binding the run needs but the file does not define stops that dispatch. It is
+not a reason to borrow another binding's model.
 
 ## Resolution, once per run
 
-1. Parse the file. A parse error or a binding that names an unknown profile is
-   `BLOCK`.
-2. For each binding this run will use, take its profile's `model` and check it
-   once with `tools.opencode.models` inside `execute`: the base id must be
-   listed, and a `#variant` must be one the tool reports for it.
-3. Write `Model policy: v<policy_version>, validated <date>` into the plan's
-   Status header. Later dispatches use the recorded resolution.
-4. Re-validate only when the user changes a model, the file's `policy_version`
-   changes, or a dispatch fails on its model.
+1. Parse the file. A parse error, or a binding that names an unknown profile,
+   stops the run before the first dispatch.
+2. For each binding, take its profile's `model` and check it once with
+   `tools.opencode.models({ provider, query, all: true, limit })` inside
+   `execute`: the base id must be listed, and a `#variant` must be one the tool
+   reports for it. `models` missing from your direct tool list is expected and
+   is not grounds to skip the check.
+3. Write `model policy v<policy_version>, validated <date>` into the plan's
+   header. Later dispatches use that resolution.
+4. Validate again only when the user changes a model, `policy_version` changes,
+   or a dispatch fails on its model.
 
-If the file does not exist, write `Model policy: absent` and dispatch without
-`model`; each child then runs on its agent file's model, or the orchestrator's.
+If the file does not exist, write `model policy absent` and dispatch without
+`model`; each child then runs on the orchestrator's model.
+
+There is no fallback table. A quota error never switches models: record the
+binding, the model and the provider's error text in the plan, and stop for the
+user. An ordinary rate limit, timeout or 5xx is not a quota error and is
+retried or handled as a failed round.

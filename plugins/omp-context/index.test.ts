@@ -2096,17 +2096,4 @@ describe("review fixes (2026-10-16)", () => {
     await emit("session_compact", legacyCompaction("c1"), ctx);
     expect(sent).toHaveLength(3);
   });
-
-  test("anchorIndex is the same source in omp-context and omp-plan-memory", () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const body = (file: string) => {
-      const src = require("node:fs").readFileSync(file, "utf8") as string;
-      const start = src.indexOf("function anchorIndex(");
-      expect(start).toBeGreaterThanOrEqual(0);
-      const end = src.indexOf("\n}\n", start);
-      // The two files differ only in semicolon style; compare the logic.
-      return src.slice(start, end).replace(/;$/gm, "").replace(/\s+/g, " ").trim();
-    };
-    expect(body(join(here, "../omp-plan-memory/index.ts"))).toBe(body(join(here, "index.ts")));
-  });
 });

@@ -173,7 +173,8 @@ describe("omp-specific content", () => {
   });
   test("the skill no longer uses project memory, and INSTALL.md says so", () => {
     has("references/board.md", ["plan_memory_", "does not use"]);
-    has("INSTALL.md", ["plugins/omp-plan-memory", "Do not install it"]);
+    has("INSTALL.md", ["extensions/omp-plan-memory", "remove that directory"]);
+    expect(existsSync(join(REPO, "plugins/omp-plan-memory"))).toBe(false);
   });
 });
 

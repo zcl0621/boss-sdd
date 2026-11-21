@@ -138,10 +138,10 @@ Without `jq`, edit the file by hand to the same result, or run omp's
 - `plugins/omp-context`: restores the working set after a compaction or
   rollover.
 
-Each README has its install steps. `plugins/omp-plan-memory` reminds the
-orchestrator to use the board's project memory, which this version of the skill
-no longer does. Do not install it with this version, and remove it if an older
-install put it in `~/.omp/agent/extensions/`.
+Each README has its install steps. An older install may have left a
+plan-memory reminder extension in `~/.omp/agent/extensions/omp-plan-memory/`.
+This skill no longer uses the board's project memory (omp has its own memory
+tools), so remove that directory.
 
 ## 6. Check
 

@@ -59,6 +59,10 @@ the node's gate commands, verbatim; you run these, it does not
 `<scratch_dir>` is `<repo>-worktrees/scratch/<task id>/`, one per node, so two
 nodes running at once cannot overwrite each other's files.
 
+Save each brief as `bundle.md` in the node's scratch directory before the first
+dispatch. A fresh re-dispatch reads it back, and so does a session that lost
+the brief to a compaction.
+
 Fill every path. An implementer left to infer `<working_directory>` infers the
 repository root, which is the user's tree: the one mistake here that damages
 something outside the run.
